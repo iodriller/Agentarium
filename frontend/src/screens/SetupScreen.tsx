@@ -1,6 +1,84 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { api } from '../api/client'
+import type { LaunchConfig, ValidationResult } from '../api/types'
+import { ToolsLaunchColumn } from '../components/setup/ToolsLaunchColumn'
 import { TopBar } from '../components/shared/TopBar'
 
+// Sensible defaults for the full config
+const DEFAULT_CONFIG: Partial<LaunchConfig> = {
+  scenario: { preset: 'bridge_builder', objective: '', reward: '' },
+  world: { template: 'island_cliff_small', engine: 'pymunk2d' },
+  agents: { mode: 'single', participants: [] },
+  tools: { enabled: [] },
+  constraints: {
+    max_parts: 300,
+    max_joints: 120,
+    energy_budget: 1200,
+    max_attempts: 50,
+    simulation_duration_seconds: 180,
+    material_budget: 2000,
+    collision_safety: 'strict',
+    world_bounds: 'enforced',
+    repair_loop_enabled: true,
+  },
+  outputs: {
+    replay_json: true,
+    scorecard_json: true,
+    trace_jsonl: true,
+    markdown_report: false,
+    screenshot: false,
+    video_capture: false,
+  },
+}
+
 export function SetupScreen() {
+  const [config, setConfig] = useState<Partial<LaunchConfig>>(DEFAULT_CONFIG)
+  const [validationResult, setValidationResult] = useState<ValidationResult | null>(null)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Merged config change handler
+  const handleConfigChange = useCallback((patch: Partial<LaunchConfig>) => {
+    setConfig((prev) => ({
+      ...prev,
+      ...patch,
+      // Deep-merge nested objects so partial patches don't clobber sibling keys
+      ...(patch.tools !== undefined
+        ? { tools: { ...prev.tools, ...patch.tools } }
+        : {}),
+      ...(patch.constraints !== undefined
+        ? { constraints: { ...prev.constraints, ...patch.constraints } }
+        : {}),
+      ...(patch.outputs !== undefined
+        ? { outputs: { ...prev.outputs, ...patch.outputs } }
+        : {}),
+    }))
+  }, [])
+
+  // Debounced validation
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => {
+      runValidation(config)
+    }, 400)
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+  }, [config])
+
+  async function runValidation(cfg: Partial<LaunchConfig>) {
+    try {
+      const result = await api.post<ValidationResult>('/setup/validate', cfg)
+      setValidationResult(result)
+    } catch {
+      // Validation endpoint may not be reachable in dev; ignore
+    }
+  }
+
+  function handleValidateNow() {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    runValidation(config)
+  }
+
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <TopBar projectName="Bridge Builder Lab" />
@@ -58,7 +136,12 @@ export function SetupScreen() {
         {/* Column 3 — Tools, Constraints & Launch */}
         <div style={{ padding: 16, overflowY: 'auto' }}>
           <ColumnHeader number={3} title="Tools, Constraints & Launch" />
-          <Placeholder label="Tool categories, constraint sliders, launch summary & button" />
+          <ToolsLaunchColumn
+            config={config}
+            onConfigChange={handleConfigChange}
+            validationResult={validationResult}
+            onValidateNow={handleValidateNow}
+          />
         </div>
       </div>
     </div>
@@ -102,7 +185,15 @@ function ColumnHeader({
       >
         {number}
       </span>
-      <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-1)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+      <span
+        style={{
+          fontSize: 12,
+          fontWeight: 600,
+          color: 'var(--text-1)',
+          textTransform: 'uppercase',
+          letterSpacing: '0.5px',
+        }}
+      >
         {title}
       </span>
       {badge && (
