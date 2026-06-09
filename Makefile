@@ -10,10 +10,10 @@ test:
 	uv run pytest
 
 lint:
-	uv run ruff check backend/
+	uv run ruff check .
 
 fmt:
-	uv run ruff format backend/
+	uv run ruff format .
 
 web:
 	cd frontend && npm run dev
