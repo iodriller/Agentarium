@@ -26,6 +26,7 @@ packages = ["backend/agentarium"]
 [tool.ruff]
 line-length = 100
 src = ["backend"]
+exclude = ["backend/agentarium/static"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
