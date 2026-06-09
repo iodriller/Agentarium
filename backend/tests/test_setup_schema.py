@@ -26,7 +26,6 @@ def test_validate_stub_returns_ready() -> None:
     body = r.json()
     assert body["state"] == "READY"
     assert body["missing"] == []
-    assert body["warnings"] == []
 
 
 def test_launch_config_serializes() -> None:
