@@ -98,6 +98,13 @@ provider so tests need no network; keep simulations short (≤ ~2s sim time).
 - Work on the designated feature branch; never push to `main` directly.
 - Commit per step with a descriptive message; end the body with the session URL line.
 - Do **not** create or merge PRs unless explicitly asked.
+- **PRs here are squash-merged**, which puts a brand-new commit on `main` that shares no
+  history with the feature branch. So **immediately after a PR merges, re-sync the branch
+  to main before doing more work**:
+  `git fetch origin main && git checkout <branch> && git reset --hard origin/main && git push --force-with-lease`.
+  Skipping this makes the branch look "ahead" with already-merged commits and the next PR
+  hits phantom merge conflicts. Confirm content parity first with
+  `git diff <branch> origin/main` (should be empty before resetting).
 
 ## Operational notes
 
