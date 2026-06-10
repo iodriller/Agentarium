@@ -4,10 +4,12 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from agentarium.core.schemas.design import DesignSpec
+from agentarium.core.schemas.score import ScoreCard
 from agentarium.core.schemas.setup import WorldConfig
 from agentarium.core.schemas.trace import EpisodeTrace
 from agentarium.services.run_service import (
     create_run_from_design,
+    get_score,
     get_trace,
     hardcoded_demo_design,
 )
@@ -44,3 +46,11 @@ async def get_run_trace(run_id: str) -> EpisodeTrace:
     if trace is None:
         raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
     return trace
+
+
+@router.get("/{run_id}/score", response_model=ScoreCard)
+async def get_run_score(run_id: str) -> ScoreCard:
+    score = get_score(run_id)
+    if score is None:
+        raise HTTPException(status_code=404, detail=f"Score not found: {run_id}")
+    return score

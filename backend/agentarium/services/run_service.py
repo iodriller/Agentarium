@@ -10,12 +10,17 @@ from agentarium.core.schemas.design import (
     JointSpec,
     JointType,
 )
+from agentarium.core.schemas.score import ScoreCard
 from agentarium.core.schemas.setup import WorldConfig
 from agentarium.core.schemas.trace import EpisodeTrace
 from agentarium.engines import get_engine
+from agentarium.services.scoring_service import score_attempt
 
 # In-memory store of run traces (SQLite persistence comes later).
 RUNS: dict[str, EpisodeTrace] = {}
+
+# In-memory store of scorecards, keyed by run_id (same key as RUNS).
+SCORES: dict[str, ScoreCard] = {}
 
 # Run artifacts directory (gitignored), relative to cwd.
 _RUNS_DIR = pathlib.Path("runs")
@@ -91,6 +96,11 @@ def create_run_from_design(
 
     RUNS[run_id] = trace
 
+    # Compute and store a baseline ScoreCard so every run has a fetchable
+    # score. The runner may overwrite this with a reward-specific score.
+
+    SCORES[run_id] = score_attempt(trace, design, "default")
+
     # Persist trace.json to runs/{run_id}/trace.json.
     run_dir = _RUNS_DIR / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -104,3 +114,13 @@ def create_run_from_design(
 def get_trace(run_id: str) -> EpisodeTrace | None:
     """Return the stored trace for ``run_id``, or None if missing."""
     return RUNS.get(run_id)
+
+
+def store_score(run_id: str, score: ScoreCard) -> None:
+    """Store ``score`` for ``run_id`` so it can be fetched later."""
+    SCORES[run_id] = score
+
+
+def get_score(run_id: str) -> ScoreCard | None:
+    """Return the stored ScoreCard for ``run_id``, or None if missing."""
+    return SCORES.get(run_id)
