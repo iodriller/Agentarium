@@ -1,0 +1,17 @@
+id: sorter
+name: Sorter
+tagline: Sort objects into correct bins.
+tags:
+  - Logic
+  - Organization
+objective: Sort balls into the matching bins.
+reward: sorting_accuracy
+default_world: sorting_table
+required_tools:
+  - create_body
+  - add_ramp
+  - add_bin
+  - run_simulation
+recommended_tools:
+  - add_ball
+  - set_material

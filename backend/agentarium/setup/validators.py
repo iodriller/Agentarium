@@ -9,6 +9,7 @@ from agentarium.core.schemas.setup import (
     PhysicsEngine,
     ValidationResult,
 )
+from agentarium.services.preset_service import get_scenario_preset
 
 
 async def validate_launch_config(config: LaunchConfig) -> ValidationResult:
@@ -40,9 +41,24 @@ async def validate_launch_config(config: LaunchConfig) -> ValidationResult:
     if config.world.engine == PhysicsEngine.pybullet3d:
         return ValidationResult(state=LaunchState.unsupported_engine, missing=missing, warnings=warnings)
 
-    # --- 3. TOOL_CHALLENGE_MISMATCH (warning only) ---
+    # --- 3. TOOL_CHALLENGE_MISMATCH ---
     if not config.tools.enabled:
         warnings.append("No tools enabled — agent will not be able to build anything.")
+
+    preset = get_scenario_preset(config.scenario.preset)
+    if preset is not None:
+        enabled_tools = set(config.tools.enabled)
+        for required_tool in preset.required_tools:
+            if required_tool not in enabled_tools:
+                missing.append(
+                    f"Challenge '{config.scenario.preset}' requires tool: {required_tool}"
+                )
+        if missing:
+            return ValidationResult(
+                state=LaunchState.tool_challenge_mismatch,
+                missing=missing,
+                warnings=warnings,
+            )
 
     # --- 4. LLM_OFFLINE check ---
     providers_to_probe = {LLMProvider.localdeploy, LLMProvider.openai_compatible}

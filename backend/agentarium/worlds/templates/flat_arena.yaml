@@ -1,0 +1,9 @@
+id: flat_arena
+name: Flat Arena
+terrain: grassland
+map_size:
+  - 24
+  - 24
+gravity: -9.81
+active_physics_zones: 1
+description: A flat, open arena ideal for early experiments.
