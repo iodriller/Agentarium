@@ -8,6 +8,49 @@ Give an agent a challenge, a world, a physics engine, and a set of explicit tool
 Prompt → setup → tools → design → simulation → replay → score → next attempt
 ```
 
+## Run it (one command)
+
+You don't need to install Python, set up a virtualenv, or install Node. One
+command does everything and opens the app in your browser.
+
+**macOS / Linux**
+
+```bash
+./run.sh
+```
+
+**Windows (PowerShell)**
+
+```powershell
+./run.ps1
+```
+
+That's it — the launcher installs [`uv`](https://docs.astral.sh/uv/) if needed
+(which manages Python for you), installs dependencies, and starts Agentarium at
+**http://localhost:8765**. A prebuilt web UI ships with the repo, so **Node is
+not required**.
+
+> First run downloads dependencies and takes a minute or two; after that it
+> starts in seconds. To stop the server, press `Ctrl+C`.
+
+<details>
+<summary>Prefer to run things yourself? (the manual route)</summary>
+
+```bash
+uv sync --all-groups                 # install Python + deps
+uv run agentarium serve --open       # start the server, open the browser
+```
+
+To rebuild the web UI (only needed if you change the frontend; requires Node 18+):
+
+```bash
+cd frontend && npm install && npm run build
+```
+
+`make run`, `make serve`, `make ui`, `make test`, and `make lint` wrap the same
+commands.
+</details>
+
 ## Planned MVP
 
 Agentarium is currently in planning / bootstrap mode. The MVP is designed around two main screens:

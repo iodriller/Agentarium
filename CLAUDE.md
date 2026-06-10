@@ -14,9 +14,12 @@ Reference these rather than re-deriving the plan.
 ## Commands (run from repo root `/home/user/Agentarium`)
 
 - Install: `uv sync --all-groups`
+- One-command launch (end users): `./run.sh` (macOS/Linux) or `./run.ps1` (Windows) —
+  installs uv, syncs deps, builds the UI if missing, serves, and opens the browser.
 - Lint: `uv run ruff check .`
 - Test: `uv run pytest`
-- Backend server: `uv run agentarium serve` (127.0.0.1:8765)
+- Backend server: `uv run agentarium serve` (127.0.0.1:8765; `--open` opens a browser,
+  `--no-reload` for a clean non-dev run)
 - Frontend build: `cd frontend && npm run build`
 - Frontend dev: `cd frontend && npm run dev` (5173, proxies /api + /ws to 8765)
 
@@ -72,7 +75,11 @@ provider so tests need no network; keep simulations short (≤ ~2s sim time).
   `challenges`.
 - `frontend/src/` — `screens` (Setup, Studio), `components/setup`, `components/studio`,
   `phaser` (iso renderer), `api` (client + types).
-- `runs/` and `backend/agentarium/static/` are generated — gitignored, never commit.
+- `runs/` is generated — gitignored, never commit.
+- `backend/agentarium/static/` is the built web UI. It is **intentionally committed** so
+  the app runs with no Node step (see `run.sh`). When you change the frontend, rebuild
+  (`cd frontend && npm run build`) and commit the regenerated bundle in the same change.
+  `uv.lock` is committed too, for deterministic installs.
 
 ## Conventions
 
