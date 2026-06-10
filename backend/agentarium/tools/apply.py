@@ -32,8 +32,11 @@ class ToolCallResult(BaseModel):
 def _validate_args(args: dict, schema: dict) -> str | None:
     """Lightweight JSON-Schema validation.
 
-    Returns an error string on failure, or None if the args are valid.
-    Only checks ``required`` keys and the ``type`` of declared ``properties``.
+    Returns an error string on failure, or None if the args are valid. Checks
+    ``required`` keys, property ``type``/``enum``, numeric ``minimum``/``maximum``
+    and finiteness, and array ``minItems``/``maxItems`` with numeric item bounds.
+    Agent args are untrusted and feed the physics engine, so out-of-range or
+    non-finite numbers (which can crash pymunk) must be rejected here.
     """
     if not isinstance(args, dict):
         return "args must be an object"
@@ -67,8 +70,27 @@ def _validate_args(args: dict, schema: dict) -> str | None:
             return f"field '{key}' must be of type {expected}"
         if not isinstance(value, py_type):
             return f"field '{key}' must be of type {expected}"
+        if expected in ("number", "integer"):
+            if not math.isfinite(value):
+                return f"field '{key}' must be a finite number"
+            if "minimum" in prop and value < prop["minimum"]:
+                return f"field '{key}' must be >= {prop['minimum']}"
+            if "maximum" in prop and value > prop["maximum"]:
+                return f"field '{key}' must be <= {prop['maximum']}"
         if expected == "string" and prop.get("enum") and value not in prop["enum"]:
             return f"field '{key}' must be one of {prop['enum']}"
+        if expected == "array":
+            if "minItems" in prop and len(value) < prop["minItems"]:
+                return f"field '{key}' must have at least {prop['minItems']} items"
+            if "maxItems" in prop and len(value) > prop["maxItems"]:
+                return f"field '{key}' must have at most {prop['maxItems']} items"
+            items = prop.get("items")
+            if items and items.get("type") in ("number", "integer"):
+                for item in value:
+                    if isinstance(item, bool) or not isinstance(item, (int, float)):
+                        return f"field '{key}' items must be numbers"
+                    if not math.isfinite(item):
+                        return f"field '{key}' items must be finite numbers"
     return None
 
 

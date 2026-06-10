@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import pymunk
 
 from agentarium.core.schemas.design import BodyShape, BodySpec, DesignSpec, JointSpec, JointType
@@ -8,15 +10,23 @@ from agentarium.core.schemas.setup import WorldConfig
 # Identifier used for the auto-generated static ground segment.
 GROUND_ID = "__ground__"
 
+# Pymunk requires dynamic bodies to have mass > 0 and moment > 0, and degenerate
+# (zero-size) shapes either raise or produce NaN once stepped. Agent tool args are
+# untrusted, so clamp mass and every dimension to small positive minimums before
+# they reach pymunk. This keeps a pathological design (mass 0, radius 0, zero-size
+# box) from crashing the whole run.
+_MIN_MASS = 1e-3
+_MIN_DIM = 1e-2
+
 
 def _make_shape(body: pymunk.Body, spec: BodySpec) -> pymunk.Shape:
     """Create the pymunk shape matching a BodySpec, attached to ``body``."""
     size = spec.size or [0.5, 0.5]
     if spec.shape == BodyShape.circle:
-        radius = size[0] if size else 0.5
+        radius = max(size[0] if size else 0.5, _MIN_DIM)
         shape: pymunk.Shape = pymunk.Circle(body, radius)
     elif spec.shape == BodyShape.segment:
-        length = size[0] if size else 1.0
+        length = max(size[0] if size else 1.0, _MIN_DIM)
         half = length / 2.0
         shape = pymunk.Segment(body, (-half, 0.0), (half, 0.0), radius=0.05)
     elif spec.shape == BodyShape.polygon:
@@ -26,12 +36,12 @@ def _make_shape(body: pymunk.Body, spec: BodySpec) -> pymunk.Shape:
             verts = [(size[i], size[i + 1]) for i in range(0, len(size), 2)]
             shape = pymunk.Poly(body, verts)
         else:
-            w = size[0] if len(size) > 0 else 0.5
-            h = size[1] if len(size) > 1 else 0.5
+            w = max(size[0] if len(size) > 0 else 0.5, _MIN_DIM)
+            h = max(size[1] if len(size) > 1 else 0.5, _MIN_DIM)
             shape = pymunk.Poly.create_box(body, (w, h))
     else:  # box (default)
-        w = size[0] if len(size) > 0 else 0.5
-        h = size[1] if len(size) > 1 else 0.5
+        w = max(size[0] if len(size) > 0 else 0.5, _MIN_DIM)
+        h = max(size[1] if len(size) > 1 else 0.5, _MIN_DIM)
         shape = pymunk.Poly.create_box(body, (w, h))
     shape.friction = spec.friction
     shape.elasticity = spec.elasticity
@@ -40,24 +50,32 @@ def _make_shape(body: pymunk.Body, spec: BodySpec) -> pymunk.Shape:
 
 def _moment(spec: BodySpec) -> float:
     size = spec.size or [0.5, 0.5]
+    mass = max(spec.mass, _MIN_MASS)
     if spec.shape == BodyShape.circle:
-        radius = size[0] if size else 0.5
-        return pymunk.moment_for_circle(spec.mass, 0.0, radius)
+        radius = max(size[0] if size else 0.5, _MIN_DIM)
+        return pymunk.moment_for_circle(mass, 0.0, radius)
     if spec.shape == BodyShape.segment:
-        length = size[0] if size else 1.0
+        length = max(size[0] if size else 1.0, _MIN_DIM)
         half = length / 2.0
-        return pymunk.moment_for_segment(spec.mass, (-half, 0.0), (half, 0.0), 0.05)
-    w = size[0] if len(size) > 0 else 0.5
-    h = size[1] if len(size) > 1 else 0.5
-    return pymunk.moment_for_box(spec.mass, (w, h))
+        return pymunk.moment_for_segment(mass, (-half, 0.0), (half, 0.0), 0.05)
+    w = max(size[0] if len(size) > 0 else 0.5, _MIN_DIM)
+    h = max(size[1] if len(size) > 1 else 0.5, _MIN_DIM)
+    return pymunk.moment_for_box(mass, (w, h))
 
 
 def _make_body(spec: BodySpec) -> pymunk.Body:
     if spec.static:
         body = pymunk.Body(body_type=pymunk.Body.STATIC)
     else:
-        body = pymunk.Body(spec.mass, _moment(spec))
-    body.position = (spec.position[0], spec.position[1])
+        # Clamp mass/moment to positive minimums (see _MIN_MASS): pymunk asserts
+        # dynamic bodies have mass > 0 and moment > 0, and agent args are untrusted.
+        body = pymunk.Body(max(spec.mass, _MIN_MASS), max(_moment(spec), _MIN_MASS))
+    # Defensive: a malformed position (wrong length / non-finite) must not crash.
+    px = spec.position[0] if len(spec.position) > 0 else 0.0
+    py = spec.position[1] if len(spec.position) > 1 else 0.0
+    px = px if math.isfinite(px) else 0.0
+    py = py if math.isfinite(py) else 0.0
+    body.position = (px, py)
     return body
 
 
@@ -118,10 +136,7 @@ def build_space(
     for spec in design.bodies:
         body = _make_body(spec)
         shape = _make_shape(body, spec)
-        if spec.static:
-            space.add(body, shape)
-        else:
-            space.add(body, shape)
+        space.add(body, shape)
         bodies[spec.id] = body
 
     for joint in design.joints:

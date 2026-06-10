@@ -177,6 +177,8 @@ export function StudioScreen() {
         case 'run_finished':
           if (event.winner_agent_id) setWinnerAgentId(event.winner_agent_id)
           if (event.best_attempt_index >= 0) setBestAttemptIndex(event.best_attempt_index)
+          // One-click winner replay: surface the best attempt's trace at run end.
+          if (event.best_trace_run_id) void loadTrace(event.best_trace_run_id)
           setRunStatus('finished')
           break
         case 'error':
@@ -207,6 +209,12 @@ export function StudioScreen() {
 
     ws.onerror = () => {
       if (!cancelled) setStatus('error')
+    }
+
+    ws.onclose = () => {
+      // If the socket drops without a clean run_finished (server crash, proxy
+      // timeout), leave the "running" state so the UI doesn't hang on "Building…".
+      if (!cancelled) setRunStatus((s) => (s === 'running' ? 'finished' : s))
     }
 
     return () => {
@@ -445,7 +453,11 @@ export function StudioScreen() {
           <AttemptHistory
             attempts={activeAttempts}
             traceByIndex={activeTraceByIndex}
-            bestAttemptIndex={bestAttemptIndex}
+            bestAttemptIndex={
+              // Attempt indices are per-agent and overlap; only mark the best on
+              // the agent it belongs to (the winner in competitive mode).
+              !winnerAgentId || activeAgentId === winnerAgentId ? bestAttemptIndex : null
+            }
             onReplay={(id) => void replayTraceRunId(id)}
           />
           <ToolCallLog records={toolLog} onClear={() => setToolLog([])} />

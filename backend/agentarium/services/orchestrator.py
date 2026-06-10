@@ -89,6 +89,10 @@ class _RunState:
         self.events: list[dict] = []
         self.subscribers: set[asyncio.Queue[dict]] = set()
         self.finished: bool = False
+        # Strong reference to the background task. asyncio only keeps a weak
+        # reference, so without this the run could be garbage-collected
+        # mid-execution. Cleared in _run's finally.
+        self.task: asyncio.Task[None] | None = None
 
 
 class RunManager:
@@ -102,7 +106,9 @@ class RunManager:
     # ── Event plumbing ────────────────────────────────────────────────────
 
     def _emit(self, run_id: str, event: dict) -> None:
-        state = self._runs[run_id]
+        state = self._runs.get(run_id)
+        if state is None:
+            return
         state.events.append(event)
         for queue in list(state.subscribers):
             queue.put_nowait(event)
@@ -119,8 +125,10 @@ class RunManager:
 
     async def create_run(self, config: LaunchConfig) -> str:
         run_id = uuid.uuid4().hex
-        self._runs[run_id] = _RunState()
-        asyncio.create_task(self._run(run_id, config))
+        state = _RunState()
+        self._runs[run_id] = state
+        # Retain a strong reference so the task isn't GC'd mid-run.
+        state.task = asyncio.create_task(self._run(run_id, config))
         return run_id
 
     async def subscribe(self, run_id: str) -> AsyncIterator[dict]:
@@ -168,7 +176,9 @@ class RunManager:
                 },
             )
         finally:
-            self._runs[run_id].finished = True
+            state = self._runs.get(run_id)
+            if state is not None:
+                state.finished = True
 
     async def _run_inner(self, run_id: str, config: LaunchConfig) -> None:
         objective = config.scenario.objective or config.scenario.preset
@@ -176,6 +186,13 @@ class RunManager:
         participants = list(config.agents.participants)
         if not participants:
             raise ValueError("config.agents.participants is empty")
+
+        # Report the cap actually used for this mode so the UI's attempt count
+        # matches reality (competitive/cooperative use smaller caps than single).
+        mode_cap = {
+            CollaborationMode.competitive: COMPETITIVE_ATTEMPTS_CAP,
+            CollaborationMode.cooperative: COOPERATIVE_ATTEMPTS_CAP,
+        }.get(config.agents.mode, MAX_ATTEMPTS_CAP)
 
         self._emit(
             run_id,
@@ -185,7 +202,7 @@ class RunManager:
                 "project_name": config.project_name,
                 "mode": config.agents.mode.value,
                 "objective": objective,
-                "max_attempts": min(config.constraints.max_attempts, MAX_ATTEMPTS_CAP),
+                "max_attempts": min(config.constraints.max_attempts, mode_cap),
                 "agents": [
                     {"id": a.id, "name": a.name, "role": a.role.value}
                     for a in participants

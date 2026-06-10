@@ -21,8 +21,16 @@ _TOOLS: list[ToolDefinition] = [
                     "description": "Geometry type of the body",
                 },
                 "length": {"type": "number", "description": "Length (for segment/box shapes)"},
-                "radius": {"type": "number", "description": "Radius (for circle shape)"},
-                "mass": {"type": "number", "description": "Mass of the body in kg"},
+                "radius": {
+                    "type": "number",
+                    "minimum": 0.001,
+                    "description": "Radius (for circle shape)",
+                },
+                "mass": {
+                    "type": "number",
+                    "minimum": 0.001,
+                    "description": "Mass of the body in kg",
+                },
                 "position": {
                     "type": "array",
                     "items": {"type": "number"},
@@ -153,8 +161,16 @@ _TOOLS: list[ToolDefinition] = [
                     "maxItems": 2,
                     "description": "Initial [x, y] position",
                 },
-                "radius": {"type": "number", "description": "Ball radius"},
-                "mass": {"type": "number", "description": "Mass of the ball in kg"},
+                "radius": {
+                    "type": "number",
+                    "minimum": 0.001,
+                    "description": "Ball radius",
+                },
+                "mass": {
+                    "type": "number",
+                    "minimum": 0.001,
+                    "description": "Mass of the ball in kg",
+                },
             },
         },
     ),
