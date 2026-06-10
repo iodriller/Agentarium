@@ -26,9 +26,9 @@ MVP) · 🔵 **Product decision** (needs a call before building).
 | H4 | orchestrator | `asyncio.create_task` result discarded → task can be GC'd mid-run (asyncio holds only a weak ref). | ✅ Fixed: the task is retained on `_RunState.task`. |
 | H7 | validators | Participant id/name only checked for multi-agent, and the error message indexed by the (possibly blank) id; `mode != "single"` compared enum to a raw string. | ✅ Fixed: validate every participant by list index; compare against `CollaborationMode.single`. |
 | H-fe | studio WS | No `ws.onclose` → an abnormal socket drop left the UI stuck on "Building…" forever. | ✅ Fixed: `onclose` leaves the `running` state. |
-| H3 | run_service / orchestrator | **Unbounded in-memory growth** — `RUNS`, `SCORES`, `_runs`, and per-run event buffers are never evicted. Fine for short sessions; a long-lived server leaks/OOMs. | 🟡 Deferred: needs an LRU/TTL bound or the planned SQLite persistence. Low risk for MVP/demo. |
+| H3 | run_service / orchestrator | **Unbounded in-memory growth** — `RUNS`, `SCORES`, `DESIGNS`, `_runs`, and per-run event buffers are never evicted. Fine for short sessions; a long-lived server leaks/OOMs. | ✅ Fixed: `run_service` evicts oldest runs across all three stores together (cap 200); the orchestrator evicts oldest *finished* runs (cap 100), never in-flight ones. |
 | H5 | agents/manual | `ManualProvider.complete()` raises `NotImplementedError`; nothing validates against launching a `manual` participant → generic 500-ish run error. | 🔵 Product: manual mode needs a UI-driven design path; until then the validator should reject `manual` with a clear message. |
-| H6 | runner (coop) | Cooperative id-namespacing (`{agent}_{id}`) rewrites references to *existing* ids from a prior agent, so genuine cross-agent joints get rejected as "body not present". Works for the mock (no cross-refs) but blocks the feature it enables. | 🟡 Deferred: namespace only an agent's *own newly-created* ids; resolve refs against the live id set. Doesn't affect current mock-based runs. |
+| H6 | runner (coop) | Cooperative id-namespacing (`{agent}_{id}`) rewrites references to *existing* ids from a prior agent, so genuine cross-agent joints get rejected as "body not present". Works for the mock (no cross-refs) but blocks the feature it enables. | ✅ Fixed: `_remap_ids` namespaces only an agent's *own newly-created* ids (tracked per turn) and leaves cross-agent references to already-live ids intact, so cooperative joints resolve. |
 
 ## Medium (edge-case bugs / brittleness)
 
@@ -58,7 +58,7 @@ MVP) · 🔵 **Product decision** (needs a call before building).
 | L4 | `sorting_accuracy` / `city_score` rewards are stability/part-count proxies, not real scoring. | 🟡 Deferred to Step 24 (challenge pack). |
 | L6 | WS breaks on `error` before delivering the following `run_finished`. | 🟡 Deferred (minor protocol nit; client now also handles `onclose`). |
 | L7 | `_parse_tool_calls` duplicated in `runner.py` and `openai_compatible.py` with slightly different logic. | 🟡 Deferred: consolidate. |
-| L-fe | Stubbed UI with live backends: **Save Preset** (`POST /setup/save-preset` exists), Export Design/Video, Fullscreen; `ReplayTimeline` hardcodes "Attempt 001" + decorative thumbnails; dead demo-fallback effect (no `/studio` route without `:runId`). | 🟡 Deferred: wire Save Preset (cheap win) and remove dead code. |
+| L-fe | Stubbed UI with live backends: ~~Save Preset~~, ~~Export Design~~, Export Video, Fullscreen; `ReplayTimeline` hardcodes "Attempt 001" + decorative thumbnails; dead demo-fallback effect (no `/studio` route without `:runId`). | 🟡 Partly fixed: **Save Preset** now POSTs to `/setup/save-preset`; **Export Design / View Full Report** wired (Step 25). Export Video, Fullscreen, ReplayTimeline labels still deferred. |
 
 ## Test gaps closed
 

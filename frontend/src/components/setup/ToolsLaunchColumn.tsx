@@ -40,6 +40,7 @@ interface ToolsLaunchColumnProps {
   validationResult: ValidationResult | null
   onValidateNow: () => void
   onLaunch: () => void
+  onSavePreset: () => void
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -393,6 +394,7 @@ export function ToolsLaunchColumn({
   validationResult,
   onValidateNow,
   onLaunch,
+  onSavePreset,
 }: ToolsLaunchColumnProps) {
   // ── Tools state ──
   const [toolsData, setToolsData] = useState<ToolsResponse | null>(null)
@@ -833,7 +835,7 @@ export function ToolsLaunchColumn({
           Validate Setup
         </button>
         <button
-          onClick={() => alert('Coming soon')}
+          onClick={onSavePreset}
           style={{
             flex: 1,
             padding: '7px 12px',

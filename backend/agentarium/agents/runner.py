@@ -237,30 +237,39 @@ async def run_agent_attempt(
     )
 
 
-# Tool-call arg keys that reference a BODY/JOINT id which belongs to the SAME
-# agent's contribution and therefore must be remapped when we namespace ids.
-_BODY_ID_ARGS = ("id",)
-_BODY_REF_ARGS = ("body_a", "body_b", "body_id")
-_JOINT_ID_ARGS = ("id",)  # add_joint's own id
-_JOINT_REF_ARGS = ("joint_id",)
+# Tools whose ``id`` arg names a NEW body/joint that becomes referenceable.
+_OWN_ID_TOOLS = frozenset(
+    {"create_body", "add_ball", "add_beam", "add_ramp", "add_bin", "add_joint"}
+)
+# Arg keys that REFERENCE an existing body/joint id.
+_REF_ID_ARGS = ("body_a", "body_b", "body_id", "joint_id")
 
 
-def _namespace_args(agent_id: str, tool: str, args: dict) -> dict:
-    """Prefix this agent's own body/joint ids with ``{agent_id}_``.
+def _remap_ids(agent_id: str, tool: str, args: dict, created: dict[str, str]) -> dict:
+    """Namespace an agent's OWN newly-created ids; leave cross-agent refs intact.
 
     The mock provider (and any naive agent) returns identical ids for every
-    agent (e.g. ``create_body id="b1"``). In cooperative mode both agents write
+    agent (e.g. ``create_body id="b1"``). In cooperative mode all agents write
     into ONE shared design, so without namespacing the second agent's parts
-    would be rejected as duplicates and that agent would own nothing. We rewrite
-    each agent's own ids and any reference to its own ids so its contribution is
-    distinct and self-consistent. References resolve within the agent's own
-    calls because every agent namespaces with the same prefix.
+    would collide and be rejected. We prefix each agent's *own* created ids with
+    ``{agent_id}_`` and record them in ``created`` (original → namespaced).
+
+    References are only remapped when they point at an id THIS agent just
+    created. A reference to anything else is left untouched so a genuine
+    cross-agent joint (referencing a prior agent's already-live, namespaced id)
+    resolves instead of being rewritten into a non-existent id.
     """
     new_args = dict(args)
-    for key in (*_BODY_ID_ARGS, *_BODY_REF_ARGS, *_JOINT_REF_ARGS):
+    if tool in _OWN_ID_TOOLS:
+        orig = new_args.get("id")
+        if isinstance(orig, str):
+            namespaced = f"{agent_id}_{orig}"
+            new_args["id"] = namespaced
+            created[orig] = namespaced
+    for key in _REF_ID_ARGS:
         value = new_args.get(key)
-        if isinstance(value, str) and not value.startswith(f"{agent_id}_"):
-            new_args[key] = f"{agent_id}_{value}"
+        if isinstance(value, str) and value in created:
+            new_args[key] = created[value]
     return new_args
 
 
@@ -324,9 +333,12 @@ async def run_cooperative_attempt(
             temperature=agent.temperature,
         )
 
+        # Per-turn map of this agent's original id → namespaced id, so its own
+        # references remap while cross-agent references stay intact.
+        created: dict[str, str] = {}
         for call in _parse_tool_calls(raw):
             tool = call.get("tool", "")
-            args = _namespace_args(agent.id, tool, call.get("args", {}) or {})
+            args = _remap_ids(agent.id, tool, call.get("args", {}) or {}, created)
             result = apply_tool_call(
                 design,
                 agent_id=agent.id,

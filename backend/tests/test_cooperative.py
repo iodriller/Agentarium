@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from agentarium.agents.runner import run_cooperative_attempt
+from agentarium.agents.runner import _remap_ids, run_cooperative_attempt
 from agentarium.core.schemas.setup import (
     AgentConfig,
     AgentsConfig,
@@ -123,3 +123,42 @@ def test_cooperative_attempt_ownership():
         assert result.score is not None
 
     asyncio.run(scenario())
+
+
+def test_remap_namespaces_own_created_ids():
+    """An agent's own created body id is namespaced; its own self-reference too."""
+    created: dict[str, str] = {}
+    a = _remap_ids("agent_b", "create_body", {"id": "b1", "shape": "box"}, created)
+    assert a["id"] == "agent_b_b1"
+    assert created == {"b1": "agent_b_b1"}
+
+    # A joint that references the agent's OWN freshly-created body remaps it.
+    j = _remap_ids(
+        "agent_b",
+        "add_joint",
+        {"id": "j1", "body_a": "b1", "body_b": "b2", "type": "pivot"},
+        created,
+    )
+    assert j["id"] == "agent_b_j1"
+    assert j["body_a"] == "agent_b_b1"  # own body → namespaced
+    assert j["body_b"] == "b2"  # not created by this agent → left intact
+
+
+def test_remap_preserves_cross_agent_reference():
+    """A reference to another agent's already-live id is left untouched.
+
+    This is the H6 fix: cross-agent joints must resolve against the live design
+    rather than being rewritten into a non-existent namespaced id.
+    """
+    created: dict[str, str] = {}
+    # agent_b references agent_a's already-namespaced body in a joint.
+    j = _remap_ids(
+        "agent_b",
+        "add_joint",
+        {"id": "j1", "body_a": "agent_a_base", "body_b": "agent_b_arm", "type": "pin"},
+        created,
+    )
+    assert j["id"] == "agent_b_j1"
+    # Neither ref was created by agent_b this turn, so both stay as written.
+    assert j["body_a"] == "agent_a_base"
+    assert j["body_b"] == "agent_b_arm"

@@ -36,6 +36,11 @@ COMPETITIVE_ATTEMPTS_CAP = 2
 # so cap the number of shared attempts small for MVP responsiveness.
 COOPERATIVE_ATTEMPTS_CAP = 2
 
+# Bound how many runs (with their buffered event history) we retain in memory.
+# Only finished runs are evicted, oldest first, so an in-flight run is never
+# dropped. Keeps a long-lived server from growing without limit.
+MAX_RETAINED_RUNS = 100
+
 
 def _design_summary(design: DesignSpec) -> dict:
     """Approximate part categories from a DesignSpec.
@@ -127,9 +132,20 @@ class RunManager:
         run_id = uuid.uuid4().hex
         state = _RunState()
         self._runs[run_id] = state
+        self._evict_finished_runs()
         # Retain a strong reference so the task isn't GC'd mid-run.
         state.task = asyncio.create_task(self._run(run_id, config))
         return run_id
+
+    def _evict_finished_runs(self) -> None:
+        """Drop the oldest FINISHED runs once over the cap (never in-flight ones)."""
+        while len(self._runs) > MAX_RETAINED_RUNS:
+            oldest_finished = next(
+                (rid for rid, st in self._runs.items() if st.finished), None
+            )
+            if oldest_finished is None:
+                break  # all remaining runs are still in-flight
+            self._runs.pop(oldest_finished, None)
 
     async def subscribe(self, run_id: str) -> AsyncIterator[dict]:
         state = self._runs.get(run_id)
