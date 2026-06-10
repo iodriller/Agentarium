@@ -11,6 +11,7 @@ from agentarium.api.routes_presets import router as presets_router
 from agentarium.api.routes_runs import router as runs_router
 from agentarium.api.routes_setup import router as setup_router
 from agentarium.api.routes_tools import router as tools_router
+from agentarium.api.routes_ws import router as ws_router
 
 app = FastAPI(title="Agentarium", version=__version__)
 
@@ -19,6 +20,7 @@ app.include_router(tools_router)
 app.include_router(presets_router)
 app.include_router(agents_router)
 app.include_router(runs_router)
+app.include_router(ws_router)
 
 app.add_middleware(
     CORSMiddleware,

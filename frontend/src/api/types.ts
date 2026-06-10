@@ -210,3 +210,107 @@ export interface EpisodeTrace {
 export interface CreateRunResponse {
   run_id: string
 }
+
+export interface LaunchResponse {
+  run_id: string
+}
+
+// ─── Score / tool-call (mirrors backend score.py / toolcall.py) ────────────────
+
+export type ToolCallStatus = 'success' | 'repaired' | 'rejected'
+
+export interface ToolCallRecord {
+  ts: number
+  agent_id: string
+  tool: string
+  args: Record<string, unknown>
+  status: ToolCallStatus
+  error?: string | null
+}
+
+export interface ScoreCard {
+  score_total: number
+  success: boolean
+  metrics: Record<string, number>
+  failure_events: Record<string, unknown>[]
+  summary: string
+  reward: string
+}
+
+export interface DesignSummary {
+  bodies: number
+  joints: number
+  motors: number
+  sensors: number
+  beams: number
+  ramps: number
+  total_parts: number
+}
+
+// ─── Live run events (mirrors backend orchestrator event protocol) ─────────────
+
+export interface RunStartedEvent {
+  type: 'run_started'
+  run_id: string
+  project_name: string
+  mode: string
+  objective: string
+  max_attempts: number
+}
+
+export interface AttemptStartedEvent {
+  type: 'attempt_started'
+  attempt_index: number
+}
+
+export interface ToolCallEvent {
+  type: 'tool_call'
+  attempt_index: number
+  record: ToolCallRecord
+}
+
+export interface DesignUpdateEvent {
+  type: 'design_update'
+  attempt_index: number
+  agent_id: string
+  summary: DesignSummary
+}
+
+export interface TraceReadyEvent {
+  type: 'trace_ready'
+  attempt_index: number
+  trace_run_id: string
+}
+
+export interface ScoreEvent {
+  type: 'score'
+  attempt_index: number
+  scorecard: ScoreCard
+}
+
+export interface AttemptFinishedEvent {
+  type: 'attempt_finished'
+  attempt_index: number
+}
+
+export interface RunFinishedEvent {
+  type: 'run_finished'
+  best_attempt_index: number
+  best_score: number
+}
+
+export interface ErrorEvent {
+  type: 'error'
+  detail: string
+}
+
+export type RunEvent =
+  | RunStartedEvent
+  | AttemptStartedEvent
+  | ToolCallEvent
+  | DesignUpdateEvent
+  | TraceReadyEvent
+  | ScoreEvent
+  | AttemptFinishedEvent
+  | RunFinishedEvent
+  | ErrorEvent

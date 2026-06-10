@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
-import type { LaunchConfig, ValidationResult } from '../api/types'
+import type { LaunchConfig, LaunchResponse, ValidationResult } from '../api/types'
 import { AgentLLMColumn } from '../components/setup/AgentLLMColumn'
 import { ScenarioWorldColumn } from '../components/setup/ScenarioWorldColumn'
 import { ToolsLaunchColumn } from '../components/setup/ToolsLaunchColumn'
@@ -52,8 +53,10 @@ const DEFAULT_CONFIG: Partial<LaunchConfig> = {
 }
 
 export function SetupScreen() {
+  const navigate = useNavigate()
   const [config, setConfig] = useState<Partial<LaunchConfig>>(DEFAULT_CONFIG)
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null)
+  const [launching, setLaunching] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Merged config change handler
@@ -110,6 +113,18 @@ export function SetupScreen() {
   function handleValidateNow() {
     if (debounceRef.current) clearTimeout(debounceRef.current)
     runValidation(config)
+  }
+
+  async function handleLaunch() {
+    if (launching) return
+    setLaunching(true)
+    try {
+      const { run_id } = await api.post<LaunchResponse>('/setup/launch', config)
+      navigate(`/studio/${run_id}`)
+    } catch (err) {
+      console.error('Launch failed', err)
+      setLaunching(false)
+    }
   }
 
   return (
@@ -174,6 +189,7 @@ export function SetupScreen() {
             onConfigChange={handleConfigChange}
             validationResult={validationResult}
             onValidateNow={handleValidateNow}
+            onLaunch={handleLaunch}
           />
         </div>
       </div>
