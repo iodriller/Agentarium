@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
 import type { LaunchConfig, ValidationResult } from '../api/types'
+import { AgentLLMColumn } from '../components/setup/AgentLLMColumn'
 import { ScenarioWorldColumn } from '../components/setup/ScenarioWorldColumn'
 import { ToolsLaunchColumn } from '../components/setup/ToolsLaunchColumn'
 import { TopBar } from '../components/shared/TopBar'
@@ -9,7 +10,25 @@ import { TopBar } from '../components/shared/TopBar'
 const DEFAULT_CONFIG: Partial<LaunchConfig> = {
   scenario: { preset: 'bridge_builder', objective: '', reward: '' },
   world: { template: 'island_cliff_small', engine: 'pymunk2d' },
-  agents: { mode: 'single', participants: [] },
+  agents: {
+    mode: 'single',
+    participants: [
+      {
+        id: 'agent_a',
+        name: 'Agent A',
+        role: 'builder',
+        behavior_mode: 'engineer',
+        provider: 'mock',
+        model: 'mock',
+        temperature: 0.7,
+        max_attempts: 50,
+        context_window: '8k',
+        memory_mode: 'none',
+        mutation_strategy: 'balanced',
+      },
+    ],
+  },
+  llm_connection: { endpoint_url: 'http://localhost:1234/v1' },
   tools: { enabled: [] },
   constraints: {
     max_parts: 300,
@@ -57,6 +76,13 @@ export function SetupScreen() {
         : {}),
       ...(patch.outputs !== undefined
         ? { outputs: { ...prev.outputs, ...patch.outputs } }
+        : {}),
+      // agents arrives as a full object from AgentLLMColumn — shallow merge is fine
+      ...(patch.agents !== undefined
+        ? { agents: { ...prev.agents, ...patch.agents } }
+        : {}),
+      ...(patch.llm_connection !== undefined
+        ? { llm_connection: { ...prev.llm_connection, ...patch.llm_connection } }
         : {}),
     }))
   }, [])
@@ -137,7 +163,7 @@ export function SetupScreen() {
           }}
         >
           <ColumnHeader number={2} title="Agent & LLM Setup" badge="Required" />
-          <Placeholder label="Collaboration mode, agent cards, LLM provider & connection" />
+          <AgentLLMColumn config={config} onConfigChange={handleConfigChange} />
         </div>
 
         {/* Column 3 — Tools, Constraints & Launch */}
@@ -219,23 +245,6 @@ function ColumnHeader({
           {badge}
         </span>
       )}
-    </div>
-  )
-}
-
-function Placeholder({ label }: { label: string }) {
-  return (
-    <div
-      style={{
-        padding: 20,
-        borderRadius: 8,
-        border: '1px dashed var(--border)',
-        color: 'var(--text-2)',
-        fontSize: 12,
-        textAlign: 'center',
-      }}
-    >
-      {label}
     </div>
   )
 }
