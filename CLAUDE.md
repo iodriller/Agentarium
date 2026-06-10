@@ -1,25 +1,53 @@
 # CLAUDE.md
 
-Guidance for Claude (and subagents) working in the Agentarium repository.
+Guidance for Claude (and subagents) working in the Agentarium repository. Read this at
+the start of every session and follow it.
 
 ## What this is
 
 Agentarium is a visual AI physics sandbox: LLM agents pick explicit tools to build
 designs in an isometric world, the backend simulates with Pymunk2D, and the Studio
-replays scored attempts. See `docs/COMPREHENSIVE_PLAN.md` (master plan + UI spec) and
-`docs/IMPLEMENTATION_STEPS.md` (numbered Step 1–27 build guide). Track progress against
-the milestone map there.
+replays scored attempts. Plan and progress live in `docs/COMPREHENSIVE_PLAN.md` (master
+plan + UI spec) and `docs/IMPLEMENTATION_STEPS.md` (numbered Step 1–27 build guide).
+Reference these rather than re-deriving the plan.
 
 ## Commands (run from repo root `/home/user/Agentarium`)
 
 - Install: `uv sync --all-groups`
-- Lint: `uv run ruff check .`  — must be clean before commit
-- Tests: `uv run pytest`       — must pass before commit
+- Lint: `uv run ruff check .`
+- Test: `uv run pytest`
 - Backend server: `uv run agentarium serve` (127.0.0.1:8765)
-- Frontend build: `cd frontend && npm run build` — must compile (TS) before commit
+- Frontend build: `cd frontend && npm run build`
 - Frontend dev: `cd frontend && npm run dev` (5173, proxies /api + /ws to 8765)
 
-Always run lint + tests (and `npm run build` if frontend changed) before committing.
+## Definition of done (every change)
+
+A change is not done until all three gates pass, and a code change is not done without
+a test:
+
+1. `uv run ruff check .` is clean.
+2. `uv run pytest` passes.
+3. `cd frontend && npm run build` compiles — **if** frontend files changed.
+
+**YOU MUST add or update tests for any backend behavior change.** Use the `mock`
+provider so tests need no network; keep simulations short (≤ ~2s sim time).
+
+## How to work (working agreement)
+
+- **Implement the minimum that satisfies the task.** Do not add speculative
+  abstractions, options, or files "for later." Match the surrounding code's style and
+  altitude. A one-line fix stays a one-line fix.
+- **Do not hallucinate.** Read the actual code before calling an API, schema field, or
+  function. If you're unsure something exists, grep for it. Never invent endpoints,
+  props, or fields — verify against the source.
+- **Surface gaps, don't silently fill them.** As you read code to make a change, note
+  bugs, missing validation, dead code, or risks you spot. List them; don't expand scope
+  to fix them unless asked.
+- **Keep the user in the loop.** End every working turn with three short parts:
+  1. **Did** — what changed and the gate results (tests/lint/build).
+  2. **Next** — what the next phase is and, before starting it, what you intend to do.
+  3. **Suggestions** — gaps you noticed and options worth considering.
+- Prefer the dedicated tools (Read/Grep/Glob/Edit) over shell `cat`/`sed`/`grep`.
 
 ## Architecture invariants (do not violate)
 
@@ -28,12 +56,12 @@ Always run lint + tests (and `npm run build` if frontend changed) before committ
    touch the engine, renderer, or filesystem directly. High-risk tools default off.
 2. **The renderer consumes only `EpisodeTrace`.** Never read engine internals in the
    frontend. This keeps the engine swappable (Pymunk2D now, PyBullet3D later).
-3. **`LaunchConfig` is the single source of truth** produced by the Setup screen; the
-   backend Pydantic models and the frontend `api/types.ts` must stay in sync.
-4. **Engine-neutral traces + named pluggable rewards.** Scoring derives metrics from the
-   trace, not the engine.
+3. **`LaunchConfig` is the single source of truth** from the Setup screen; the backend
+   Pydantic models and the frontend `api/types.ts` must stay in sync.
+4. **Scoring derives metrics from the trace**, via named pluggable rewards — never from
+   the engine.
 5. **Multi-agent attribution:** per-tool-call `agent_id`, per-part `created_by`, and
-   per-agent events carry `agent_id`. Agent colors: A = `--agent-a` (violet),
+   per-agent events carry `agent_id`. Colors: A = `--agent-a` (violet),
    B = `--agent-b` (sky).
 
 ## Layout
@@ -44,20 +72,18 @@ Always run lint + tests (and `npm run build` if frontend changed) before committ
   `challenges`.
 - `frontend/src/` — `screens` (Setup, Studio), `components/setup`, `components/studio`,
   `phaser` (iso renderer), `api` (client + types).
-- `runs/` — generated artifacts (gitignored). `backend/agentarium/static/` — built
-  frontend (gitignored).
+- `runs/` and `backend/agentarium/static/` are generated — gitignored, never commit.
 
 ## Conventions
 
 - **Backend:** Python 3.11+, Pydantic v2 (`model_dump`, `model_config`), async routes,
-  ruff (line length 100, E/F/I/UP/B). No new runtime deps without need; prefer stdlib
-  (e.g. manual lightweight JSON-schema validation over adding `jsonschema`).
-- **Frontend:** React + TypeScript, inline styles using the CSS-variable design tokens
-  in `index.css` (`--bg`, `--surface-1/2`, `--border`, `--text-1/2`, `--accent`,
-  `--ok/warn/danger`, `--agent-a/b`). No Tailwind utility classes in components, no new
-  CSS files, no charting library (inline SVG only), no new npm packages without need.
-- **Tests:** add tests with every step; use the `mock` provider for agent/run tests so
-  they need no network. Keep simulations short (≤ ~2s sim time) so the suite stays fast.
+  ruff (line length 100; E/F/I/UP/B). Prefer stdlib over new runtime deps (e.g. manual
+  lightweight JSON-schema validation, not a `jsonschema` dependency).
+- **Frontend:** React + TypeScript. Style with the CSS-variable design tokens in
+  `index.css` (`--bg`, `--surface-1/2`, `--border`, `--text-1/2`, `--accent`,
+  `--ok/warn/danger`, `--agent-a/b`). Negative rules: no Tailwind utility classes in
+  components, no new CSS files, no charting library (inline SVG only), no new npm
+  packages without a clear need.
 - **Determinism:** seeded worlds, fixed `dt`; a trace must be replayable on its own.
 
 ## Git workflow
@@ -65,13 +91,12 @@ Always run lint + tests (and `npm run build` if frontend changed) before committ
 - Work on the designated feature branch; never push to `main` directly.
 - Commit per step with a descriptive message; end the body with the session URL line.
 - Do **not** create or merge PRs unless explicitly asked.
-- Do not commit `runs/` or `backend/agentarium/static/` (gitignored).
 
 ## Operational notes
 
-- Do **not** use `pkill`/`pkill -f uvicorn` in this environment — it has killed the
-  shell session. To verify backend behavior, prefer in-process checks
-  (`uv run python -c ...`) or `TestClient` over launching a background server.
-- When delegating a step to a subagent, give it: the exact files to read, the acceptance
-  checks, and the constraints above. Keep backend-only and frontend-only work on
-  non-overlapping files when running agents in parallel.
+- **Never use `pkill` / `pkill -f uvicorn`** here — it has killed the shell session.
+  Verify backend behavior in-process (`uv run python -c ...`) or with `TestClient`
+  instead of launching a background server.
+- When delegating to a subagent, give it: the files to read, the acceptance checks, the
+  constraints above, and a pointer to this file. Keep backend-only and frontend-only
+  work on non-overlapping files when running agents in parallel.
