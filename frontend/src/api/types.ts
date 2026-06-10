@@ -173,3 +173,40 @@ export interface ValidationResult {
   warnings?: string[]
   estimated_runtime_min?: [number, number] | null
 }
+
+// ─── Episode trace (mirrors backend/agentarium/core/schemas/trace.py) ──────────
+
+export interface StaticProp {
+  id: string
+  kind: string // "ground" | "goal" | "prop" | body shape
+  position: number[]
+  size?: number[]
+  color?: string | null
+}
+
+export interface FrameBody {
+  x: number
+  y: number
+  angle: number
+}
+
+export interface Frame {
+  t: number
+  bodies: Record<string, FrameBody>
+  events?: Record<string, unknown>[]
+}
+
+export interface EpisodeTrace {
+  version: number
+  run_id: string
+  attempt_id: string
+  engine: string
+  camera: string
+  dt: number
+  world_static: StaticProp[]
+  frames: Frame[]
+}
+
+export interface CreateRunResponse {
+  run_id: string
+}
