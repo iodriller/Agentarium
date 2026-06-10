@@ -11,7 +11,7 @@ from agentarium.agents import get_provider
 from agentarium.agents.prompts import build_system_prompt, build_user_prompt
 from agentarium.core.schemas.design import DesignSpec
 from agentarium.core.schemas.score import ScoreCard
-from agentarium.core.schemas.setup import LaunchConfig
+from agentarium.core.schemas.setup import AgentConfig, LaunchConfig
 from agentarium.core.schemas.toolcall import ToolCallRecord
 from agentarium.services.run_service import (
     create_run_from_design,
@@ -69,13 +69,27 @@ def _parse_tool_calls(raw: str) -> list[dict]:
 async def run_single_attempt(
     config: LaunchConfig, *, attempt_index: int = 0
 ) -> AttemptResult:
-    """Run one single-agent build attempt end-to-end with the mock/real provider."""
-    attempt_id = f"attempt_{uuid.uuid4().hex[:8]}"
+    """Run one single-agent build attempt end-to-end with the mock/real provider.
 
+    Defaults to ``participants[0]`` so the single-agent path is unchanged.
+    """
     participants = config.agents.participants
     if not participants:
         raise ValueError("config.agents.participants is empty")
-    agent = participants[0]
+    return await run_agent_attempt(
+        config, participants[0], attempt_index=attempt_index
+    )
+
+
+async def run_agent_attempt(
+    config: LaunchConfig, agent: AgentConfig, *, attempt_index: int = 0
+) -> AttemptResult:
+    """Run one build attempt end-to-end for a SPECIFIC participant.
+
+    Builds that agent's own DesignSpec, applies its own tool calls (tagged with
+    ``agent.id``), simulates, scores, and persists under ``runs/{trace_run_id}/``.
+    """
+    attempt_id = f"attempt_{uuid.uuid4().hex[:8]}"
 
     provider = get_provider(agent.provider.value)
     if provider is None:

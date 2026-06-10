@@ -35,14 +35,25 @@ export function StudioScreen() {
   const [challengeName, setChallengeName] = useState('')
   const [objective, setObjective] = useState('')
   const [toolLog, setToolLog] = useState<ToolCallRecord[]>([])
-  const [designSummary, setDesignSummary] = useState<DesignSummary | null>(null)
-  const [attempts, setAttempts] = useState<AttemptScore[]>([])
-  const [latestScore, setLatestScore] = useState<ScoreCard | null>(null)
+  // The agent whose score/metrics/design last updated — drives the "latest"
+  // displays. Falls back to the first agent.
+  const [latestAgentId, setLatestAgentId] = useState<string | null>(null)
   const [latestAttemptIndex, setLatestAttemptIndex] = useState<number | null>(null)
-  const [bestScore, setBestScore] = useState<number | null>(null)
-  const [agents] = useState<AgentInfo[]>([
-    { id: 'agent_a', name: 'Agent A', role: 'builder' },
-  ])
+  const [winnerAgentId, setWinnerAgentId] = useState<string | null>(null)
+  // Per-agent live state, keyed by agent_id. Single-agent runs use one key.
+  const [designByAgent, setDesignByAgent] = useState<Record<string, DesignSummary>>({})
+  const [latestScoreByAgent, setLatestScoreByAgent] = useState<Record<string, ScoreCard>>({})
+  const [bestScoreByAgent, setBestScoreByAgent] = useState<Record<string, number>>({})
+  const [attemptsByAgent, setAttemptsByAgent] = useState<Record<string, AttemptScore[]>>({})
+  const DEFAULT_AGENTS: AgentInfo[] = [{ id: 'agent_a', name: 'Agent A', role: 'builder' }]
+  const [agents, setAgents] = useState<AgentInfo[]>(DEFAULT_AGENTS)
+
+  // Resolve the "latest" agent (last to update), then its derived displays.
+  const activeAgentId = latestAgentId ?? agents[0]?.id ?? null
+  const designSummary = activeAgentId ? (designByAgent[activeAgentId] ?? null) : null
+  const latestScore = activeAgentId ? (latestScoreByAgent[activeAgentId] ?? null) : null
+  const latestAgentName =
+    agents.find((a) => a.id === activeAgentId)?.name ?? activeAgentId ?? ''
 
   const totalFrames = trace?.frames.length ?? 0
 
@@ -74,29 +85,44 @@ export function StudioScreen() {
           setChallengeName(event.project_name)
           setObjective(event.objective)
           setRunStatus('running')
+          if (event.agents && event.agents.length > 0) {
+            setAgents(event.agents.map((a) => ({ id: a.id, name: a.name, role: a.role })))
+          }
           break
         case 'tool_call':
           setToolLog((prev) => [...prev, event.record])
           break
-        case 'design_update':
-          setDesignSummary(event.summary)
+        case 'design_update': {
+          const id = event.agent_id ?? agents[0]?.id ?? 'agent_a'
+          setDesignByAgent((prev) => ({ ...prev, [id]: event.summary }))
+          setLatestAgentId(id)
           break
+        }
         case 'trace_ready':
           void loadTrace(event.trace_run_id)
           break
         case 'score': {
-          setLatestScore(event.scorecard)
+          const id = event.agent_id ?? agents[0]?.id ?? 'agent_a'
+          setLatestScoreByAgent((prev) => ({ ...prev, [id]: event.scorecard }))
+          setBestScoreByAgent((prev) => ({
+            ...prev,
+            [id]: Math.max(prev[id] ?? -Infinity, event.scorecard.score_total),
+          }))
+          setLatestAgentId(id)
           setLatestAttemptIndex(event.attempt_index)
-          setAttempts((prev) => {
-            const next = prev.filter((a) => a.index !== event.attempt_index)
-            next.push({ index: event.attempt_index, scorecard: event.scorecard })
-            next.sort((a, b) => a.index - b.index)
-            return next
+          setAttemptsByAgent((prev) => {
+            const series = (prev[id] ?? []).filter((a) => a.index !== event.attempt_index)
+            series.push({ index: event.attempt_index, scorecard: event.scorecard })
+            series.sort((a, b) => a.index - b.index)
+            return { ...prev, [id]: series }
           })
           break
         }
+        case 'winner':
+          setWinnerAgentId(event.agent_id)
+          break
         case 'run_finished':
-          setBestScore(event.best_score)
+          if (event.winner_agent_id) setWinnerAgentId(event.winner_agent_id)
           setRunStatus('finished')
           break
         case 'error':
@@ -284,14 +310,16 @@ export function StudioScreen() {
           />
           <AgentStatusPanel
             agents={agents}
-            designSummary={designSummary}
-            latestScore={latestScore}
+            designByAgent={designByAgent}
+            latestScoreByAgent={latestScoreByAgent}
+            winnerAgentId={winnerAgentId}
             running={running}
           />
           <ScoreCardTable
             agents={agents}
-            latestScore={latestScore?.score_total ?? null}
-            bestScore={bestScore}
+            latestScoreByAgent={latestScoreByAgent}
+            bestScoreByAgent={bestScoreByAgent}
+            winnerAgentId={winnerAgentId}
           />
         </div>
 
@@ -331,8 +359,10 @@ export function StudioScreen() {
             }}
           >
             <TelemetryPanel
-              attempts={attempts}
+              agents={agents}
+              attemptsByAgent={attemptsByAgent}
               latest={latestScore}
+              latestAgentName={latestAgentName}
               latestAttemptIndex={latestAttemptIndex}
               running={running}
             />

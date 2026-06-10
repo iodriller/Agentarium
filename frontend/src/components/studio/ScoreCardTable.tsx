@@ -1,14 +1,21 @@
+import type { ScoreCard } from '../../api/types'
 import type { AgentInfo } from './AgentStatusPanel'
 
 interface ScoreCardTableProps {
   agents: AgentInfo[]
-  latestScore: number | null
-  bestScore: number | null
+  latestScoreByAgent: Record<string, ScoreCard>
+  bestScoreByAgent: Record<string, number>
+  winnerAgentId: string | null
 }
 
 const AGENT_COLORS = ['var(--agent-a)', 'var(--agent-b)']
 
-export function ScoreCardTable({ agents, latestScore, bestScore }: ScoreCardTableProps) {
+export function ScoreCardTable({
+  agents,
+  latestScoreByAgent,
+  bestScoreByAgent,
+  winnerAgentId,
+}: ScoreCardTableProps) {
   return (
     <div>
       <SectionLabel>Score Card</SectionLabel>
@@ -41,45 +48,56 @@ export function ScoreCardTable({ agents, latestScore, bestScore }: ScoreCardTabl
         {agents.length === 0 && (
           <div style={{ padding: '8px 10px', fontSize: 11, color: 'var(--text-2)' }}>—</div>
         )}
-        {agents.map((agent, i) => (
-          <div
-            key={agent.id}
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr auto auto',
-              gap: 8,
-              padding: '6px 10px',
-              fontSize: 11,
-              alignItems: 'center',
-            }}
-          >
-            <span
+        {agents.map((agent, i) => {
+          const latest = latestScoreByAgent[agent.id]?.score_total ?? null
+          const best = bestScoreByAgent[agent.id] ?? null
+          const isWinner = winnerAgentId === agent.id
+          return (
+            <div
+              key={agent.id}
               style={{
-                color: 'var(--text-1)',
-                fontWeight: 500,
-                display: 'flex',
+                display: 'grid',
+                gridTemplateColumns: '1fr auto auto',
+                gap: 8,
+                padding: '6px 10px',
+                fontSize: 11,
                 alignItems: 'center',
-                gap: 6,
+                background: isWinner ? 'var(--surface-1)' : undefined,
               }}
             >
               <span
                 style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: '50%',
-                  background: AGENT_COLORS[i % AGENT_COLORS.length],
+                  color: 'var(--text-1)',
+                  fontWeight: 500,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
                 }}
-              />
-              {agent.name}
-            </span>
-            <span style={{ textAlign: 'right', color: 'var(--text-1)', fontWeight: 600 }}>
-              {latestScore != null ? latestScore.toFixed(1) : '—'}
-            </span>
-            <span style={{ textAlign: 'right', color: 'var(--ok)', fontWeight: 600 }}>
-              {bestScore != null ? bestScore.toFixed(1) : '—'}
-            </span>
-          </div>
-        ))}
+              >
+                <span
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    background: AGENT_COLORS[i % AGENT_COLORS.length],
+                  }}
+                />
+                {agent.name}
+                {isWinner && (
+                  <span style={{ color: 'var(--ok)', fontWeight: 700, fontSize: 10 }}>
+                    ★
+                  </span>
+                )}
+              </span>
+              <span style={{ textAlign: 'right', color: 'var(--text-1)', fontWeight: 600 }}>
+                {latest != null ? latest.toFixed(1) : '—'}
+              </span>
+              <span style={{ textAlign: 'right', color: 'var(--ok)', fontWeight: 600 }}>
+                {best != null ? best.toFixed(1) : '—'}
+              </span>
+            </div>
+          )
+        })}
       </div>
     </div>
   )

@@ -249,6 +249,12 @@ export interface DesignSummary {
 
 // ─── Live run events (mirrors backend orchestrator event protocol) ─────────────
 
+export interface RunAgentInfo {
+  id: string
+  name: string
+  role: string
+}
+
 export interface RunStartedEvent {
   type: 'run_started'
   run_id: string
@@ -256,16 +262,19 @@ export interface RunStartedEvent {
   mode: string
   objective: string
   max_attempts: number
+  agents?: RunAgentInfo[]
 }
 
 export interface AttemptStartedEvent {
   type: 'attempt_started'
   attempt_index: number
+  agent_id?: string
 }
 
 export interface ToolCallEvent {
   type: 'tool_call'
   attempt_index: number
+  agent_id?: string
   record: ToolCallRecord
 }
 
@@ -279,24 +288,34 @@ export interface DesignUpdateEvent {
 export interface TraceReadyEvent {
   type: 'trace_ready'
   attempt_index: number
+  agent_id?: string
   trace_run_id: string
 }
 
 export interface ScoreEvent {
   type: 'score'
   attempt_index: number
+  agent_id?: string
   scorecard: ScoreCard
 }
 
 export interface AttemptFinishedEvent {
   type: 'attempt_finished'
   attempt_index: number
+  agent_id?: string
+}
+
+export interface WinnerEvent {
+  type: 'winner'
+  agent_id: string
+  score: number
 }
 
 export interface RunFinishedEvent {
   type: 'run_finished'
   best_attempt_index: number
   best_score: number
+  winner_agent_id?: string
 }
 
 export interface ErrorEvent {
@@ -312,5 +331,6 @@ export type RunEvent =
   | TraceReadyEvent
   | ScoreEvent
   | AttemptFinishedEvent
+  | WinnerEvent
   | RunFinishedEvent
   | ErrorEvent

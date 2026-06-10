@@ -4,9 +4,13 @@ import asyncio
 import uuid
 from collections.abc import AsyncIterator
 
-from agentarium.agents.runner import run_single_attempt
+from agentarium.agents.runner import run_agent_attempt
 from agentarium.core.schemas.design import DesignSpec
-from agentarium.core.schemas.setup import LaunchConfig
+from agentarium.core.schemas.setup import (
+    AgentConfig,
+    CollaborationMode,
+    LaunchConfig,
+)
 
 # Delay between streamed tool_call events so the UI sees them arrive one at a
 # time. Tests set this to 0.0 to keep runs fast.
@@ -17,6 +21,11 @@ STREAM_DELAY = 0.02
 # more than a few attempts would make a launch feel unresponsive. The frontend's
 # "live" feel comes from streaming the buffered tool calls + replaying the trace.
 MAX_ATTEMPTS_CAP = 3
+
+# In competitive mode each participant runs at most this many attempts, capped
+# small for MVP responsiveness (runs are sequential — agent A fully, then agent
+# B — so total work is COMPETITIVE_ATTEMPTS_CAP * len(participants)).
+COMPETITIVE_ATTEMPTS_CAP = 2
 
 
 def _design_summary(design: DesignSpec) -> dict:
@@ -123,6 +132,11 @@ class RunManager:
 
     async def _run_inner(self, run_id: str, config: LaunchConfig) -> None:
         objective = config.scenario.objective or config.scenario.preset
+
+        participants = list(config.agents.participants)
+        if not participants:
+            raise ValueError("config.agents.participants is empty")
+
         self._emit(
             run_id,
             {
@@ -132,23 +146,45 @@ class RunManager:
                 "mode": config.agents.mode.value,
                 "objective": objective,
                 "max_attempts": min(config.constraints.max_attempts, MAX_ATTEMPTS_CAP),
+                "agents": [
+                    {"id": a.id, "name": a.name, "role": a.role.value}
+                    for a in participants
+                ],
             },
         )
 
-        agent_id = (
-            config.agents.participants[0].id if config.agents.participants else "agent_a"
-        )
+        if config.agents.mode == CollaborationMode.competitive:
+            await self._run_competitive(run_id, config, participants)
+        else:
+            await self._run_single_agent(run_id, config, participants[0])
 
+    async def _run_agent_attempts(
+        self,
+        run_id: str,
+        config: LaunchConfig,
+        agent: AgentConfig,
+        attempts: int,
+    ) -> tuple[int, float]:
+        """Run ``attempts`` attempts for ``agent``, emitting per-agent events.
+
+        Returns ``(best_attempt_index, best_score)`` for this agent.
+        """
         best_attempt_index = -1
         best_score = float("-inf")
 
-        attempts = min(config.constraints.max_attempts, MAX_ATTEMPTS_CAP)
         for attempt_index in range(attempts):
             self._emit(
-                run_id, {"type": "attempt_started", "attempt_index": attempt_index}
+                run_id,
+                {
+                    "type": "attempt_started",
+                    "attempt_index": attempt_index,
+                    "agent_id": agent.id,
+                },
             )
 
-            result = await run_single_attempt(config, attempt_index=attempt_index)
+            result = await run_agent_attempt(
+                config, agent, attempt_index=attempt_index
+            )
 
             for record in result.tool_calls:
                 self._emit(
@@ -156,6 +192,7 @@ class RunManager:
                     {
                         "type": "tool_call",
                         "attempt_index": attempt_index,
+                        "agent_id": agent.id,
                         "record": record.model_dump(mode="json"),
                     },
                 )
@@ -167,7 +204,7 @@ class RunManager:
                 {
                     "type": "design_update",
                     "attempt_index": attempt_index,
-                    "agent_id": agent_id,
+                    "agent_id": agent.id,
                     "summary": _design_summary(result.design),
                 },
             )
@@ -178,6 +215,7 @@ class RunManager:
                     {
                         "type": "trace_ready",
                         "attempt_index": attempt_index,
+                        "agent_id": agent.id,
                         "trace_run_id": result.trace_run_id,
                     },
                 )
@@ -187,6 +225,7 @@ class RunManager:
                 {
                     "type": "score",
                     "attempt_index": attempt_index,
+                    "agent_id": agent.id,
                     "scorecard": result.score.model_dump(mode="json"),
                 },
             )
@@ -196,15 +235,81 @@ class RunManager:
                 best_attempt_index = attempt_index
 
             self._emit(
-                run_id, {"type": "attempt_finished", "attempt_index": attempt_index}
+                run_id,
+                {
+                    "type": "attempt_finished",
+                    "attempt_index": attempt_index,
+                    "agent_id": agent.id,
+                },
             )
 
+        return best_attempt_index, best_score
+
+    async def _run_single_agent(
+        self, run_id: str, config: LaunchConfig, agent: AgentConfig
+    ) -> None:
+        attempts = min(config.constraints.max_attempts, MAX_ATTEMPTS_CAP)
+        best_attempt_index, best_score = await self._run_agent_attempts(
+            run_id, config, agent, attempts
+        )
         self._emit(
             run_id,
             {
                 "type": "run_finished",
                 "best_attempt_index": best_attempt_index,
                 "best_score": best_score if best_score != float("-inf") else 0.0,
+            },
+        )
+
+    async def _run_competitive(
+        self,
+        run_id: str,
+        config: LaunchConfig,
+        participants: list[AgentConfig],
+    ) -> None:
+        """Run each participant sequentially (agent A fully, then agent B, …).
+
+        Interleaving is sequential for MVP — simpler and deterministic. Each
+        agent gets a small attempt cap for responsiveness.
+        """
+        attempts = min(config.constraints.max_attempts, COMPETITIVE_ATTEMPTS_CAP)
+
+        # agent_id -> best score across that agent's attempts.
+        best_by_agent: dict[str, float] = {}
+        best_attempt_by_agent: dict[str, int] = {}
+
+        for agent in participants:
+            best_index, best_score = await self._run_agent_attempts(
+                run_id, config, agent, attempts
+            )
+            best_by_agent[agent.id] = (
+                best_score if best_score != float("-inf") else 0.0
+            )
+            best_attempt_by_agent[agent.id] = best_index
+
+        # Winner: highest best score; tie → first participant (stable order).
+        winner_agent_id = participants[0].id
+        winner_score = best_by_agent[winner_agent_id]
+        for agent in participants[1:]:
+            if best_by_agent[agent.id] > winner_score:
+                winner_agent_id = agent.id
+                winner_score = best_by_agent[agent.id]
+
+        self._emit(
+            run_id,
+            {
+                "type": "winner",
+                "agent_id": winner_agent_id,
+                "score": winner_score,
+            },
+        )
+        self._emit(
+            run_id,
+            {
+                "type": "run_finished",
+                "best_attempt_index": best_attempt_by_agent[winner_agent_id],
+                "best_score": winner_score,
+                "winner_agent_id": winner_agent_id,
             },
         )
 

@@ -1,13 +1,18 @@
 import type { ScoreCard } from '../../api/types'
+import type { AgentInfo } from './AgentStatusPanel'
 
 export interface AttemptScore {
   index: number
   scorecard: ScoreCard
 }
 
+const AGENT_COLORS = ['var(--agent-a)', 'var(--agent-b)']
+
 interface TelemetryPanelProps {
-  attempts: AttemptScore[]
+  agents: AgentInfo[]
+  attemptsByAgent: Record<string, AttemptScore[]>
   latest: ScoreCard | null
+  latestAgentName: string
   latestAttemptIndex: number | null
   running: boolean
 }
@@ -19,15 +24,17 @@ function metric(card: ScoreCard | null, key: string): string {
 }
 
 export function TelemetryPanel({
-  attempts,
+  agents,
+  attemptsByAgent,
   latest,
+  latestAgentName,
   latestAttemptIndex,
   running,
 }: TelemetryPanelProps) {
   return (
     <>
       <Card title="Score over Attempts">
-        <Sparkline attempts={attempts} />
+        <Sparkline agents={agents} attemptsByAgent={attemptsByAgent} />
       </Card>
       <Card title="Metrics over Time" borderLeft>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, width: '100%' }}>
@@ -36,7 +43,10 @@ export function TelemetryPanel({
           <MetricRow label="Energy Used" value={metric(latest, 'energy')} />
         </div>
       </Card>
-      <Card title="Latest Attempt Summary" borderLeft>
+      <Card
+        title={latestAgentName ? `Latest Attempt · ${latestAgentName}` : 'Latest Attempt Summary'}
+        borderLeft
+      >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, width: '100%' }}>
           <MetricRow
             label="Attempt #"
@@ -59,47 +69,78 @@ export function TelemetryPanel({
   )
 }
 
-function Sparkline({ attempts }: { attempts: AttemptScore[] }) {
-  if (attempts.length === 0) {
+function Sparkline({
+  agents,
+  attemptsByAgent,
+}: {
+  agents: AgentInfo[]
+  attemptsByAgent: Record<string, AttemptScore[]>
+}) {
+  // One series per agent (in agent order). Single-agent runs render one line.
+  const series = agents
+    .map((a, i) => ({
+      agent: a,
+      color: AGENT_COLORS[i % AGENT_COLORS.length],
+      attempts: attemptsByAgent[a.id] ?? [],
+    }))
+    .filter((s) => s.attempts.length > 0)
+
+  if (series.length === 0) {
     return <span style={{ fontSize: 11, color: 'var(--text-2)' }}>No attempts yet</span>
   }
-  const scores = attempts.map((a) => a.scorecard.score_total)
-  const max = Math.max(...scores, 1)
-  const min = Math.min(...scores, 0)
+
+  // Shared scale across all agents so lines are comparable.
+  const allScores = series.flatMap((s) => s.attempts.map((a) => a.scorecard.score_total))
+  const max = Math.max(...allScores, 1)
+  const min = Math.min(...allScores, 0)
   const range = max - min || 1
   const w = 120
   const h = 48
-  const stepX = attempts.length > 1 ? w / (attempts.length - 1) : 0
-  const points = scores
-    .map((s, i) => {
-      const x = attempts.length > 1 ? i * stepX : w / 2
-      const y = h - ((s - min) / range) * h
-      return `${x.toFixed(1)},${y.toFixed(1)}`
+
+  const plot = (attempts: AttemptScore[]) => {
+    const n = attempts.length
+    return attempts.map((a, i) => {
+      const x = n > 1 ? (i / (n - 1)) * w : w / 2
+      const y = h - ((a.scorecard.score_total - min) / range) * h
+      return { x, y, index: a.index, score: a.scorecard.score_total }
     })
-    .join(' ')
+  }
 
   return (
     <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 4 }}>
       <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
-        <polyline
-          points={points}
-          fill="none"
-          stroke="var(--accent)"
-          strokeWidth={2}
-          vectorEffect="non-scaling-stroke"
-        />
-        {scores.map((s, i) => {
-          const x = attempts.length > 1 ? i * stepX : w / 2
-          const y = h - ((s - min) / range) * h
-          return <circle key={i} cx={x} cy={y} r={2} fill="var(--accent)" />
+        {series.map((s) => {
+          const pts = plot(s.attempts)
+          return (
+            <g key={s.agent.id}>
+              <polyline
+                points={pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')}
+                fill="none"
+                stroke={s.color}
+                strokeWidth={2}
+                vectorEffect="non-scaling-stroke"
+              />
+              {pts.map((p, i) => (
+                <circle key={i} cx={p.x} cy={p.y} r={2} fill={s.color} />
+              ))}
+            </g>
+          )
         })}
       </svg>
       <div style={{ fontSize: 10, color: 'var(--text-2)' }}>
-        {scores.map((s, i) => (
-          <span key={i} style={{ marginRight: 8 }}>
-            #{attempts[i].index + 1}:{s.toFixed(1)}
-          </span>
-        ))}
+        {series.length > 1 ? (
+          series.map((s) => (
+            <span key={s.agent.id} style={{ marginRight: 8, color: s.color, fontWeight: 600 }}>
+              {s.agent.name}
+            </span>
+          ))
+        ) : (
+          series[0].attempts.map((a) => (
+            <span key={a.index} style={{ marginRight: 8 }}>
+              #{a.index + 1}:{a.scorecard.score_total.toFixed(1)}
+            </span>
+          ))
+        )}
       </div>
     </div>
   )

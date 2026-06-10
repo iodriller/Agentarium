@@ -6,6 +6,7 @@ from agentarium.app import app
 from agentarium.core.schemas.setup import (
     AgentConfig,
     AgentsConfig,
+    CollaborationMode,
     ConstraintsConfig,
     LaunchConfig,
     LLMProvider,
@@ -87,6 +88,55 @@ def test_subscribe_unknown_run():
         manager = RunManager()
         received = [event async for event in manager.subscribe("does-not-exist")]
         assert received == [{"type": "error", "detail": "unknown run"}]
+
+    asyncio.run(scenario())
+
+
+def _competitive_config() -> LaunchConfig:
+    return LaunchConfig(
+        scenario=ScenarioConfig(preset="distance", objective="Travel far"),
+        world=WorldConfig(template="flat_ground"),
+        agents=AgentsConfig(
+            mode=CollaborationMode.competitive,
+            participants=[
+                AgentConfig(id="agent_a", name="Agent A", provider=LLMProvider.mock),
+                AgentConfig(id="agent_b", name="Agent B", provider=LLMProvider.mock),
+            ],
+        ),
+        tools=ToolsConfig(enabled=["create_body", "run_simulation"]),
+        constraints=ConstraintsConfig(max_attempts=2),
+    )
+
+
+def test_competitive_two_agents():
+    async def scenario() -> None:
+        manager = RunManager()
+        run_id = await _run_to_completion(manager, _competitive_config())
+        events = manager.get_events(run_id)
+
+        # Both agents produced their own scored designs.
+        score_agents = {
+            e["agent_id"] for e in events if e["type"] == "score"
+        }
+        assert "agent_a" in score_agents
+        assert "agent_b" in score_agents
+
+        # A winner event exists naming one of the two agents.
+        winners = [e for e in events if e["type"] == "winner"]
+        assert len(winners) == 1
+        assert winners[0]["agent_id"] in {"agent_a", "agent_b"}
+
+        # run_finished carries the winner.
+        finished = events[-1]
+        assert finished["type"] == "run_finished"
+        assert finished["winner_agent_id"] in {"agent_a", "agent_b"}
+        assert finished["winner_agent_id"] == winners[0]["agent_id"]
+
+        # run_started advertises both participants.
+        started = events[0]
+        assert started["type"] == "run_started"
+        assert started["mode"] == "competitive"
+        assert {a["id"] for a in started["agents"]} == {"agent_a", "agent_b"}
 
     asyncio.run(scenario())
 
