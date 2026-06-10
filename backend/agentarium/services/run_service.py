@@ -22,6 +22,10 @@ RUNS: dict[str, EpisodeTrace] = {}
 # In-memory store of scorecards, keyed by run_id (same key as RUNS).
 SCORES: dict[str, ScoreCard] = {}
 
+# In-memory store of the simulated design, keyed by run_id (same key as RUNS).
+# Retained so exports can serialize the exact design behind a trace.
+DESIGNS: dict[str, DesignSpec] = {}
+
 # Run artifacts directory (gitignored), relative to cwd.
 _RUNS_DIR = pathlib.Path("runs")
 
@@ -95,6 +99,7 @@ def create_run_from_design(
     trace.run_id = run_id
 
     RUNS[run_id] = trace
+    DESIGNS[run_id] = design
 
     # Compute and store a baseline ScoreCard so every run has a fetchable
     # score. The runner may overwrite this with a reward-specific score.
@@ -124,3 +129,8 @@ def store_score(run_id: str, score: ScoreCard) -> None:
 def get_score(run_id: str) -> ScoreCard | None:
     """Return the stored ScoreCard for ``run_id``, or None if missing."""
     return SCORES.get(run_id)
+
+
+def get_design(run_id: str) -> DesignSpec | None:
+    """Return the design that produced ``run_id``'s trace, or None if missing."""
+    return DESIGNS.get(run_id)

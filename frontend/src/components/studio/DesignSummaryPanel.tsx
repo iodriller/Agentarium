@@ -6,7 +6,10 @@ interface DesignSummaryPanelProps {
   // Cooperative ownership breakdown: who built which parts of the shared design.
   byAgent?: Record<string, Partial<DesignSummary>> | null
   agents?: AgentInfo[]
-  onExport: () => void
+  // Download the design YAML. Undefined when no trace is loaded yet (disabled).
+  onExport?: () => void
+  // Open the self-contained Markdown run report. Undefined → button hidden.
+  onViewReport?: () => void
 }
 
 const AGENT_COLORS = ['var(--agent-a)', 'var(--agent-b)']
@@ -26,6 +29,7 @@ export function DesignSummaryPanel({
   byAgent,
   agents = [],
   onExport,
+  onViewReport,
 }: DesignSummaryPanelProps) {
   const ownership = byAgent ? Object.entries(byAgent) : []
   const colorForAgent = (agentId: string): string => {
@@ -127,23 +131,44 @@ export function DesignSummaryPanel({
             ))}
           </div>
         )}
-        <button
-          onClick={onExport}
-          style={{
-            marginTop: 8,
-            width: '100%',
-            padding: '6px 10px',
-            borderRadius: 5,
-            border: '1px solid var(--border)',
-            background: 'var(--surface-1)',
-            color: 'var(--text-1)',
-            fontSize: 11,
-            fontWeight: 600,
-            cursor: 'pointer',
-          }}
-        >
-          Export Design
-        </button>
+        <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+          <button
+            onClick={onExport}
+            disabled={!onExport}
+            style={{
+              flex: 1,
+              padding: '6px 10px',
+              borderRadius: 5,
+              border: '1px solid var(--border)',
+              background: 'var(--surface-1)',
+              color: 'var(--text-1)',
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: onExport ? 'pointer' : 'not-allowed',
+              opacity: onExport ? 1 : 0.5,
+            }}
+          >
+            Export Design
+          </button>
+          {onViewReport && (
+            <button
+              onClick={onViewReport}
+              style={{
+                flex: 1,
+                padding: '6px 10px',
+                borderRadius: 5,
+                border: '1px solid var(--border)',
+                background: 'var(--surface-1)',
+                color: 'var(--text-1)',
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              View Full Report
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )

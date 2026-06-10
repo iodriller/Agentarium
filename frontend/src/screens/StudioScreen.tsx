@@ -11,7 +11,7 @@ import { ToolCallLog } from '../components/studio/ToolCallLog'
 import { DesignSummaryPanel } from '../components/studio/DesignSummaryPanel'
 import { TelemetryPanel, type AttemptScore } from '../components/studio/TelemetryPanel'
 import { AttemptHistory } from '../components/studio/AttemptHistory'
-import { api, wsUrl } from '../api/client'
+import { api, downloadUrl, wsUrl } from '../api/client'
 import type {
   CreateRunResponse,
   DesignSummary,
@@ -465,7 +465,14 @@ export function StudioScreen() {
             summary={designSummary}
             byAgent={cooperative ? ownershipByAgent : null}
             agents={agents}
-            onExport={() => alert('Export coming soon')}
+            onExport={
+              trace?.run_id
+                ? () => downloadUrl(`/exports/${trace.run_id}/design?format=yaml`)
+                : undefined
+            }
+            onViewReport={
+              trace?.run_id ? () => downloadUrl(`/exports/${trace.run_id}/report`) : undefined
+            }
           />
           <ReplayTimeline
             frameIndex={frameIndex}
