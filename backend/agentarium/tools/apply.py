@@ -227,15 +227,20 @@ def _mutate(design: DesignSpec, agent_id: str, tool: str, args: dict) -> bool:
             raise ValueError(f"body '{bid}' already exists")
         width = float(args.get("width", 2.0))
         height = float(args.get("height", 2.0))
+        pos = [float(v) for v in args["position"]]
         design.bodies.append(
             BodySpec(
                 id=bid,
                 shape=BodyShape.box,
-                position=[float(v) for v in args["position"]],
+                position=pos,
                 size=[width, height],
                 static=True,
                 created_by=agent_id,
             )
+        )
+        # Record bin geometry in metadata so scoring can check ball containment.
+        design.metadata.setdefault("bins", []).append(
+            {"id": bid, "x": pos[0], "y": pos[1], "width": width, "height": height}
         )
         return True
 

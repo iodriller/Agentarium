@@ -16,6 +16,7 @@ dynamic bodies must never raise.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 
 from agentarium.core.schemas.design import DesignSpec
@@ -72,6 +73,7 @@ def compute_metrics(trace: EpisodeTrace, design: DesignSpec) -> dict[str, float]
     parts_used = float(len(design.bodies))
     joints = float(len(design.joints))
 
+    bins = design.metadata.get("bins", [])
     metrics: dict[str, float] = {
         "parts_used": parts_used,
         "joints": joints,
@@ -81,6 +83,9 @@ def compute_metrics(trace: EpisodeTrace, design: DesignSpec) -> dict[str, float]
         "stability": 1.0,
         "energy": 0.0,
         "duration_s": 0.0,
+        "spread_area": 0.0,
+        "bins_count": float(len(bins)),
+        "bins_in_target": 0.0,
     }
 
     frames = trace.frames
@@ -90,6 +95,28 @@ def compute_metrics(trace: EpisodeTrace, design: DesignSpec) -> dict[str, float]
         return metrics
 
     metrics["duration_s"] = float(frames[-1].t)
+
+    end_bodies = frames[-1].bodies
+
+    # --- spread_area: bounding box of all body positions in the final frame ----
+    if len(end_bodies) >= 2:
+        xs = [b.x for b in end_bodies.values()]
+        ys = [b.y for b in end_bodies.values()]
+        metrics["spread_area"] = max(0.0, (max(xs) - min(xs)) * (max(ys) - min(ys)))
+
+    # --- bins_in_target: dynamic bodies whose final position is inside a bin ---
+    if bins:
+        dynamic_ids = set(_dynamic_bodies(design)) or set(end_bodies.keys())
+        for bid in dynamic_ids:
+            body = end_bodies.get(bid)
+            if body is None:
+                continue
+            for bin_ in bins:
+                half_w = bin_["width"] / 2.0
+                half_h = bin_["height"] / 2.0
+                if abs(body.x - bin_["x"]) <= half_w and abs(body.y - bin_["y"]) <= half_h:
+                    metrics["bins_in_target"] += 1.0
+                    break  # count each dynamic body at most once
 
     primary = _primary_body_id(trace, design)
     if primary is None:
@@ -163,25 +190,39 @@ def _reward_distance_plus_stability(m: dict[str, float]) -> tuple[float, bool, s
 
 
 def _reward_sorting_accuracy(m: dict[str, float]) -> tuple[float, bool, str]:
-    # Real sorting needs bin/membership logic that isn't available yet, so
-    # this is a preliminary proxy based on stability.
+    bins_count = m.get("bins_count", 0.0)
+    bins_in_target = m.get("bins_in_target", 0.0)
     stability = m.get("stability", 0.0)
-    score = stability * 50.0
-    success = stability > 0.5
-    summary = (
-        f"Preliminary sorting score from stability {stability:.2f} "
-        "(real bin-based sorting scoring not yet implemented)."
-    )
+    dynamic = max(m.get("parts_used", 0.0) - bins_count, 0.0)
+
+    if bins_count > 0 and dynamic > 0:
+        accuracy = bins_in_target / dynamic
+        score = accuracy * 80.0 + stability * 20.0
+        success = accuracy >= 0.5
+        summary = (
+            f"Sorted {int(bins_in_target)}/{int(dynamic)} items into bins "
+            f"({accuracy:.0%} accuracy, stability {stability:.2f})."
+        )
+    else:
+        # No bins placed — stability-only proxy with a clear label.
+        score = stability * 30.0
+        success = False
+        summary = (
+            f"No bins placed — cannot score sorting accuracy. "
+            f"Stability proxy: {stability:.2f}."
+        )
     return score, success, summary
 
 
 def _reward_city_score(m: dict[str, float]) -> tuple[float, bool, str]:
     parts = m.get("parts_used", 0.0)
-    score = parts * 2.0
-    success = parts >= 5
+    spread_area = m.get("spread_area", 0.0)
+    stability = m.get("stability", 0.0)
+    score = parts * 5.0 + math.sqrt(max(0.0, spread_area)) * 3.0 + stability * 10.0
+    success = parts >= 3 and spread_area >= 1.0
     summary = (
-        f"Preliminary city score from {int(parts)} structure(s) "
-        "(full city scoring not yet implemented)."
+        f"City: {int(parts)} structures, {spread_area:.1f}u² spread, "
+        f"stability {stability:.2f}."
     )
     return score, success, summary
 
@@ -234,7 +275,12 @@ def score_attempt(
     ScoreCard.
     """
     if trace is None:
-        no_trace_metrics = {"parts_used": float(len(design.bodies))}
+        no_trace_metrics = {
+            "parts_used": float(len(design.bodies)),
+            "bins_count": float(len(design.metadata.get("bins", []))),
+            "bins_in_target": 0.0,
+            "spread_area": 0.0,
+        }
         return ScoreCard(
             score_total=0.0,
             success=False,

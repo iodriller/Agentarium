@@ -179,7 +179,7 @@ _TOOLS: list[ToolDefinition] = [
         category=ToolCategory.building,
         description="Place a container bin that can catch objects.",
         risk=RiskLevel.low,
-        enabled_by_default=False,
+        enabled_by_default=True,
         input_schema={
             "type": "object",
             "required": ["id", "position"],
