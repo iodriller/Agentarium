@@ -13,7 +13,12 @@ from agentarium.core.schemas.design import DesignSpec
 from agentarium.core.schemas.score import ScoreCard
 from agentarium.core.schemas.setup import LaunchConfig
 from agentarium.core.schemas.toolcall import ToolCallRecord
-from agentarium.services.run_service import create_run_from_design, get_trace
+from agentarium.services.run_service import (
+    create_run_from_design,
+    get_trace,
+    store_score,
+)
+from agentarium.services.scoring_service import score_attempt
 from agentarium.tools.apply import apply_tool_call
 from agentarium.tools.registry import get_tool
 
@@ -59,42 +64,6 @@ def _parse_tool_calls(raw: str) -> list[dict]:
         if isinstance(data, list):
             return [c for c in data if isinstance(c, dict)]
     return []
-
-
-def _placeholder_score(design: DesignSpec, trace_run_id: str | None) -> ScoreCard:
-    """Compute a trivial ScoreCard.
-
-    # placeholder — replaced in Step 18
-    """
-    parts_used = len(design.bodies)
-    joints = len(design.joints)
-    distance = 0.0
-
-    if trace_run_id is not None:
-        trace = get_trace(trace_run_id)
-        if trace is not None and trace.frames:
-            dynamic = [b for b in design.bodies if not b.static]
-            if dynamic:
-                bid = dynamic[0].id
-                first = trace.frames[0].bodies.get(bid)
-                last = trace.frames[-1].bodies.get(bid)
-                if first is not None and last is not None:
-                    distance = abs(last.x - first.x)
-
-    return ScoreCard(
-        score_total=distance * 10.0,
-        success=parts_used > 0,
-        metrics={
-            "parts_used": parts_used,
-            "joints": joints,
-            "distance": distance,
-        },
-        failure_events=[],
-        summary=(
-            f"Built {parts_used} part(s) and {joints} joint(s); "
-            f"first dynamic body travelled {distance:.2f} units."
-        ),
-    )
 
 
 async def run_single_attempt(
@@ -156,7 +125,10 @@ async def run_single_attempt(
             design, config.world, duration_seconds=duration
         )
 
-    score = _placeholder_score(design, trace_run_id)
+    trace = get_trace(trace_run_id) if trace_run_id is not None else None
+    score = score_attempt(trace, design, config.scenario.reward)
+    if trace_run_id is not None:
+        store_score(trace_run_id, score)
 
     # Persist artifacts under runs/{trace_run_id or attempt_id}/.
     out_dir = _RUNS_DIR / (trace_run_id or attempt_id)
