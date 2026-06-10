@@ -12,6 +12,11 @@ interface AgentStatusPanelProps {
   latestScoreByAgent: Record<string, ScoreCard>
   winnerAgentId: string | null
   running: boolean
+  // Cooperative mode: agents contribute to ONE shared design with a shared
+  // score. ``ownershipByAgent`` is each agent's contribution to it.
+  cooperative?: boolean
+  ownershipByAgent?: Record<string, Partial<DesignSummary>>
+  sharedScore?: ScoreCard | null
 }
 
 const AGENT_COLORS = ['var(--agent-a)', 'var(--agent-b)']
@@ -22,6 +27,9 @@ export function AgentStatusPanel({
   latestScoreByAgent,
   winnerAgentId,
   running,
+  cooperative = false,
+  ownershipByAgent = {},
+  sharedScore = null,
 }: AgentStatusPanelProps) {
   return (
     <div>
@@ -34,7 +42,20 @@ export function AgentStatusPanel({
           const color = AGENT_COLORS[i % AGENT_COLORS.length]
           const design = designByAgent[agent.id] ?? null
           const score = latestScoreByAgent[agent.id] ?? null
-          const isWinner = winnerAgentId === agent.id
+          // Cooperative: parts shown are this agent's contribution to the shared
+          // design; the score is the single shared score (same for all agents).
+          const contribution = cooperative ? (ownershipByAgent[agent.id] ?? null) : null
+          const partsValue = cooperative
+            ? `${contribution?.total_parts ?? 0}`
+            : `${design?.total_parts ?? 0}`
+          const scoreValue = cooperative
+            ? sharedScore
+              ? sharedScore.score_total.toFixed(1)
+              : '—'
+            : score
+              ? score.score_total.toFixed(1)
+              : '—'
+          const isWinner = !cooperative && winnerAgentId === agent.id
           // An agent is "done" once it has produced a score and the run is
           // either over or another agent is now building.
           const done = !running
@@ -96,8 +117,8 @@ export function AgentStatusPanel({
                 </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <Stat label="Parts" value={`${design?.total_parts ?? 0}`} />
-                <Stat label="Score" value={score ? score.score_total.toFixed(1) : '—'} />
+                <Stat label={cooperative ? 'Contributed' : 'Parts'} value={partsValue} />
+                <Stat label={cooperative ? 'Shared' : 'Score'} value={scoreValue} />
                 <Stat label="State" value={done ? 'Done' : 'Building'} />
               </div>
             </div>

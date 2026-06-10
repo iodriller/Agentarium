@@ -32,6 +32,7 @@ export function StudioScreen() {
 
   // ── Live run state (fed by the WebSocket) ──────────────────────────────────
   const [runStatus, setRunStatus] = useState<'connecting' | 'running' | 'finished'>('connecting')
+  const [mode, setMode] = useState<string>('single')
   const [challengeName, setChallengeName] = useState('')
   const [objective, setObjective] = useState('')
   const [toolLog, setToolLog] = useState<ToolCallRecord[]>([])
@@ -42,18 +43,28 @@ export function StudioScreen() {
   const [winnerAgentId, setWinnerAgentId] = useState<string | null>(null)
   // Per-agent live state, keyed by agent_id. Single-agent runs use one key.
   const [designByAgent, setDesignByAgent] = useState<Record<string, DesignSummary>>({})
+  // Cooperative ownership: per-agent contribution to the single shared design.
+  const [ownershipByAgent, setOwnershipByAgent] = useState<
+    Record<string, Partial<DesignSummary>>
+  >({})
   const [latestScoreByAgent, setLatestScoreByAgent] = useState<Record<string, ScoreCard>>({})
   const [bestScoreByAgent, setBestScoreByAgent] = useState<Record<string, number>>({})
   const [attemptsByAgent, setAttemptsByAgent] = useState<Record<string, AttemptScore[]>>({})
   const DEFAULT_AGENTS: AgentInfo[] = [{ id: 'agent_a', name: 'Agent A', role: 'builder' }]
   const [agents, setAgents] = useState<AgentInfo[]>(DEFAULT_AGENTS)
 
+  const cooperative = mode === 'cooperative'
+
   // Resolve the "latest" agent (last to update), then its derived displays.
-  const activeAgentId = latestAgentId ?? agents[0]?.id ?? null
+  // Cooperative runs have ONE shared design + ONE shared score (keyed "shared").
+  const activeAgentId = cooperative
+    ? 'shared'
+    : (latestAgentId ?? agents[0]?.id ?? null)
   const designSummary = activeAgentId ? (designByAgent[activeAgentId] ?? null) : null
   const latestScore = activeAgentId ? (latestScoreByAgent[activeAgentId] ?? null) : null
-  const latestAgentName =
-    agents.find((a) => a.id === activeAgentId)?.name ?? activeAgentId ?? ''
+  const latestAgentName = cooperative
+    ? 'Shared'
+    : (agents.find((a) => a.id === activeAgentId)?.name ?? activeAgentId ?? '')
 
   const totalFrames = trace?.frames.length ?? 0
 
@@ -84,6 +95,7 @@ export function StudioScreen() {
         case 'run_started':
           setChallengeName(event.project_name)
           setObjective(event.objective)
+          setMode(event.mode)
           setRunStatus('running')
           if (event.agents && event.agents.length > 0) {
             setAgents(event.agents.map((a) => ({ id: a.id, name: a.name, role: a.role })))
@@ -93,6 +105,13 @@ export function StudioScreen() {
           setToolLog((prev) => [...prev, event.record])
           break
         case 'design_update': {
+          // Cooperative: one shared design (no agent_id) + a by_agent breakdown.
+          if (event.by_agent) {
+            setOwnershipByAgent(event.by_agent)
+            setDesignByAgent((prev) => ({ ...prev, shared: event.summary }))
+            setLatestAgentId('shared')
+            break
+          }
           const id = event.agent_id ?? agents[0]?.id ?? 'agent_a'
           setDesignByAgent((prev) => ({ ...prev, [id]: event.summary }))
           setLatestAgentId(id)
@@ -312,14 +331,20 @@ export function StudioScreen() {
             agents={agents}
             designByAgent={designByAgent}
             latestScoreByAgent={latestScoreByAgent}
-            winnerAgentId={winnerAgentId}
+            winnerAgentId={cooperative ? null : winnerAgentId}
             running={running}
+            cooperative={cooperative}
+            ownershipByAgent={ownershipByAgent}
+            sharedScore={cooperative ? latestScore : null}
           />
           <ScoreCardTable
             agents={agents}
             latestScoreByAgent={latestScoreByAgent}
             bestScoreByAgent={bestScoreByAgent}
-            winnerAgentId={winnerAgentId}
+            winnerAgentId={cooperative ? null : winnerAgentId}
+            cooperative={cooperative}
+            sharedLatest={cooperative ? (latestScoreByAgent.shared?.score_total ?? null) : null}
+            sharedBest={cooperative ? (bestScoreByAgent.shared ?? null) : null}
           />
         </div>
 
@@ -385,6 +410,8 @@ export function StudioScreen() {
           <ToolCallLog records={toolLog} onClear={() => setToolLog([])} />
           <DesignSummaryPanel
             summary={designSummary}
+            byAgent={cooperative ? ownershipByAgent : null}
+            agents={agents}
             onExport={() => alert('Export coming soon')}
           />
           <ReplayTimeline

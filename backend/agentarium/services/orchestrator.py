@@ -4,7 +4,7 @@ import asyncio
 import uuid
 from collections.abc import AsyncIterator
 
-from agentarium.agents.runner import run_agent_attempt
+from agentarium.agents.runner import run_agent_attempt, run_cooperative_attempt
 from agentarium.core.schemas.design import DesignSpec
 from agentarium.core.schemas.setup import (
     AgentConfig,
@@ -27,6 +27,11 @@ MAX_ATTEMPTS_CAP = 3
 # B — so total work is COMPETITIVE_ATTEMPTS_CAP * len(participants)).
 COMPETITIVE_ATTEMPTS_CAP = 2
 
+# In cooperative mode every attempt runs ALL participants against ONE shared
+# design before a single simulation/score. That makes each attempt expensive,
+# so cap the number of shared attempts small for MVP responsiveness.
+COOPERATIVE_ATTEMPTS_CAP = 2
+
 
 def _design_summary(design: DesignSpec) -> dict:
     """Approximate part categories from a DesignSpec.
@@ -47,6 +52,32 @@ def _design_summary(design: DesignSpec) -> dict:
         "ramps": 0,
         "total_parts": bodies + joints,
     }
+
+
+def _ownership_by_agent(design: DesignSpec) -> dict[str, dict]:
+    """Per-``created_by`` breakdown of who built which parts of a design.
+
+    Used by cooperative mode so the UI can attribute parts of the SINGLE shared
+    design to each contributing agent.
+    """
+    by_agent: dict[str, dict] = {}
+    for body in design.bodies:
+        agent_id = body.created_by or "unknown"
+        bucket = by_agent.setdefault(
+            agent_id, {"bodies": 0, "joints": 0, "motors": 0, "total_parts": 0}
+        )
+        bucket["bodies"] += 1
+        bucket["total_parts"] += 1
+    for joint in design.joints:
+        agent_id = joint.created_by or "unknown"
+        bucket = by_agent.setdefault(
+            agent_id, {"bodies": 0, "joints": 0, "motors": 0, "total_parts": 0}
+        )
+        bucket["joints"] += 1
+        bucket["total_parts"] += 1
+        if joint.motor_rate is not None:
+            bucket["motors"] += 1
+    return by_agent
 
 
 class _RunState:
@@ -155,6 +186,8 @@ class RunManager:
 
         if config.agents.mode == CollaborationMode.competitive:
             await self._run_competitive(run_id, config, participants)
+        elif config.agents.mode == CollaborationMode.cooperative:
+            await self._run_cooperative(run_id, config, participants)
         else:
             await self._run_single_agent(run_id, config, participants[0])
 
@@ -310,6 +343,113 @@ class RunManager:
                 "best_attempt_index": best_attempt_by_agent[winner_agent_id],
                 "best_score": winner_score,
                 "winner_agent_id": winner_agent_id,
+            },
+        )
+
+    async def _run_cooperative(
+        self,
+        run_id: str,
+        config: LaunchConfig,
+        participants: list[AgentConfig],
+    ) -> None:
+        """Run cooperative attempts: all participants build ONE shared design.
+
+        Each attempt runs every participant in order against a single shared
+        DesignSpec, then simulates and scores that shared design ONCE. There is
+        no winner — the score is shared. Capped small for MVP responsiveness.
+        """
+        attempts = min(config.constraints.max_attempts, COOPERATIVE_ATTEMPTS_CAP)
+        agent_ids = [a.id for a in participants]
+
+        best_attempt_index = -1
+        best_score = float("-inf")
+
+        for attempt_index in range(attempts):
+            # One shared attempt: announce it with the participating agent ids
+            # rather than a single owner.
+            self._emit(
+                run_id,
+                {
+                    "type": "attempt_started",
+                    "attempt_index": attempt_index,
+                    "agent_ids": agent_ids,
+                },
+            )
+
+            result = await run_cooperative_attempt(
+                config, attempt_index=attempt_index
+            )
+
+            # Stream each tool call attributed to its own author.
+            for record in result.tool_calls:
+                self._emit(
+                    run_id,
+                    {
+                        "type": "tool_call",
+                        "attempt_index": attempt_index,
+                        "agent_id": record.agent_id,
+                        "record": record.model_dump(mode="json"),
+                    },
+                )
+                if STREAM_DELAY:
+                    await asyncio.sleep(STREAM_DELAY)
+
+            # One design_update for the shared design, with an ownership
+            # breakdown so the UI can show who built what.
+            self._emit(
+                run_id,
+                {
+                    "type": "design_update",
+                    "attempt_index": attempt_index,
+                    "agent_ids": agent_ids,
+                    "summary": _design_summary(result.design),
+                    "by_agent": _ownership_by_agent(result.design),
+                },
+            )
+
+            if result.trace_run_id:
+                self._emit(
+                    run_id,
+                    {
+                        "type": "trace_ready",
+                        "attempt_index": attempt_index,
+                        "agent_ids": agent_ids,
+                        "trace_run_id": result.trace_run_id,
+                    },
+                )
+
+            # A SINGLE shared score (not one per agent).
+            self._emit(
+                run_id,
+                {
+                    "type": "score",
+                    "attempt_index": attempt_index,
+                    "agent_id": "shared",
+                    "scorecard": result.score.model_dump(mode="json"),
+                },
+            )
+
+            if result.score.score_total > best_score:
+                best_score = result.score.score_total
+                best_attempt_index = attempt_index
+
+            self._emit(
+                run_id,
+                {
+                    "type": "attempt_finished",
+                    "attempt_index": attempt_index,
+                    "agent_ids": agent_ids,
+                },
+            )
+
+        # No winner in cooperative mode — the score is shared.
+        self._emit(
+            run_id,
+            {
+                "type": "run_finished",
+                "best_attempt_index": best_attempt_index,
+                "best_score": best_score if best_score != float("-inf") else 0.0,
+                "winner_agent_id": None,
             },
         )
 

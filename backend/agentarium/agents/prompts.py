@@ -43,3 +43,29 @@ def build_user_prompt(challenge_objective: str, attempt_index: int = 0) -> str:
         f"Attempt #{attempt_index}. Build a design to achieve: "
         f"{challenge_objective}. Emit your tool_calls now."
     )
+
+
+def build_cooperative_user_prompt(
+    challenge_objective: str,
+    attempt_index: int,
+    *,
+    body_count: int,
+    joint_count: int,
+    existing_body_ids: list[str],
+) -> str:
+    """Task text for a follow-up agent extending a shared cooperative design.
+
+    The agent is told the current design summary and asked to extend/stabilize
+    the existing partial design rather than start from scratch.
+    """
+    ids_preview = ", ".join(existing_body_ids[:12])
+    if len(existing_body_ids) > 12:
+        ids_preview += ", …"
+    return (
+        f"Attempt #{attempt_index}. You are collaborating on a SHARED design "
+        f"to achieve: {challenge_objective}.\n"
+        f"The design so far has {body_count} bodies and {joint_count} joints.\n"
+        f"Existing body ids: [{ids_preview}].\n"
+        "Extend and stabilize this existing design (add supports, joints, or "
+        "missing parts). Emit your tool_calls now."
+    )

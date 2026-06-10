@@ -269,6 +269,8 @@ export interface AttemptStartedEvent {
   type: 'attempt_started'
   attempt_index: number
   agent_id?: string
+  // Cooperative attempts are shared by several agents at once.
+  agent_ids?: string[]
 }
 
 export interface ToolCallEvent {
@@ -281,20 +283,27 @@ export interface ToolCallEvent {
 export interface DesignUpdateEvent {
   type: 'design_update'
   attempt_index: number
-  agent_id: string
+  // Single/competitive: the owning agent. Cooperative omits it in favour of
+  // ``agent_ids`` + ``by_agent``.
+  agent_id?: string
+  agent_ids?: string[]
   summary: DesignSummary
+  // Cooperative ownership breakdown: who built which parts of the shared design.
+  by_agent?: Record<string, Partial<DesignSummary>>
 }
 
 export interface TraceReadyEvent {
   type: 'trace_ready'
   attempt_index: number
   agent_id?: string
+  agent_ids?: string[]
   trace_run_id: string
 }
 
 export interface ScoreEvent {
   type: 'score'
   attempt_index: number
+  // Cooperative emits a single shared score with agent_id === "shared".
   agent_id?: string
   scorecard: ScoreCard
 }
@@ -303,6 +312,7 @@ export interface AttemptFinishedEvent {
   type: 'attempt_finished'
   attempt_index: number
   agent_id?: string
+  agent_ids?: string[]
 }
 
 export interface WinnerEvent {
@@ -315,7 +325,7 @@ export interface RunFinishedEvent {
   type: 'run_finished'
   best_attempt_index: number
   best_score: number
-  winner_agent_id?: string
+  winner_agent_id?: string | null
 }
 
 export interface ErrorEvent {
