@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from agentarium import __version__
 from agentarium.api.routes_agents import router as agents_router
 from agentarium.api.routes_presets import router as presets_router
+from agentarium.api.routes_runs import router as runs_router
 from agentarium.api.routes_setup import router as setup_router
 from agentarium.api.routes_tools import router as tools_router
 
@@ -17,6 +18,7 @@ app.include_router(setup_router)
 app.include_router(tools_router)
 app.include_router(presets_router)
 app.include_router(agents_router)
+app.include_router(runs_router)
 
 app.add_middleware(
     CORSMiddleware,
