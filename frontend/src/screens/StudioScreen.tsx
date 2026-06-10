@@ -4,52 +4,163 @@ import { TopBar } from '../components/shared/TopBar'
 import { IsometricWorldView } from '../components/studio/IsometricWorldView'
 import { PlaybackToolbar } from '../components/studio/PlaybackToolbar'
 import { ReplayTimeline } from '../components/studio/ReplayTimeline'
-import { api } from '../api/client'
-import type { EpisodeTrace, CreateRunResponse } from '../api/types'
+import { ChallengeBriefing } from '../components/studio/ChallengeBriefing'
+import { AgentStatusPanel, type AgentInfo } from '../components/studio/AgentStatusPanel'
+import { ScoreCardTable } from '../components/studio/ScoreCardTable'
+import { ToolCallLog } from '../components/studio/ToolCallLog'
+import { DesignSummaryPanel } from '../components/studio/DesignSummaryPanel'
+import { TelemetryPanel, type AttemptScore } from '../components/studio/TelemetryPanel'
+import { api, wsUrl } from '../api/client'
+import type {
+  CreateRunResponse,
+  DesignSummary,
+  EpisodeTrace,
+  RunEvent,
+  ScoreCard,
+  ToolCallRecord,
+} from '../api/types'
 
 export function StudioScreen() {
   const { runId } = useParams<{ runId: string }>()
 
+  // ── Playback state (drives the Phaser replay) ──────────────────────────────
   const [trace, setTrace] = useState<EpisodeTrace | null>(null)
   const [frameIndex, setFrameIndex] = useState(0)
   const [playing, setPlaying] = useState(false)
   const [speed, setSpeed] = useState(1)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
 
+  // ── Live run state (fed by the WebSocket) ──────────────────────────────────
+  const [runStatus, setRunStatus] = useState<'connecting' | 'running' | 'finished'>('connecting')
+  const [challengeName, setChallengeName] = useState('')
+  const [objective, setObjective] = useState('')
+  const [toolLog, setToolLog] = useState<ToolCallRecord[]>([])
+  const [designSummary, setDesignSummary] = useState<DesignSummary | null>(null)
+  const [attempts, setAttempts] = useState<AttemptScore[]>([])
+  const [latestScore, setLatestScore] = useState<ScoreCard | null>(null)
+  const [latestAttemptIndex, setLatestAttemptIndex] = useState<number | null>(null)
+  const [bestScore, setBestScore] = useState<number | null>(null)
+  const [agents] = useState<AgentInfo[]>([
+    { id: 'agent_a', name: 'Agent A', role: 'builder' },
+  ])
+
   const totalFrames = trace?.frames.length ?? 0
 
-  // ── Fetch a trace on mount. Fall back to a demo run for dev convenience. ────
+  // ── WebSocket subscription (live runs) ─────────────────────────────────────
+  // Open exactly once per runId; tolerate StrictMode double-mount + close.
+  const wsRef = useRef<WebSocket | null>(null)
+
   useEffect(() => {
+    if (!runId) return
     let cancelled = false
 
-    async function loadTrace() {
-      setStatus('loading')
+    // Fetch a trace by run id and auto-play it in the Phaser replay.
+    const loadTrace = async (traceRunId: string) => {
       try {
-        let id = runId
-        if (!id) {
-          const created = await api.post<CreateRunResponse>('/runs', {})
-          id = created.run_id
-        }
-        let fetched: EpisodeTrace
-        try {
-          fetched = await api.get<EpisodeTrace>(`/runs/${id}/trace`)
-        } catch {
-          // The run id may be stale/invalid — spin up a demo run and retry.
-          const created = await api.post<CreateRunResponse>('/runs', {})
-          fetched = await api.get<EpisodeTrace>(`/runs/${created.run_id}/trace`)
-        }
+        const fetched = await api.get<EpisodeTrace>(`/runs/${traceRunId}/trace`)
         if (cancelled) return
         setTrace(fetched)
         setFrameIndex(0)
         setPlaying(true)
         setStatus('ready')
       } catch {
-        if (cancelled) return
-        setStatus('error')
+        if (!cancelled) setStatus('error')
       }
     }
 
-    loadTrace()
+    const handleEvent = (event: RunEvent) => {
+      switch (event.type) {
+        case 'run_started':
+          setChallengeName(event.project_name)
+          setObjective(event.objective)
+          setRunStatus('running')
+          break
+        case 'tool_call':
+          setToolLog((prev) => [...prev, event.record])
+          break
+        case 'design_update':
+          setDesignSummary(event.summary)
+          break
+        case 'trace_ready':
+          void loadTrace(event.trace_run_id)
+          break
+        case 'score': {
+          setLatestScore(event.scorecard)
+          setLatestAttemptIndex(event.attempt_index)
+          setAttempts((prev) => {
+            const next = prev.filter((a) => a.index !== event.attempt_index)
+            next.push({ index: event.attempt_index, scorecard: event.scorecard })
+            next.sort((a, b) => a.index - b.index)
+            return next
+          })
+          break
+        }
+        case 'run_finished':
+          setBestScore(event.best_score)
+          setRunStatus('finished')
+          break
+        case 'error':
+          setStatus('error')
+          break
+        default:
+          break
+      }
+    }
+
+    const ws = new WebSocket(wsUrl(`/runs/${runId}`))
+    wsRef.current = ws
+
+    ws.onopen = () => {
+      if (!cancelled) setRunStatus('running')
+    }
+
+    ws.onmessage = (msg) => {
+      if (cancelled) return
+      let event: RunEvent
+      try {
+        event = JSON.parse(msg.data) as RunEvent
+      } catch {
+        return
+      }
+      handleEvent(event)
+    }
+
+    ws.onerror = () => {
+      if (!cancelled) setStatus('error')
+    }
+
+    return () => {
+      cancelled = true
+      wsRef.current = null
+      // 1000 = normal closure; tolerate sockets already closed after run_finished.
+      try {
+        ws.close(1000)
+      } catch {
+        /* already closed */
+      }
+    }
+  }, [runId])
+
+  // ── Dev fallback: no runId → spin up a demo run so the world still moves. ───
+  useEffect(() => {
+    if (runId) return
+    let cancelled = false
+    async function loadDemo() {
+      setStatus('loading')
+      try {
+        const created = await api.post<CreateRunResponse>('/runs', {})
+        const fetched = await api.get<EpisodeTrace>(`/runs/${created.run_id}/trace`)
+        if (cancelled) return
+        setTrace(fetched)
+        setFrameIndex(0)
+        setPlaying(true)
+        setStatus('ready')
+        setRunStatus('finished')
+      } catch {
+        if (!cancelled) setStatus('error')
+      }
+    }
+    loadDemo()
     return () => {
       cancelled = true
     }
@@ -71,7 +182,6 @@ export function StudioScreen() {
       lastTsRef.current = ts
       accRef.current += elapsed * speed
 
-      // Consume whole-frame steps from the accumulator.
       let advance = 0
       while (accRef.current >= dt) {
         accRef.current -= dt
@@ -97,13 +207,13 @@ export function StudioScreen() {
     setPlaying(false)
     setFrameIndex(0)
   }
-  const handleSeek = (index: number) => {
-    setFrameIndex(index)
-  }
+  const handleSeek = (index: number) => setFrameIndex(index)
+
+  const running = runStatus === 'running' || runStatus === 'connecting'
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <TopBar projectName="Creature Builder Lab" />
+      <TopBar projectName={challengeName || 'Creature Builder Lab'} />
 
       {/* Studio header */}
       <div
@@ -123,7 +233,7 @@ export function StudioScreen() {
         <span
           style={{
             fontSize: 11,
-            color: status === 'error' ? 'var(--danger)' : 'var(--ok)',
+            color: status === 'error' ? 'var(--danger)' : running ? 'var(--warn)' : 'var(--ok)',
             display: 'flex',
             alignItems: 'center',
             gap: 4,
@@ -134,20 +244,26 @@ export function StudioScreen() {
               width: 6,
               height: 6,
               borderRadius: '50%',
-              background: status === 'error' ? 'var(--danger)' : 'var(--ok)',
+              background:
+                status === 'error' ? 'var(--danger)' : running ? 'var(--warn)' : 'var(--ok)',
               display: 'inline-block',
             }}
           />
-          {status === 'loading' ? 'Loading…' : status === 'error' ? 'Trace unavailable' : 'Ready'}
+          {status === 'error'
+            ? 'Run error'
+            : runStatus === 'connecting'
+              ? 'Connecting…'
+              : runStatus === 'running'
+                ? 'Building…'
+                : 'Finished'}
         </span>
         <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-2)' }}>
-          run: {trace?.run_id ?? runId ?? '—'}
+          run: {runId ?? trace?.run_id ?? '—'}
         </span>
       </div>
 
       {/* Three-region layout */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-
         {/* Left rail — briefing & agent status */}
         <div
           style={{
@@ -161,9 +277,22 @@ export function StudioScreen() {
             gap: 12,
           }}
         >
-          <RailSection title="Challenge" />
-          <RailSection title="Agent Status" />
-          <RailSection title="Score Card" />
+          <ChallengeBriefing
+            challengeName={challengeName}
+            objective={objective}
+            reward="distance_plus_stability"
+          />
+          <AgentStatusPanel
+            agents={agents}
+            designSummary={designSummary}
+            latestScore={latestScore}
+            running={running}
+          />
+          <ScoreCardTable
+            agents={agents}
+            latestScore={latestScore?.score_total ?? null}
+            bestScore={bestScore}
+          />
         </div>
 
         {/* Center — toolbar + isometric viewport + telemetry */}
@@ -179,7 +308,14 @@ export function StudioScreen() {
           />
 
           {/* Viewport */}
-          <div style={{ flex: 1, background: 'var(--surface-2)', position: 'relative', overflow: 'hidden' }}>
+          <div
+            style={{
+              flex: 1,
+              background: 'var(--surface-2)',
+              position: 'relative',
+              overflow: 'hidden',
+            }}
+          >
             <IsometricWorldView trace={trace} frameIndex={frameIndex} />
           </div>
 
@@ -194,13 +330,16 @@ export function StudioScreen() {
               background: 'var(--surface-1)',
             }}
           >
-            <TelemetryCard title="Score over Attempts" />
-            <TelemetryCard title="Metrics over Time" borderLeft />
-            <TelemetryCard title="Latest Attempt Summary" borderLeft />
+            <TelemetryPanel
+              attempts={attempts}
+              latest={latestScore}
+              latestAttemptIndex={latestAttemptIndex}
+              running={running}
+            />
           </div>
         </div>
 
-        {/* Right rail — tools, log, design, replay */}
+        {/* Right rail — log, design, replay */}
         <div
           style={{
             width: 300,
@@ -213,9 +352,11 @@ export function StudioScreen() {
             gap: 12,
           }}
         >
-          <RailSection title="Available Tools" />
-          <RailSection title="Tool Call Log" />
-          <RailSection title="Design Summary" />
+          <ToolCallLog records={toolLog} onClear={() => setToolLog([])} />
+          <DesignSummaryPanel
+            summary={designSummary}
+            onExport={() => alert('Export coming soon')}
+          />
           <ReplayTimeline
             frameIndex={frameIndex}
             totalFrames={totalFrames}
@@ -225,69 +366,6 @@ export function StudioScreen() {
             speed={speed}
           />
         </div>
-      </div>
-    </div>
-  )
-}
-
-function RailSection({ title }: { title: string }) {
-  return (
-    <div>
-      <div
-        style={{
-          fontSize: 10,
-          fontWeight: 700,
-          color: 'var(--text-2)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.6px',
-          marginBottom: 6,
-        }}
-      >
-        {title}
-      </div>
-      <div
-        style={{
-          padding: 10,
-          borderRadius: 6,
-          border: '1px dashed var(--border)',
-          color: 'var(--text-2)',
-          fontSize: 11,
-          textAlign: 'center',
-        }}
-      >
-        {title}
-      </div>
-    </div>
-  )
-}
-
-function TelemetryCard({ title, borderLeft }: { title: string; borderLeft?: boolean }) {
-  return (
-    <div
-      style={{
-        padding: 10,
-        borderLeft: borderLeft ? '1px solid var(--border)' : undefined,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 4,
-      }}
-    >
-      <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-        {title}
-      </span>
-      <div
-        style={{
-          flex: 1,
-          borderRadius: 4,
-          border: '1px dashed var(--border)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: 'var(--text-2)',
-          fontSize: 11,
-        }}
-      >
-        chart
       </div>
     </div>
   )

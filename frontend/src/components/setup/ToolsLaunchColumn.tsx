@@ -39,6 +39,7 @@ interface ToolsLaunchColumnProps {
   onConfigChange: (patch: Partial<LaunchConfig>) => void
   validationResult: ValidationResult | null
   onValidateNow: () => void
+  onLaunch: () => void
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -391,6 +392,7 @@ export function ToolsLaunchColumn({
   onConfigChange,
   validationResult,
   onValidateNow,
+  onLaunch,
 }: ToolsLaunchColumnProps) {
   // ── Tools state ──
   const [toolsData, setToolsData] = useState<ToolsResponse | null>(null)
@@ -850,6 +852,9 @@ export function ToolsLaunchColumn({
 
       <button
         disabled={!isReady}
+        onClick={() => {
+          if (isReady) onLaunch()
+        }}
         style={{
           marginTop: 8,
           width: '100%',
