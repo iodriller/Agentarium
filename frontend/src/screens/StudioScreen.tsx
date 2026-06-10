@@ -10,7 +10,8 @@ import { ScoreCardTable } from '../components/studio/ScoreCardTable'
 import { ToolCallLog } from '../components/studio/ToolCallLog'
 import { DesignSummaryPanel } from '../components/studio/DesignSummaryPanel'
 import { TelemetryPanel, type AttemptScore } from '../components/studio/TelemetryPanel'
-import { api, wsUrl } from '../api/client'
+import { AttemptHistory } from '../components/studio/AttemptHistory'
+import { api, downloadUrl, wsUrl } from '../api/client'
 import type {
   CreateRunResponse,
   DesignSummary,
@@ -32,19 +33,68 @@ export function StudioScreen() {
 
   // ── Live run state (fed by the WebSocket) ──────────────────────────────────
   const [runStatus, setRunStatus] = useState<'connecting' | 'running' | 'finished'>('connecting')
+  const [mode, setMode] = useState<string>('single')
   const [challengeName, setChallengeName] = useState('')
   const [objective, setObjective] = useState('')
   const [toolLog, setToolLog] = useState<ToolCallRecord[]>([])
-  const [designSummary, setDesignSummary] = useState<DesignSummary | null>(null)
-  const [attempts, setAttempts] = useState<AttemptScore[]>([])
-  const [latestScore, setLatestScore] = useState<ScoreCard | null>(null)
+  // The agent whose score/metrics/design last updated — drives the "latest"
+  // displays. Falls back to the first agent.
+  const [latestAgentId, setLatestAgentId] = useState<string | null>(null)
   const [latestAttemptIndex, setLatestAttemptIndex] = useState<number | null>(null)
-  const [bestScore, setBestScore] = useState<number | null>(null)
-  const [agents] = useState<AgentInfo[]>([
-    { id: 'agent_a', name: 'Agent A', role: 'builder' },
-  ])
+  const [winnerAgentId, setWinnerAgentId] = useState<string | null>(null)
+  // Per-agent live state, keyed by agent_id. Single-agent runs use one key.
+  const [designByAgent, setDesignByAgent] = useState<Record<string, DesignSummary>>({})
+  // Cooperative ownership: per-agent contribution to the single shared design.
+  const [ownershipByAgent, setOwnershipByAgent] = useState<
+    Record<string, Partial<DesignSummary>>
+  >({})
+  const [latestScoreByAgent, setLatestScoreByAgent] = useState<Record<string, ScoreCard>>({})
+  const [bestScoreByAgent, setBestScoreByAgent] = useState<Record<string, number>>({})
+  const [attemptsByAgent, setAttemptsByAgent] = useState<Record<string, AttemptScore[]>>({})
+  // trace_run_id per attempt, keyed `${agentId}:${attemptIndex}`, for replay.
+  const [traceByAttempt, setTraceByAttempt] = useState<Record<string, string>>({})
+  // best_attempt_index reported by run_finished (marks the ★ row).
+  const [bestAttemptIndex, setBestAttemptIndex] = useState<number | null>(null)
+  const DEFAULT_AGENTS: AgentInfo[] = [{ id: 'agent_a', name: 'Agent A', role: 'builder' }]
+  const [agents, setAgents] = useState<AgentInfo[]>(DEFAULT_AGENTS)
+
+  const cooperative = mode === 'cooperative'
+
+  // Resolve the "latest" agent (last to update), then its derived displays.
+  // Cooperative runs have ONE shared design + ONE shared score (keyed "shared").
+  const activeAgentId = cooperative
+    ? 'shared'
+    : (latestAgentId ?? agents[0]?.id ?? null)
+  const designSummary = activeAgentId ? (designByAgent[activeAgentId] ?? null) : null
+  const latestScore = activeAgentId ? (latestScoreByAgent[activeAgentId] ?? null) : null
+  const latestAgentName = cooperative
+    ? 'Shared'
+    : (agents.find((a) => a.id === activeAgentId)?.name ?? activeAgentId ?? '')
+
+  // Attempt history for the active agent + its per-attempt trace ids.
+  const activeAttempts = activeAgentId ? (attemptsByAgent[activeAgentId] ?? []) : []
+  const activeTraceByIndex: Record<number, string> = {}
+  if (activeAgentId) {
+    for (const [key, value] of Object.entries(traceByAttempt)) {
+      const [aid, idx] = key.split(':')
+      if (aid === activeAgentId) activeTraceByIndex[Number(idx)] = value
+    }
+  }
 
   const totalFrames = trace?.frames.length ?? 0
+
+  // Load + replay a specific attempt's trace by run id (Attempt History clicks).
+  const replayTraceRunId = async (traceRunId: string) => {
+    try {
+      const fetched = await api.get<EpisodeTrace>(`/runs/${traceRunId}/trace`)
+      setTrace(fetched)
+      setFrameIndex(0)
+      setPlaying(true)
+      setStatus('ready')
+    } catch {
+      setStatus('error')
+    }
+  }
 
   // ── WebSocket subscription (live runs) ─────────────────────────────────────
   // Open exactly once per runId; tolerate StrictMode double-mount + close.
@@ -73,30 +123,62 @@ export function StudioScreen() {
         case 'run_started':
           setChallengeName(event.project_name)
           setObjective(event.objective)
+          setMode(event.mode)
           setRunStatus('running')
+          if (event.agents && event.agents.length > 0) {
+            setAgents(event.agents.map((a) => ({ id: a.id, name: a.name, role: a.role })))
+          }
           break
         case 'tool_call':
           setToolLog((prev) => [...prev, event.record])
           break
-        case 'design_update':
-          setDesignSummary(event.summary)
+        case 'design_update': {
+          // Cooperative: one shared design (no agent_id) + a by_agent breakdown.
+          if (event.by_agent) {
+            setOwnershipByAgent(event.by_agent)
+            setDesignByAgent((prev) => ({ ...prev, shared: event.summary }))
+            setLatestAgentId('shared')
+            break
+          }
+          const id = event.agent_id ?? agents[0]?.id ?? 'agent_a'
+          setDesignByAgent((prev) => ({ ...prev, [id]: event.summary }))
+          setLatestAgentId(id)
           break
-        case 'trace_ready':
+        }
+        case 'trace_ready': {
+          const id = event.agent_id ?? (event.agent_ids ? 'shared' : agents[0]?.id ?? 'agent_a')
+          setTraceByAttempt((prev) => ({
+            ...prev,
+            [`${id}:${event.attempt_index}`]: event.trace_run_id,
+          }))
           void loadTrace(event.trace_run_id)
           break
+        }
         case 'score': {
-          setLatestScore(event.scorecard)
+          const id = event.agent_id ?? agents[0]?.id ?? 'agent_a'
+          setLatestScoreByAgent((prev) => ({ ...prev, [id]: event.scorecard }))
+          setBestScoreByAgent((prev) => ({
+            ...prev,
+            [id]: Math.max(prev[id] ?? -Infinity, event.scorecard.score_total),
+          }))
+          setLatestAgentId(id)
           setLatestAttemptIndex(event.attempt_index)
-          setAttempts((prev) => {
-            const next = prev.filter((a) => a.index !== event.attempt_index)
-            next.push({ index: event.attempt_index, scorecard: event.scorecard })
-            next.sort((a, b) => a.index - b.index)
-            return next
+          setAttemptsByAgent((prev) => {
+            const series = (prev[id] ?? []).filter((a) => a.index !== event.attempt_index)
+            series.push({ index: event.attempt_index, scorecard: event.scorecard })
+            series.sort((a, b) => a.index - b.index)
+            return { ...prev, [id]: series }
           })
           break
         }
+        case 'winner':
+          setWinnerAgentId(event.agent_id)
+          break
         case 'run_finished':
-          setBestScore(event.best_score)
+          if (event.winner_agent_id) setWinnerAgentId(event.winner_agent_id)
+          if (event.best_attempt_index >= 0) setBestAttemptIndex(event.best_attempt_index)
+          // One-click winner replay: surface the best attempt's trace at run end.
+          if (event.best_trace_run_id) void loadTrace(event.best_trace_run_id)
           setRunStatus('finished')
           break
         case 'error':
@@ -127,6 +209,12 @@ export function StudioScreen() {
 
     ws.onerror = () => {
       if (!cancelled) setStatus('error')
+    }
+
+    ws.onclose = () => {
+      // If the socket drops without a clean run_finished (server crash, proxy
+      // timeout), leave the "running" state so the UI doesn't hang on "Building…".
+      if (!cancelled) setRunStatus((s) => (s === 'running' ? 'finished' : s))
     }
 
     return () => {
@@ -284,14 +372,22 @@ export function StudioScreen() {
           />
           <AgentStatusPanel
             agents={agents}
-            designSummary={designSummary}
-            latestScore={latestScore}
+            designByAgent={designByAgent}
+            latestScoreByAgent={latestScoreByAgent}
+            winnerAgentId={cooperative ? null : winnerAgentId}
             running={running}
+            cooperative={cooperative}
+            ownershipByAgent={ownershipByAgent}
+            sharedScore={cooperative ? latestScore : null}
           />
           <ScoreCardTable
             agents={agents}
-            latestScore={latestScore?.score_total ?? null}
-            bestScore={bestScore}
+            latestScoreByAgent={latestScoreByAgent}
+            bestScoreByAgent={bestScoreByAgent}
+            winnerAgentId={cooperative ? null : winnerAgentId}
+            cooperative={cooperative}
+            sharedLatest={cooperative ? (latestScoreByAgent.shared?.score_total ?? null) : null}
+            sharedBest={cooperative ? (bestScoreByAgent.shared ?? null) : null}
           />
         </div>
 
@@ -331,8 +427,10 @@ export function StudioScreen() {
             }}
           >
             <TelemetryPanel
-              attempts={attempts}
+              agents={agents}
+              attemptsByAgent={attemptsByAgent}
               latest={latestScore}
+              latestAgentName={latestAgentName}
               latestAttemptIndex={latestAttemptIndex}
               running={running}
             />
@@ -352,10 +450,29 @@ export function StudioScreen() {
             gap: 12,
           }}
         >
+          <AttemptHistory
+            attempts={activeAttempts}
+            traceByIndex={activeTraceByIndex}
+            bestAttemptIndex={
+              // Attempt indices are per-agent and overlap; only mark the best on
+              // the agent it belongs to (the winner in competitive mode).
+              !winnerAgentId || activeAgentId === winnerAgentId ? bestAttemptIndex : null
+            }
+            onReplay={(id) => void replayTraceRunId(id)}
+          />
           <ToolCallLog records={toolLog} onClear={() => setToolLog([])} />
           <DesignSummaryPanel
             summary={designSummary}
-            onExport={() => alert('Export coming soon')}
+            byAgent={cooperative ? ownershipByAgent : null}
+            agents={agents}
+            onExport={
+              trace?.run_id
+                ? () => downloadUrl(`/exports/${trace.run_id}/design?format=yaml`)
+                : undefined
+            }
+            onViewReport={
+              trace?.run_id ? () => downloadUrl(`/exports/${trace.run_id}/report`) : undefined
+            }
           />
           <ReplayTimeline
             frameIndex={frameIndex}

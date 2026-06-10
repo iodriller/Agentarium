@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import pathlib
 
 import yaml
 
 from agentarium.core.schemas.challenge import ScenarioPreset, WorldTemplate
 from agentarium.core.schemas.setup import LaunchConfig
+
+logger = logging.getLogger(__name__)
 
 _PACKAGE_ROOT = pathlib.Path(__file__).resolve().parent.parent
 _CHALLENGES_DIR = _PACKAGE_ROOT / "challenges"
@@ -17,14 +20,23 @@ _SAVED_PRESETS_DIR = pathlib.Path("runs") / "presets"
 
 def _load_yaml(path: pathlib.Path) -> dict:
     with path.open("r", encoding="utf-8") as fh:
-        return yaml.safe_load(fh)
+        data = yaml.safe_load(fh)
+    # An empty file parses to None; treat it as an empty mapping.
+    return data or {}
 
 
 def load_scenario_presets() -> list[ScenarioPreset]:
-    """Load all built-in scenario presets from disk, sorted by id."""
+    """Load all built-in scenario presets from disk, sorted by id.
+
+    A single malformed YAML file is skipped (and logged) rather than 500-ing the
+    whole setup flow, since presets feed validation and the setup screen.
+    """
     presets: list[ScenarioPreset] = []
     for path in sorted(_CHALLENGES_DIR.glob("*.yaml")):
-        presets.append(ScenarioPreset(**_load_yaml(path)))
+        try:
+            presets.append(ScenarioPreset(**_load_yaml(path)))
+        except Exception:  # noqa: BLE001 - skip a bad file, keep the rest usable
+            logger.warning("Skipping malformed scenario preset: %s", path, exc_info=True)
     return presets
 
 
@@ -37,10 +49,16 @@ def get_scenario_preset(preset_id: str) -> ScenarioPreset | None:
 
 
 def load_world_templates() -> list[WorldTemplate]:
-    """Load all world templates from disk, sorted by id."""
+    """Load all world templates from disk, sorted by id.
+
+    A malformed file is skipped (and logged) rather than breaking the setup flow.
+    """
     templates: list[WorldTemplate] = []
     for path in sorted(_WORLD_TEMPLATES_DIR.glob("*.yaml")):
-        templates.append(WorldTemplate(**_load_yaml(path)))
+        try:
+            templates.append(WorldTemplate(**_load_yaml(path)))
+        except Exception:  # noqa: BLE001 - skip a bad file, keep the rest usable
+            logger.warning("Skipping malformed world template: %s", path, exc_info=True)
     return templates
 
 

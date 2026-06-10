@@ -127,6 +127,18 @@ export function SetupScreen() {
     }
   }
 
+  async function handleSavePreset() {
+    const name = window.prompt('Save preset as:')?.trim()
+    if (!name) return
+    try {
+      await api.post('/setup/save-preset', { name, config })
+      window.alert(`Saved preset "${name}".`)
+    } catch (err) {
+      console.error('Save preset failed', err)
+      window.alert('Save preset failed — see console for details.')
+    }
+  }
+
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <TopBar projectName="Bridge Builder Lab" />
@@ -190,6 +202,7 @@ export function SetupScreen() {
             validationResult={validationResult}
             onValidateNow={handleValidateNow}
             onLaunch={handleLaunch}
+            onSavePreset={handleSavePreset}
           />
         </div>
       </div>

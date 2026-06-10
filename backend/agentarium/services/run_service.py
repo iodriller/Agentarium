@@ -22,8 +22,30 @@ RUNS: dict[str, EpisodeTrace] = {}
 # In-memory store of scorecards, keyed by run_id (same key as RUNS).
 SCORES: dict[str, ScoreCard] = {}
 
+# In-memory store of the simulated design, keyed by run_id (same key as RUNS).
+# Retained so exports can serialize the exact design behind a trace.
+DESIGNS: dict[str, DesignSpec] = {}
+
+# Bound in-memory retention so a long-lived server doesn't grow without limit.
+# The three stores share the same keys and are evicted together (oldest first);
+# on-disk artifacts under runs/{run_id}/ are not touched. 200 keeps plenty of
+# recent attempts replayable while capping memory.
+_MAX_RETAINED_RUNS = 200
+
 # Run artifacts directory (gitignored), relative to cwd.
 _RUNS_DIR = pathlib.Path("runs")
+
+
+def _evict_oldest_runs() -> None:
+    """Drop the oldest run(s) from all in-memory stores once over the cap.
+
+    Dicts preserve insertion order, so the first key is the oldest run.
+    """
+    while len(RUNS) > _MAX_RETAINED_RUNS:
+        oldest = next(iter(RUNS))
+        RUNS.pop(oldest, None)
+        SCORES.pop(oldest, None)
+        DESIGNS.pop(oldest, None)
 
 
 def hardcoded_demo_design() -> DesignSpec:
@@ -95,11 +117,13 @@ def create_run_from_design(
     trace.run_id = run_id
 
     RUNS[run_id] = trace
+    DESIGNS[run_id] = design
 
     # Compute and store a baseline ScoreCard so every run has a fetchable
     # score. The runner may overwrite this with a reward-specific score.
 
     SCORES[run_id] = score_attempt(trace, design, "default")
+    _evict_oldest_runs()
 
     # Persist trace.json to runs/{run_id}/trace.json.
     run_dir = _RUNS_DIR / run_id
@@ -124,3 +148,8 @@ def store_score(run_id: str, score: ScoreCard) -> None:
 def get_score(run_id: str) -> ScoreCard | None:
     """Return the stored ScoreCard for ``run_id``, or None if missing."""
     return SCORES.get(run_id)
+
+
+def get_design(run_id: str) -> DesignSpec | None:
+    """Return the design that produced ``run_id``'s trace, or None if missing."""
+    return DESIGNS.get(run_id)
