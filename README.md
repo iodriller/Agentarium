@@ -30,8 +30,8 @@ Agentarium is currently in planning / bootstrap mode. The MVP is designed around
 
 > An AI agent tries to build a creature or machine that crosses a small simulated world. It fails visibly, inspects the replay, adjusts the design, and tries again.
 
-## Planning Document
+## Planning Documents
 
-See the full implementation plan:
-
-- [`docs/AGENTARIUM_PLAN.md`](docs/AGENTARIUM_PLAN.md)
+- [`docs/COMPREHENSIVE_PLAN.md`](docs/COMPREHENSIVE_PLAN.md) — master product & engineering plan, with a pixel-accurate UI spec for both screens, data models, design system, and milestone map.
+- [`docs/IMPLEMENTATION_STEPS.md`](docs/IMPLEMENTATION_STEPS.md) — the literal step-by-step build guide (Step 1 → 27) with acceptance checks and suggested PR slices.
+- [`docs/AGENTARIUM_PLAN.md`](docs/AGENTARIUM_PLAN.md) — original roadmap, schemas, and repo layout.

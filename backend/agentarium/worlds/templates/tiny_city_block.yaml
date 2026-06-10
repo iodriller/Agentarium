@@ -1,0 +1,9 @@
+id: tiny_city_block
+name: Tiny City Block
+terrain: city
+map_size:
+  - 48
+  - 48
+gravity: -9.81
+active_physics_zones: 4
+description: A large city block for laying out compact urban designs.
