@@ -71,6 +71,20 @@ export interface LLMConnectionConfig {
   api_key?: string | null
 }
 
+export interface ProviderMeta {
+  id: string
+  name: string
+  requires_endpoint: boolean
+  requires_api_key: boolean
+  description: string
+}
+
+export interface ProviderStatus {
+  online: boolean
+  detail: string
+  models?: string[]
+}
+
 export interface ScenarioConfig {
   preset: string
   objective?: string
