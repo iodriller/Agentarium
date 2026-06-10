@@ -1,0 +1,9 @@
+id: gap_crossing
+name: Gap Crossing
+terrain: grassland
+map_size:
+  - 32
+  - 16
+gravity: -9.81
+active_physics_zones: 1
+description: A single wide gap that must be crossed from one ledge to another.

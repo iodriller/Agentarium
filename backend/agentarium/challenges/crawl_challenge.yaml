@@ -1,0 +1,17 @@
+id: crawl_challenge
+name: Crawl Challenge
+tagline: Navigate tight spaces to reach goal.
+tags:
+  - Mobility
+objective: Build a creature that crawls to the goal.
+reward: distance_plus_stability
+default_world: hill_path
+required_tools:
+  - create_body
+  - add_joint
+  - add_motor
+  - run_simulation
+recommended_tools:
+  - set_controller
+  - add_sensor
+  - mutate_design

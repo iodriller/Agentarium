@@ -1,0 +1,9 @@
+id: island_cliff_small
+name: Island Cliff (Small)
+terrain: grassland
+map_size:
+  - 32
+  - 32
+gravity: -9.81
+active_physics_zones: 3
+description: Two cliff platforms separated by a gap to bridge across.

@@ -1,0 +1,89 @@
+from __future__ import annotations
+
+from agentarium.core.schemas.design import BodyShape, DesignSpec
+from agentarium.core.schemas.setup import WorldConfig
+from agentarium.core.schemas.trace import EpisodeTrace, Frame, FrameBody, StaticProp
+from agentarium.engines.base import EngineAdapter
+from agentarium.engines.pymunk2d.builder import GROUND_ID, build_space
+
+# Hard cap on physics steps to keep simulations (and tests) fast.
+_MAX_STEPS = 6000
+# Target output frame rate; we sub-sample physics steps down to ~this rate.
+_TARGET_FPS = 30.0
+
+
+class Pymunk2DEngine(EngineAdapter):
+    name = "pymunk2d"
+
+    def simulate(
+        self,
+        design: DesignSpec,
+        world: WorldConfig,
+        duration_seconds: float,
+        dt: float = 1 / 60,
+    ) -> EpisodeTrace:
+        space, bodies = build_space(design, world)
+
+        # Only dynamic (non-static) bodies are recorded per frame.
+        dynamic_ids = [spec.id for spec in design.bodies if not spec.static]
+
+        total_steps = int(duration_seconds / dt)
+        total_steps = max(0, min(total_steps, _MAX_STEPS))
+
+        # Record roughly every Nth step to hit ~_TARGET_FPS regardless of dt.
+        sim_fps = 1.0 / dt if dt > 0 else _TARGET_FPS
+        record_every = max(1, round(sim_fps / _TARGET_FPS))
+
+        trace = EpisodeTrace(
+            run_id="",  # filled in by caller / run service
+            engine=self.name,
+            dt=dt,
+            world_static=self._build_static(design, world),
+        )
+
+        def record(step: int) -> None:
+            frame_bodies: dict[str, FrameBody] = {}
+            for bid in dynamic_ids:
+                body = bodies[bid]
+                frame_bodies[bid] = FrameBody(
+                    x=float(body.position.x),
+                    y=float(body.position.y),
+                    angle=float(body.angle),
+                )
+            trace.frames.append(Frame(t=step * dt, bodies=frame_bodies))
+
+        # Initial frame at t=0.
+        record(0)
+        for step in range(1, total_steps + 1):
+            space.step(dt)
+            if step % record_every == 0:
+                record(step)
+
+        return trace
+
+    @staticmethod
+    def _build_static(design: DesignSpec, world: WorldConfig) -> list[StaticProp]:
+        props: list[StaticProp] = []
+        map_width = world.map_size[0] if world.map_size else 32
+        props.append(
+            StaticProp(
+                id=GROUND_ID,
+                kind="ground",
+                position=[0.0, 0.0],
+                size=[float(map_width) * 2.0, 0.2],
+            )
+        )
+        for spec in design.bodies:
+            if spec.static:
+                props.append(
+                    StaticProp(
+                        id=spec.id,
+                        kind=spec.shape.value
+                        if isinstance(spec.shape, BodyShape)
+                        else str(spec.shape),
+                        position=list(spec.position),
+                        size=list(spec.size),
+                        color=spec.color,
+                    )
+                )
+        return props

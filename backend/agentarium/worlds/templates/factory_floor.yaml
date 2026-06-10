@@ -1,0 +1,9 @@
+id: factory_floor
+name: Factory Floor
+terrain: factory
+map_size:
+  - 28
+  - 28
+gravity: -9.81
+active_physics_zones: 1
+description: An industrial factory floor with flat working surfaces.
