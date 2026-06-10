@@ -4,7 +4,11 @@ import asyncio
 import uuid
 from collections.abc import AsyncIterator
 
-from agentarium.agents.runner import run_agent_attempt, run_cooperative_attempt
+from agentarium.agents.runner import (
+    AttemptResult,
+    run_agent_attempt,
+    run_cooperative_attempt,
+)
 from agentarium.core.schemas.design import DesignSpec
 from agentarium.core.schemas.setup import (
     AgentConfig,
@@ -156,7 +160,12 @@ class RunManager:
             self._emit(run_id, {"type": "error", "detail": str(exc)})
             self._emit(
                 run_id,
-                {"type": "run_finished", "best_attempt_index": -1, "best_score": 0.0},
+                {
+                    "type": "run_finished",
+                    "best_attempt_index": -1,
+                    "best_score": 0.0,
+                    "best_trace_run_id": None,
+                },
             )
         finally:
             self._runs[run_id].finished = True
@@ -197,13 +206,18 @@ class RunManager:
         config: LaunchConfig,
         agent: AgentConfig,
         attempts: int,
-    ) -> tuple[int, float]:
+    ) -> tuple[int, float, str | None]:
         """Run ``attempts`` attempts for ``agent``, emitting per-agent events.
 
-        Returns ``(best_attempt_index, best_score)`` for this agent.
+        Each attempt is given the previous attempt as its parent so the runner
+        can record lineage and (with episodic memory) iterate on it.
+
+        Returns ``(best_attempt_index, best_score, best_trace_run_id)``.
         """
         best_attempt_index = -1
         best_score = float("-inf")
+        best_trace_run_id: str | None = None
+        previous: AttemptResult | None = None
 
         for attempt_index in range(attempts):
             self._emit(
@@ -212,12 +226,16 @@ class RunManager:
                     "type": "attempt_started",
                     "attempt_index": attempt_index,
                     "agent_id": agent.id,
+                    "parent_attempt_id": (
+                        previous.attempt_id if previous is not None else None
+                    ),
                 },
             )
 
             result = await run_agent_attempt(
-                config, agent, attempt_index=attempt_index
+                config, agent, attempt_index=attempt_index, previous=previous
             )
+            previous = result
 
             for record in result.tool_calls:
                 self._emit(
@@ -266,6 +284,7 @@ class RunManager:
             if result.score.score_total > best_score:
                 best_score = result.score.score_total
                 best_attempt_index = attempt_index
+                best_trace_run_id = result.trace_run_id
 
             self._emit(
                 run_id,
@@ -276,14 +295,14 @@ class RunManager:
                 },
             )
 
-        return best_attempt_index, best_score
+        return best_attempt_index, best_score, best_trace_run_id
 
     async def _run_single_agent(
         self, run_id: str, config: LaunchConfig, agent: AgentConfig
     ) -> None:
         attempts = min(config.constraints.max_attempts, MAX_ATTEMPTS_CAP)
-        best_attempt_index, best_score = await self._run_agent_attempts(
-            run_id, config, agent, attempts
+        best_attempt_index, best_score, best_trace_run_id = (
+            await self._run_agent_attempts(run_id, config, agent, attempts)
         )
         self._emit(
             run_id,
@@ -291,6 +310,7 @@ class RunManager:
                 "type": "run_finished",
                 "best_attempt_index": best_attempt_index,
                 "best_score": best_score if best_score != float("-inf") else 0.0,
+                "best_trace_run_id": best_trace_run_id,
             },
         )
 
@@ -310,15 +330,17 @@ class RunManager:
         # agent_id -> best score across that agent's attempts.
         best_by_agent: dict[str, float] = {}
         best_attempt_by_agent: dict[str, int] = {}
+        best_trace_by_agent: dict[str, str | None] = {}
 
         for agent in participants:
-            best_index, best_score = await self._run_agent_attempts(
+            best_index, best_score, best_trace = await self._run_agent_attempts(
                 run_id, config, agent, attempts
             )
             best_by_agent[agent.id] = (
                 best_score if best_score != float("-inf") else 0.0
             )
             best_attempt_by_agent[agent.id] = best_index
+            best_trace_by_agent[agent.id] = best_trace
 
         # Winner: highest best score; tie → first participant (stable order).
         winner_agent_id = participants[0].id
@@ -342,6 +364,7 @@ class RunManager:
                 "type": "run_finished",
                 "best_attempt_index": best_attempt_by_agent[winner_agent_id],
                 "best_score": winner_score,
+                "best_trace_run_id": best_trace_by_agent[winner_agent_id],
                 "winner_agent_id": winner_agent_id,
             },
         )
@@ -363,6 +386,7 @@ class RunManager:
 
         best_attempt_index = -1
         best_score = float("-inf")
+        best_trace_run_id: str | None = None
 
         for attempt_index in range(attempts):
             # One shared attempt: announce it with the participating agent ids
@@ -432,6 +456,7 @@ class RunManager:
             if result.score.score_total > best_score:
                 best_score = result.score.score_total
                 best_attempt_index = attempt_index
+                best_trace_run_id = result.trace_run_id
 
             self._emit(
                 run_id,
@@ -449,6 +474,7 @@ class RunManager:
                 "type": "run_finished",
                 "best_attempt_index": best_attempt_index,
                 "best_score": best_score if best_score != float("-inf") else 0.0,
+                "best_trace_run_id": best_trace_run_id,
                 "winner_agent_id": None,
             },
         )

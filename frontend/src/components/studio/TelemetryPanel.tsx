@@ -63,6 +63,19 @@ export function TelemetryPanel({
             label="Failures"
             value={`${latest?.failure_events.length ?? 0}`}
           />
+          {latest?.improvement_hint && (
+            <span
+              style={{
+                fontSize: 11,
+                color: 'var(--text-2)',
+                lineHeight: 1.3,
+                marginTop: 2,
+              }}
+              title="Why it failed / how to improve"
+            >
+              {latest.improvement_hint}
+            </span>
+          )}
         </div>
       </Card>
     </>

@@ -37,12 +37,21 @@ def build_system_prompt(
     return "\n\n".join(parts)
 
 
-def build_user_prompt(challenge_objective: str, attempt_index: int = 0) -> str:
-    """Per-attempt task text for the builder agent."""
-    return (
+def build_user_prompt(
+    challenge_objective: str, attempt_index: int = 0, memory: str = ""
+) -> str:
+    """Per-attempt task text for the builder agent.
+
+    ``memory`` is an optional brief summary of previous attempts (score +
+    improvement hint) appended so an agent with episodic memory can iterate.
+    """
+    text = (
         f"Attempt #{attempt_index}. Build a design to achieve: "
         f"{challenge_objective}. Emit your tool_calls now."
     )
+    if memory:
+        text += f"\n\nPrevious attempts:\n{memory}"
+    return text
 
 
 def build_cooperative_user_prompt(

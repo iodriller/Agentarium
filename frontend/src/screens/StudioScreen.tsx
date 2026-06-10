@@ -10,6 +10,7 @@ import { ScoreCardTable } from '../components/studio/ScoreCardTable'
 import { ToolCallLog } from '../components/studio/ToolCallLog'
 import { DesignSummaryPanel } from '../components/studio/DesignSummaryPanel'
 import { TelemetryPanel, type AttemptScore } from '../components/studio/TelemetryPanel'
+import { AttemptHistory } from '../components/studio/AttemptHistory'
 import { api, wsUrl } from '../api/client'
 import type {
   CreateRunResponse,
@@ -50,6 +51,10 @@ export function StudioScreen() {
   const [latestScoreByAgent, setLatestScoreByAgent] = useState<Record<string, ScoreCard>>({})
   const [bestScoreByAgent, setBestScoreByAgent] = useState<Record<string, number>>({})
   const [attemptsByAgent, setAttemptsByAgent] = useState<Record<string, AttemptScore[]>>({})
+  // trace_run_id per attempt, keyed `${agentId}:${attemptIndex}`, for replay.
+  const [traceByAttempt, setTraceByAttempt] = useState<Record<string, string>>({})
+  // best_attempt_index reported by run_finished (marks the ★ row).
+  const [bestAttemptIndex, setBestAttemptIndex] = useState<number | null>(null)
   const DEFAULT_AGENTS: AgentInfo[] = [{ id: 'agent_a', name: 'Agent A', role: 'builder' }]
   const [agents, setAgents] = useState<AgentInfo[]>(DEFAULT_AGENTS)
 
@@ -66,7 +71,30 @@ export function StudioScreen() {
     ? 'Shared'
     : (agents.find((a) => a.id === activeAgentId)?.name ?? activeAgentId ?? '')
 
+  // Attempt history for the active agent + its per-attempt trace ids.
+  const activeAttempts = activeAgentId ? (attemptsByAgent[activeAgentId] ?? []) : []
+  const activeTraceByIndex: Record<number, string> = {}
+  if (activeAgentId) {
+    for (const [key, value] of Object.entries(traceByAttempt)) {
+      const [aid, idx] = key.split(':')
+      if (aid === activeAgentId) activeTraceByIndex[Number(idx)] = value
+    }
+  }
+
   const totalFrames = trace?.frames.length ?? 0
+
+  // Load + replay a specific attempt's trace by run id (Attempt History clicks).
+  const replayTraceRunId = async (traceRunId: string) => {
+    try {
+      const fetched = await api.get<EpisodeTrace>(`/runs/${traceRunId}/trace`)
+      setTrace(fetched)
+      setFrameIndex(0)
+      setPlaying(true)
+      setStatus('ready')
+    } catch {
+      setStatus('error')
+    }
+  }
 
   // ── WebSocket subscription (live runs) ─────────────────────────────────────
   // Open exactly once per runId; tolerate StrictMode double-mount + close.
@@ -117,9 +145,15 @@ export function StudioScreen() {
           setLatestAgentId(id)
           break
         }
-        case 'trace_ready':
+        case 'trace_ready': {
+          const id = event.agent_id ?? (event.agent_ids ? 'shared' : agents[0]?.id ?? 'agent_a')
+          setTraceByAttempt((prev) => ({
+            ...prev,
+            [`${id}:${event.attempt_index}`]: event.trace_run_id,
+          }))
           void loadTrace(event.trace_run_id)
           break
+        }
         case 'score': {
           const id = event.agent_id ?? agents[0]?.id ?? 'agent_a'
           setLatestScoreByAgent((prev) => ({ ...prev, [id]: event.scorecard }))
@@ -142,6 +176,7 @@ export function StudioScreen() {
           break
         case 'run_finished':
           if (event.winner_agent_id) setWinnerAgentId(event.winner_agent_id)
+          if (event.best_attempt_index >= 0) setBestAttemptIndex(event.best_attempt_index)
           setRunStatus('finished')
           break
         case 'error':
@@ -407,6 +442,12 @@ export function StudioScreen() {
             gap: 12,
           }}
         >
+          <AttemptHistory
+            attempts={activeAttempts}
+            traceByIndex={activeTraceByIndex}
+            bestAttemptIndex={bestAttemptIndex}
+            onReplay={(id) => void replayTraceRunId(id)}
+          />
           <ToolCallLog records={toolLog} onClear={() => setToolLog([])} />
           <DesignSummaryPanel
             summary={designSummary}

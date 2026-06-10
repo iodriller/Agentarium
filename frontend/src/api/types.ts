@@ -235,6 +235,8 @@ export interface ScoreCard {
   failure_events: Record<string, unknown>[]
   summary: string
   reward: string
+  // Short deterministic "why it failed / how to improve" derived from metrics.
+  improvement_hint?: string
 }
 
 export interface DesignSummary {
@@ -271,6 +273,8 @@ export interface AttemptStartedEvent {
   agent_id?: string
   // Cooperative attempts are shared by several agents at once.
   agent_ids?: string[]
+  // Lineage: id of the previous attempt this one iterates on (null for first).
+  parent_attempt_id?: string | null
 }
 
 export interface ToolCallEvent {
@@ -325,6 +329,8 @@ export interface RunFinishedEvent {
   type: 'run_finished'
   best_attempt_index: number
   best_score: number
+  // trace_run_id of the best attempt, for one-click replay of the winner.
+  best_trace_run_id?: string | null
   winner_agent_id?: string | null
 }
 

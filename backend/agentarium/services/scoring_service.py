@@ -202,6 +202,28 @@ REWARDS: dict[str, Callable[[dict[str, float]], tuple[float, bool, str]]] = {
 }
 
 
+# Reference distance below which a stable design is considered "short" for the
+# improvement hint. Matches the distance success threshold used by the rewards.
+_SHORT_DISTANCE_TARGET = 3.0
+
+
+def _improvement_hint(metrics: dict[str, float]) -> str:
+    """Short, deterministic "why it failed / how to improve" derived from metrics."""
+    parts = metrics.get("parts_used", 0.0)
+    falls = metrics.get("falls", 0.0)
+    distance = metrics.get("distance_m", 0.0)
+    if parts == 0:
+        return "Design was empty — add bodies before simulating."
+    if falls > 0:
+        return (
+            f"Structure fell {int(falls)}x — add support or lower the "
+            "center of mass."
+        )
+    if distance < _SHORT_DISTANCE_TARGET:
+        return "Stable but short — add propulsion or extend reach."
+    return "Solid attempt — iterate on the best design."
+
+
 def score_attempt(
     trace: EpisodeTrace | None, design: DesignSpec, reward: str
 ) -> ScoreCard:
@@ -212,15 +234,17 @@ def score_attempt(
     ScoreCard.
     """
     if trace is None:
+        no_trace_metrics = {"parts_used": float(len(design.bodies))}
         return ScoreCard(
             score_total=0.0,
             success=False,
-            metrics={"parts_used": float(len(design.bodies))},
+            metrics=no_trace_metrics,
             failure_events=(
                 [{"type": "empty_design"}] if not design.bodies else []
             ),
             summary="No simulation was run (empty design).",
             reward=reward if reward in REWARDS else "default",
+            improvement_hint=_improvement_hint(no_trace_metrics),
         )
 
     metrics = compute_metrics(trace, design)
@@ -242,4 +266,5 @@ def score_attempt(
         failure_events=failure_events,
         summary=summary,
         reward=reward_name,
+        improvement_hint=_improvement_hint(metrics),
     )

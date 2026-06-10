@@ -15,8 +15,8 @@ from agentarium.agents.prompts import (
 )
 from agentarium.core.schemas.design import DesignSpec
 from agentarium.core.schemas.score import ScoreCard
-from agentarium.core.schemas.setup import AgentConfig, LaunchConfig
-from agentarium.core.schemas.toolcall import ToolCallRecord
+from agentarium.core.schemas.setup import AgentConfig, LaunchConfig, MemoryMode
+from agentarium.core.schemas.toolcall import ToolCallRecord, ToolCallStatus
 from agentarium.services.run_service import (
     create_run_from_design,
     get_trace,
@@ -35,6 +35,52 @@ class AttemptResult(BaseModel):
     trace_run_id: str | None
     score: ScoreCard
     tool_calls: list[ToolCallRecord]
+    parent_attempt_id: str | None = None
+    attempt_index: int = 0
+
+
+def _build_memory(prev: AttemptResult | None) -> str:
+    """Brief "previous attempts" summary (last attempt's score + hint)."""
+    if prev is None:
+        return ""
+    return (
+        f"- Attempt #{prev.attempt_index}: score "
+        f"{prev.score.score_total:.1f}. {prev.score.improvement_hint}".strip()
+    )
+
+
+def _repair_rejected(
+    design: DesignSpec,
+    agent_id: str,
+    enabled_names: list[str],
+    records: list[ToolCallRecord],
+) -> None:
+    """One conservative repair pass over rejected records (in place).
+
+    Handles the most common ``apply_tool_call`` rejection: a duplicate id on a
+    body-creating call (``... already exists``). Retries with a ``_r`` suffix and,
+    on success, replaces the rejected record with a ``repaired`` one. Anything
+    that can't be repaired cleanly is left rejected so the design stays valid.
+    """
+    for i, record in enumerate(records):
+        if record.status != ToolCallStatus.rejected or not record.error:
+            continue
+        if "already exists" not in record.error:
+            continue
+        new_id = f"{record.args.get('id', '')}_r"
+        if not new_id or new_id == "_r":
+            continue
+        repaired_args = {**record.args, "id": new_id}
+        result = apply_tool_call(
+            design,
+            agent_id=agent_id,
+            tool=record.tool,
+            args=repaired_args,
+            enabled_tools=enabled_names,
+        )
+        if result.mutated:
+            result.record.status = ToolCallStatus.repaired
+            records[i] = result.record
 
 
 def _parse_tool_calls(raw: str) -> list[dict]:
@@ -71,7 +117,10 @@ def _parse_tool_calls(raw: str) -> list[dict]:
 
 
 async def run_single_attempt(
-    config: LaunchConfig, *, attempt_index: int = 0
+    config: LaunchConfig,
+    *,
+    attempt_index: int = 0,
+    previous: AttemptResult | None = None,
 ) -> AttemptResult:
     """Run one single-agent build attempt end-to-end with the mock/real provider.
 
@@ -81,12 +130,16 @@ async def run_single_attempt(
     if not participants:
         raise ValueError("config.agents.participants is empty")
     return await run_agent_attempt(
-        config, participants[0], attempt_index=attempt_index
+        config, participants[0], attempt_index=attempt_index, previous=previous
     )
 
 
 async def run_agent_attempt(
-    config: LaunchConfig, agent: AgentConfig, *, attempt_index: int = 0
+    config: LaunchConfig,
+    agent: AgentConfig,
+    *,
+    attempt_index: int = 0,
+    previous: AttemptResult | None = None,
 ) -> AttemptResult:
     """Run one build attempt end-to-end for a SPECIFIC participant.
 
@@ -108,7 +161,12 @@ async def run_agent_attempt(
         f"{config.world.engine.value}, gravity {config.world.gravity}"
     )
     system_prompt = build_system_prompt(objective, world_summary, enabled_defs)
-    user_prompt = build_user_prompt(objective, attempt_index)
+    memory = (
+        _build_memory(previous)
+        if agent.memory_mode in (MemoryMode.episodic, MemoryMode.best_attempt_summary)
+        else ""
+    )
+    user_prompt = build_user_prompt(objective, attempt_index, memory)
 
     raw = await provider.complete(
         model=agent.model,
@@ -134,6 +192,12 @@ async def run_agent_attempt(
             enabled_tools=enabled_names,
         )
         records.append(result.record)
+
+    # Optional conservative repair pass over rejected calls (e.g. duplicate ids).
+    if config.constraints.repair_loop_enabled and any(
+        r.status == ToolCallStatus.rejected for r in records
+    ):
+        _repair_rejected(design, agent.id, enabled_names, records)
 
     # Simulate only if there is at least one dynamic body.
     trace_run_id: str | None = None
@@ -168,6 +232,8 @@ async def run_agent_attempt(
         trace_run_id=trace_run_id,
         score=score,
         tool_calls=records,
+        parent_attempt_id=previous.attempt_id if previous is not None else None,
+        attempt_index=attempt_index,
     )
 
 
@@ -302,4 +368,5 @@ async def run_cooperative_attempt(
         trace_run_id=trace_run_id,
         score=score,
         tool_calls=records,
+        attempt_index=attempt_index,
     )
