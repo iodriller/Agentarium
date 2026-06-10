@@ -1,0 +1,9 @@
+id: sorting_table
+name: Sorting Table
+terrain: factory
+map_size:
+  - 20
+  - 20
+gravity: -9.81
+active_physics_zones: 1
+description: A compact table layout for sorting objects into bins.

@@ -131,6 +131,28 @@ export interface LaunchConfig {
   outputs?: OutputsConfig
 }
 
+export interface ScenarioPreset {
+  id: string
+  name: string
+  tagline: string
+  tags: string[]
+  objective: string
+  reward: string
+  default_world: string
+  required_tools: string[]
+  recommended_tools: string[]
+}
+
+export interface WorldTemplate {
+  id: string
+  name: string
+  terrain: Terrain
+  map_size: number[]
+  gravity: number
+  active_physics_zones: number
+  description: string
+}
+
 export interface ValidationResult {
   state: LaunchState
   missing?: string[]

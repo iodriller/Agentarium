@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
 import type { LaunchConfig, ValidationResult } from '../api/types'
+import { ScenarioWorldColumn } from '../components/setup/ScenarioWorldColumn'
 import { ToolsLaunchColumn } from '../components/setup/ToolsLaunchColumn'
 import { TopBar } from '../components/shared/TopBar'
 
@@ -42,6 +43,12 @@ export function SetupScreen() {
       ...prev,
       ...patch,
       // Deep-merge nested objects so partial patches don't clobber sibling keys
+      ...(patch.scenario !== undefined
+        ? { scenario: { ...prev.scenario, ...patch.scenario } }
+        : {}),
+      ...(patch.world !== undefined
+        ? { world: { ...prev.world, ...patch.world } }
+        : {}),
       ...(patch.tools !== undefined
         ? { tools: { ...prev.tools, ...patch.tools } }
         : {}),
@@ -118,7 +125,7 @@ export function SetupScreen() {
           }}
         >
           <ColumnHeader number={1} title="Scenario & World Setup" badge="Required" />
-          <Placeholder label="Challenge preset cards, world settings, physics engine" />
+          <ScenarioWorldColumn config={config} onConfigChange={handleConfigChange} />
         </div>
 
         {/* Column 2 — Agent & LLM */}

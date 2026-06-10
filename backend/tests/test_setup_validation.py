@@ -16,7 +16,7 @@ VALID_CONFIG: dict = {
         "mode": "single",
         "participants": [{"id": "a1", "name": "Agent A", "provider": "mock", "model": "mock"}],
     },
-    "tools": {"enabled": ["create_body", "run_simulation"]},
+    "tools": {"enabled": ["create_body", "add_beam", "add_joint", "run_simulation"]},
     "constraints": {},
     "outputs": {},
 }
@@ -62,6 +62,8 @@ def test_empty_tools_warning() -> None:
     config = copy.deepcopy(VALID_CONFIG)
     config["tools"]["enabled"] = []
     body = _post(config)
-    assert body["state"] == "READY"
+    # Empty tools triggers the warning; for a preset with required tools it
+    # also blocks with TOOL_CHALLENGE_MISMATCH, but the warning still fires.
+    assert body["state"] == "TOOL_CHALLENGE_MISMATCH"
     assert len(body["warnings"]) > 0
     assert any("No tools enabled" in w for w in body["warnings"])

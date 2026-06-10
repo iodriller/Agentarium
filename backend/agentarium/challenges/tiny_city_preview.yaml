@@ -1,0 +1,13 @@
+id: tiny_city_preview
+name: Tiny City Preview
+tagline: Grow a tiny city within constraints.
+tags:
+  - Economy
+  - Planning
+objective: Lay out a small city within the budget.
+reward: city_score
+default_world: tiny_city_block
+required_tools:
+  - create_body
+  - run_simulation
+recommended_tools: []
