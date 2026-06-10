@@ -10,3 +10,4 @@ class ScoreCard(BaseModel):
     failure_events: list[dict] = []
     summary: str = ""
     reward: str = ""  # which reward function produced this
+    improvement_hint: str = ""  # short deterministic "why it failed / how to improve"

@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from agentarium.app import app
@@ -113,3 +114,128 @@ def test_get_score_endpoint():
 def test_get_score_endpoint_404():
     r = client.get("/api/runs/does-not-exist/score")
     assert r.status_code == 404
+
+
+# ── New metric keys ──────────────────────────────────────────────────────────
+
+def test_new_metric_keys_always_present():
+    trace = _moving_trace(2.0)
+    metrics = compute_metrics(trace, _design(3))
+    for key in ("spread_area", "bins_count", "bins_in_target"):
+        assert key in metrics
+        assert isinstance(metrics[key], float)
+
+
+def test_spread_area_computed():
+    """Bodies spread across different y positions produce a non-zero spread_area."""
+    from agentarium.core.schemas.trace import EpisodeTrace, Frame, FrameBody
+
+    trace = EpisodeTrace(
+        run_id="r",
+        dt=0.5,
+        frames=[
+            Frame(
+                t=0.0,
+                bodies={
+                    "b0": FrameBody(x=0.0, y=0.0, angle=0.0),
+                    "b1": FrameBody(x=10.0, y=4.0, angle=0.0),
+                },
+            )
+        ],
+    )
+    design = _design(2)
+    metrics = compute_metrics(trace, design)
+    assert metrics["spread_area"] == pytest.approx(40.0)
+
+
+# ── Sorting accuracy reward ──────────────────────────────────────────────────
+
+def _sorter_design_in_bin():
+    """One dynamic ball + one static bin; bin metadata stored in design.metadata."""
+    return DesignSpec(
+        name="sorter",
+        bodies=[
+            BodySpec(id="ball1", shape=BodyShape.circle, position=[0.0, 5.0]),
+            BodySpec(id="bin1", shape=BodyShape.box, position=[3.0, 0.0],
+                     size=[2.0, 2.0], static=True),
+        ],
+        metadata={"bins": [{"id": "bin1", "x": 3.0, "y": 0.0, "width": 2.0, "height": 2.0}]},
+    )
+
+
+def _sorter_trace_ball_in_bin():
+    from agentarium.core.schemas.trace import EpisodeTrace, Frame, FrameBody
+
+    return EpisodeTrace(
+        run_id="r",
+        dt=0.5,
+        frames=[
+            Frame(t=0.0, bodies={
+                "ball1": FrameBody(x=0.0, y=5.0, angle=0.0),
+                "bin1": FrameBody(x=3.0, y=0.0, angle=0.0),
+            }),
+            Frame(t=1.0, bodies={
+                "ball1": FrameBody(x=3.0, y=0.5, angle=0.0),  # inside bin ±1.0
+                "bin1": FrameBody(x=3.0, y=0.0, angle=0.0),
+            }),
+        ],
+    )
+
+
+def test_sorting_accuracy_ball_in_bin():
+    design = _sorter_design_in_bin()
+    trace = _sorter_trace_ball_in_bin()
+    card = score_attempt(trace, design, "sorting_accuracy")
+    assert card.reward == "sorting_accuracy"
+    assert card.metrics["bins_in_target"] == pytest.approx(1.0)
+    assert card.success is True
+    assert "1/1" in card.summary
+
+
+def test_sorting_accuracy_no_bins():
+    """Without bins placed, sorting accuracy falls back gracefully (not success)."""
+    trace = _moving_trace(2.0)
+    card = score_attempt(trace, _design(1), "sorting_accuracy")
+    assert card.reward == "sorting_accuracy"
+    assert card.success is False
+    assert "No bins" in card.summary
+
+
+# ── City score reward ────────────────────────────────────────────────────────
+
+def _city_trace_spread():
+    """Four bodies spread across a 15×4 area → spread_area = 60."""
+    from agentarium.core.schemas.trace import EpisodeTrace, Frame, FrameBody
+
+    return EpisodeTrace(
+        run_id="r",
+        dt=0.5,
+        frames=[
+            Frame(
+                t=0.0,
+                bodies={
+                    "b0": FrameBody(x=0.0, y=0.0, angle=0.0),
+                    "b1": FrameBody(x=5.0, y=2.0, angle=0.0),
+                    "b2": FrameBody(x=10.0, y=4.0, angle=0.0),
+                    "b3": FrameBody(x=15.0, y=1.0, angle=0.0),
+                },
+            )
+        ],
+    )
+
+
+def test_city_score_spread_bodies():
+    design = _design(4)
+    trace = _city_trace_spread()
+    card = score_attempt(trace, design, "city_score")
+    assert card.reward == "city_score"
+    assert card.metrics["spread_area"] > 0
+    assert card.success is True
+    assert card.score_total > 0
+
+
+def test_city_score_single_body_not_success():
+    trace = _moving_trace(0.0)
+    card = score_attempt(trace, _design(1), "city_score")
+    assert card.reward == "city_score"
+    assert card.success is False

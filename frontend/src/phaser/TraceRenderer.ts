@@ -89,7 +89,13 @@ export class TraceRenderer extends Phaser.Scene {
     const frame = trace.frames[clamped]
 
     for (const [id, body] of Object.entries(frame.bodies)) {
-      const gfx = this.bodies.get(id)
+      // Lazily create bodies that first appear in a later frame (incremental
+      // builds) so they aren't silently invisible.
+      let gfx = this.bodies.get(id)
+      if (!gfx) {
+        this.createBody(id)
+        gfx = this.bodies.get(id)
+      }
       if (!gfx) continue
       const { sx, sy } = isoProject(body.x, body.y)
       gfx.setPosition(this.originX + sx, this.originY + sy)
@@ -141,7 +147,9 @@ export class TraceRenderer extends Phaser.Scene {
     this.gridLayer.clear()
 
     this.drawGrid()
-    for (const prop of trace.world_static) this.drawStaticProp(prop)
+    for (const prop of trace.world_static ?? []) {
+      if (prop.position && prop.position.length >= 2) this.drawStaticProp(prop)
+    }
 
     // Create a graphics object per body, seeded from the first frame's set of ids.
     const first = trace.frames[0]

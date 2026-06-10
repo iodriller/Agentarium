@@ -3,6 +3,7 @@ from __future__ import annotations
 import httpx
 
 from agentarium.core.schemas.setup import (
+    CollaborationMode,
     LaunchConfig,
     LaunchState,
     LLMProvider,
@@ -24,15 +25,16 @@ async def validate_launch_config(config: LaunchConfig) -> ValidationResult:
         missing.append("world.template")
 
     participants = config.agents.participants
-    if len(participants) == 0 and config.agents.mode != "single":
+    if len(participants) == 0 and config.agents.mode != CollaborationMode.single:
         missing.append("agents.participants")
 
-    if len(participants) > 1:
-        for participant in participants:
-            if not participant.id:
-                missing.append(f"agents.participants[{participant.id}].id")
-            if not participant.name:
-                missing.append(f"agents.participants[{participant.id}].name")
+    # Validate every participant by list position (id may be blank, which is
+    # exactly what we want to catch — so index the message, not the id).
+    for i, participant in enumerate(participants):
+        if not participant.id:
+            missing.append(f"agents.participants[{i}].id")
+        if not participant.name:
+            missing.append(f"agents.participants[{i}].name")
 
     if missing:
         return ValidationResult(state=LaunchState.missing_required, missing=missing)

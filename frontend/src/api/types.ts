@@ -235,6 +235,8 @@ export interface ScoreCard {
   failure_events: Record<string, unknown>[]
   summary: string
   reward: string
+  // Short deterministic "why it failed / how to improve" derived from metrics.
+  improvement_hint?: string
 }
 
 export interface DesignSummary {
@@ -249,6 +251,12 @@ export interface DesignSummary {
 
 // ─── Live run events (mirrors backend orchestrator event protocol) ─────────────
 
+export interface RunAgentInfo {
+  id: string
+  name: string
+  role: string
+}
+
 export interface RunStartedEvent {
   type: 'run_started'
   run_id: string
@@ -256,47 +264,74 @@ export interface RunStartedEvent {
   mode: string
   objective: string
   max_attempts: number
+  agents?: RunAgentInfo[]
 }
 
 export interface AttemptStartedEvent {
   type: 'attempt_started'
   attempt_index: number
+  agent_id?: string
+  // Cooperative attempts are shared by several agents at once.
+  agent_ids?: string[]
+  // Lineage: id of the previous attempt this one iterates on (null for first).
+  parent_attempt_id?: string | null
 }
 
 export interface ToolCallEvent {
   type: 'tool_call'
   attempt_index: number
+  agent_id?: string
   record: ToolCallRecord
 }
 
 export interface DesignUpdateEvent {
   type: 'design_update'
   attempt_index: number
-  agent_id: string
+  // Single/competitive: the owning agent. Cooperative omits it in favour of
+  // ``agent_ids`` + ``by_agent``.
+  agent_id?: string
+  agent_ids?: string[]
   summary: DesignSummary
+  // Cooperative ownership breakdown: who built which parts of the shared design.
+  by_agent?: Record<string, Partial<DesignSummary>>
 }
 
 export interface TraceReadyEvent {
   type: 'trace_ready'
   attempt_index: number
+  agent_id?: string
+  agent_ids?: string[]
   trace_run_id: string
 }
 
 export interface ScoreEvent {
   type: 'score'
   attempt_index: number
+  // Cooperative emits a single shared score with agent_id === "shared".
+  agent_id?: string
   scorecard: ScoreCard
 }
 
 export interface AttemptFinishedEvent {
   type: 'attempt_finished'
   attempt_index: number
+  agent_id?: string
+  agent_ids?: string[]
+}
+
+export interface WinnerEvent {
+  type: 'winner'
+  agent_id: string
+  score: number
 }
 
 export interface RunFinishedEvent {
   type: 'run_finished'
   best_attempt_index: number
   best_score: number
+  // trace_run_id of the best attempt, for one-click replay of the winner.
+  best_trace_run_id?: string | null
+  winner_agent_id?: string | null
 }
 
 export interface ErrorEvent {
@@ -312,5 +347,6 @@ export type RunEvent =
   | TraceReadyEvent
   | ScoreEvent
   | AttemptFinishedEvent
+  | WinnerEvent
   | RunFinishedEvent
   | ErrorEvent
