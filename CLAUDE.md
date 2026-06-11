@@ -11,6 +11,16 @@ replays scored attempts. Plan and progress live in `docs/COMPREHENSIVE_PLAN.md` 
 plan + UI spec) and `docs/IMPLEMENTATION_STEPS.md` (numbered Step 1–27 build guide).
 Reference these rather than re-deriving the plan.
 
+All 27 build steps are complete (MVP shipped). Forward work is tracked in two docs —
+read them before picking up new work:
+
+- `docs/remaining_gaps.md` — day-to-day deferred items and their status.
+- `docs/IMPROVEMENTS.md` — the bigger bets (the **PyBullet 3D engine** plan) and the
+  record of the post-MVP code-review findings (what was fixed vs. left documented).
+
+Keep both current: when you finish a deferred item or find a new bug/gap, update the
+matching table in the same change rather than letting these drift.
+
 ## Commands (run from repo root `/home/user/Agentarium`)
 
 - Install: `uv sync --all-groups`
