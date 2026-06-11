@@ -31,10 +31,10 @@ the gap analysis or post-MVP backlog. Status legend: 🟢 **Fixed** · 🟡 **De
 
 | ID | Area | Issue | Status |
 |----|------|-------|--------|
-| E1 | Engines | **PyBullet3D adapter** — `EngineAdapter` base is designed for it; Pymunk2D is the only live implementation. Big physics upgrade. | 🟡 Deferred |
-| E2 | `LaunchConfig` constraints | `max_parts`, `max_joints`, `energy_budget`, `world.seed` (reproducibility), agent `context_window/mutation_strategy/behavior_mode` are parsed but never enforced. | 🟡 Deferred — mark clearly as forthcoming in the UI |
-| E3 | `runner` | `simulation_duration_seconds` (user-set, default 180) is silently hard-capped to 5s in the engine adapter. | 🟡 Deferred: name the constant, surface the cap or honor higher values |
-| E4 | `runner` | `_parse_tool_calls` is duplicated in `runner.py` and `openai_compatible.py` with slightly different logic. | 🟡 Deferred: consolidate into a shared helper |
+| E1 | Engines | **PyBullet3D adapter** — `EngineAdapter` base is designed for it; Pymunk2D is the only live implementation. Big physics upgrade. | 🟡 Deferred (separate epic) |
+| E2 | `LaunchConfig` constraints | `max_parts` / `max_joints` enforced at the apply chokepoint (over-budget body/joint calls rejected). `energy_budget` (post-sim metric) and `world.seed` (no stochastic element yet — pymunk is already deterministic) still advisory. | 🟢 Partly fixed: parts/joints enforced; energy_budget + seed remain advisory |
+| E3 | `runner` | `simulation_duration_seconds` (user-set, default 180) was silently hard-capped to 5s. | 🟢 Fixed: named `_MAX_SIM_DURATION_SECONDS = 30`; durations honored up to the cap |
+| E4 | `runner` | `_parse_tool_calls` was duplicated in `runner.py` and `openai_compatible.py` with slightly different logic. | 🟢 Fixed: consolidated into `agents/parsing.py::parse_tool_calls`, used by both |
 
 ---
 

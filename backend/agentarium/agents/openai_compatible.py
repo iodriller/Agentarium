@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import json
-import re
-
 import httpx
 
 from agentarium.agents.base import (
@@ -10,6 +7,7 @@ from agentarium.agents.base import (
     ProviderStatus,
     StructuredOutputResult,
 )
+from agentarium.agents.parsing import parse_tool_calls
 
 _PROBE_TIMEOUT = 5.0       # short probe for /models reachability check
 _GENERATION_TIMEOUT = 120.0  # generation calls can take up to 2 minutes
@@ -26,31 +24,6 @@ def _headers(api_key: str | None) -> dict[str, str]:
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     return headers
-
-
-def _parse_tool_calls(text: str) -> list[dict]:
-    """Best-effort extraction of a tool-call list from a model response."""
-    if not text:
-        return []
-    candidates: list[str] = [text]
-    # Strip code fences if present.
-    fenced = re.findall(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
-    candidates.extend(fenced)
-    # First {...} block.
-    brace = re.search(r"\{.*\}", text, re.DOTALL)
-    if brace:
-        candidates.append(brace.group(0))
-
-    for candidate in candidates:
-        try:
-            parsed = json.loads(candidate)
-        except (json.JSONDecodeError, ValueError):
-            continue
-        if isinstance(parsed, dict) and isinstance(parsed.get("tool_calls"), list):
-            return [c for c in parsed["tool_calls"] if isinstance(c, dict)]
-        if isinstance(parsed, list):
-            return [c for c in parsed if isinstance(c, dict)]
-    return []
 
 
 class OpenAICompatibleProvider(AgentProvider):
@@ -137,7 +110,7 @@ class OpenAICompatibleProvider(AgentProvider):
                 ok=False, detail=f"Unexpected response shape: {exc}"
             )
 
-        sample = _parse_tool_calls(content or "")
+        sample = parse_tool_calls(content or "")
         if not sample:
             return StructuredOutputResult(
                 ok=False, detail="Response did not contain parseable tool calls"
