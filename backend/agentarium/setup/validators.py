@@ -35,6 +35,11 @@ async def validate_launch_config(config: LaunchConfig) -> ValidationResult:
             missing.append(f"agents.participants[{i}].id")
         if not participant.name:
             missing.append(f"agents.participants[{i}].name")
+        if participant.provider == LLMProvider.manual:
+            missing.append(
+                f"agents.participants[{i}]: 'manual' provider is not yet supported "
+                "— use 'mock', 'localdeploy', or 'openai_compatible'."
+            )
 
     if missing:
         return ValidationResult(state=LaunchState.missing_required, missing=missing)
@@ -77,9 +82,21 @@ async def validate_launch_config(config: LaunchConfig) -> ValidationResult:
     # Per spec, we check participants; if none require probing, no probe needed.
 
     for endpoint_url in endpoints_to_check:
+        # Normalise URL: strip trailing slash before appending /models.
+        base = endpoint_url.rstrip("/")
+        # Collect API keys for this endpoint from any participant that uses it.
+        api_key: str | None = None
+        for participant in participants:
+            ep = participant.endpoint_url or config.llm_connection.endpoint_url
+            if ep == endpoint_url and participant.api_key:
+                api_key = participant.api_key
+                break
+        if api_key is None:
+            api_key = config.llm_connection.api_key
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         try:
-            async with httpx.AsyncClient(timeout=2.0) as client:
-                response = await client.get(f"{endpoint_url}/models")
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(f"{base}/models", headers=headers)
             if response.status_code != 200:
                 missing.append(f"LLM endpoint unreachable: {endpoint_url}")
                 return ValidationResult(

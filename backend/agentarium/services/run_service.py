@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import pathlib
+import sqlite3
+import threading
 import uuid
 
 from agentarium.core.schemas.design import BodyShape as _BodyShape
@@ -16,7 +18,7 @@ from agentarium.core.schemas.trace import EpisodeTrace
 from agentarium.engines import get_engine
 from agentarium.services.scoring_service import score_attempt
 
-# In-memory store of run traces (SQLite persistence comes later).
+# In-memory store of run traces.
 RUNS: dict[str, EpisodeTrace] = {}
 
 # In-memory store of scorecards, keyed by run_id (same key as RUNS).
@@ -34,6 +36,155 @@ _MAX_RETAINED_RUNS = 200
 
 # Run artifacts directory (gitignored), relative to cwd.
 _RUNS_DIR = pathlib.Path("runs")
+
+# SQLite persistence — survives server restarts.
+_DB_PATH = _RUNS_DIR / "agentarium.db"
+_DB_MAX_ROWS = 1000  # keep at most 1000 runs on disk
+_db_lock = threading.Lock()
+
+
+def _init_db() -> None:
+    _RUNS_DIR.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(_DB_PATH) as conn:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS runs (
+                run_id TEXT PRIMARY KEY,
+                trace_json TEXT NOT NULL,
+                created_at INTEGER NOT NULL DEFAULT (unixepoch())
+            );
+            CREATE TABLE IF NOT EXISTS scores (
+                run_id TEXT PRIMARY KEY,
+                score_json TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS designs (
+                run_id TEXT PRIMARY KEY,
+                design_json TEXT NOT NULL
+            );
+        """)
+
+
+def _db_write_run(run_id: str, trace: EpisodeTrace, design: DesignSpec) -> None:
+    with _db_lock:
+        with sqlite3.connect(_DB_PATH) as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO runs (run_id, trace_json) VALUES (?, ?)",
+                (run_id, trace.model_dump_json()),
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO designs (run_id, design_json) VALUES (?, ?)",
+                (run_id, design.model_dump_json()),
+            )
+            # Prune oldest rows beyond the on-disk cap.
+            conn.execute(
+                "DELETE FROM runs WHERE run_id NOT IN "
+                "(SELECT run_id FROM runs ORDER BY rowid DESC LIMIT ?)",
+                (_DB_MAX_ROWS,),
+            )
+            conn.commit()
+
+
+def _db_write_score(run_id: str, score: ScoreCard) -> None:
+    with _db_lock:
+        with sqlite3.connect(_DB_PATH) as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO scores (run_id, score_json) VALUES (?, ?)",
+                (run_id, score.model_dump_json()),
+            )
+            conn.commit()
+
+
+def _db_get_trace(run_id: str) -> EpisodeTrace | None:
+    if not _DB_PATH.exists():
+        return None
+    with _db_lock:
+        with sqlite3.connect(_DB_PATH) as conn:
+            row = conn.execute(
+                "SELECT trace_json FROM runs WHERE run_id = ?", (run_id,)
+            ).fetchone()
+    if row is None:
+        return None
+    try:
+        return EpisodeTrace.model_validate_json(row[0])
+    except Exception:
+        return None
+
+
+def _db_get_score(run_id: str) -> ScoreCard | None:
+    if not _DB_PATH.exists():
+        return None
+    with _db_lock:
+        with sqlite3.connect(_DB_PATH) as conn:
+            row = conn.execute(
+                "SELECT score_json FROM scores WHERE run_id = ?", (run_id,)
+            ).fetchone()
+    if row is None:
+        return None
+    try:
+        return ScoreCard.model_validate_json(row[0])
+    except Exception:
+        return None
+
+
+def _db_get_design(run_id: str) -> DesignSpec | None:
+    if not _DB_PATH.exists():
+        return None
+    with _db_lock:
+        with sqlite3.connect(_DB_PATH) as conn:
+            row = conn.execute(
+                "SELECT design_json FROM designs WHERE run_id = ?", (run_id,)
+            ).fetchone()
+    if row is None:
+        return None
+    try:
+        return DesignSpec.model_validate_json(row[0])
+    except Exception:
+        return None
+
+
+def _load_from_db() -> None:
+    """Populate in-memory stores from DB on startup (most recent _MAX_RETAINED_RUNS)."""
+    if not _DB_PATH.exists():
+        return
+    try:
+        with sqlite3.connect(_DB_PATH) as conn:
+            rows = conn.execute(
+                "SELECT run_id, trace_json FROM runs ORDER BY rowid DESC LIMIT ?",
+                (_MAX_RETAINED_RUNS,),
+            ).fetchall()
+            run_ids = []
+            for run_id, trace_json in reversed(rows):
+                try:
+                    RUNS[run_id] = EpisodeTrace.model_validate_json(trace_json)
+                    run_ids.append(run_id)
+                except Exception:
+                    pass
+            for run_id in run_ids:
+                row = conn.execute(
+                    "SELECT score_json FROM scores WHERE run_id = ?", (run_id,)
+                ).fetchone()
+                if row:
+                    try:
+                        SCORES[run_id] = ScoreCard.model_validate_json(row[0])
+                    except Exception:
+                        pass
+                row = conn.execute(
+                    "SELECT design_json FROM designs WHERE run_id = ?", (run_id,)
+                ).fetchone()
+                if row:
+                    try:
+                        DESIGNS[run_id] = DesignSpec.model_validate_json(row[0])
+                    except Exception:
+                        pass
+    except Exception:
+        pass  # startup DB load is best-effort; server continues with empty stores
+
+
+# Initialise DB and load existing runs on module import (best-effort).
+try:
+    _init_db()
+    _load_from_db()
+except Exception:
+    pass
 
 
 def _evict_oldest_runs() -> None:
@@ -121,11 +272,14 @@ def create_run_from_design(
 
     # Compute and store a baseline ScoreCard so every run has a fetchable
     # score. The runner may overwrite this with a reward-specific score.
-
-    SCORES[run_id] = score_attempt(trace, design, "default")
+    baseline = score_attempt(trace, design, "default")
+    SCORES[run_id] = baseline
     _evict_oldest_runs()
 
-    # Persist trace.json to runs/{run_id}/trace.json.
+    # Persist trace + design to SQLite and trace.json to the artifact dir.
+    _db_write_run(run_id, trace, design)
+    _db_write_score(run_id, baseline)
+
     run_dir = _RUNS_DIR / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "trace.json").write_text(
@@ -136,20 +290,21 @@ def create_run_from_design(
 
 
 def get_trace(run_id: str) -> EpisodeTrace | None:
-    """Return the stored trace for ``run_id``, or None if missing."""
-    return RUNS.get(run_id)
+    """Return the stored trace for ``run_id``, checking DB if evicted from memory."""
+    return RUNS.get(run_id) or _db_get_trace(run_id)
 
 
 def store_score(run_id: str, score: ScoreCard) -> None:
     """Store ``score`` for ``run_id`` so it can be fetched later."""
     SCORES[run_id] = score
+    _db_write_score(run_id, score)
 
 
 def get_score(run_id: str) -> ScoreCard | None:
-    """Return the stored ScoreCard for ``run_id``, or None if missing."""
-    return SCORES.get(run_id)
+    """Return the stored ScoreCard for ``run_id``, checking DB if evicted from memory."""
+    return SCORES.get(run_id) or _db_get_score(run_id)
 
 
 def get_design(run_id: str) -> DesignSpec | None:
-    """Return the design that produced ``run_id``'s trace, or None if missing."""
-    return DESIGNS.get(run_id)
+    """Return the design that produced ``run_id``'s trace, checking DB if evicted from memory."""
+    return DESIGNS.get(run_id) or _db_get_design(run_id)

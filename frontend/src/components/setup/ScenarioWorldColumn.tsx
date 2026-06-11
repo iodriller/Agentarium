@@ -235,7 +235,7 @@ export function ScenarioWorldColumn({ config, onConfigChange }: ScenarioWorldCol
     }
   }
 
-  // ── Selecting a challenge preset auto-fills scenario + world ──
+  // ── Selecting a challenge preset auto-fills scenario, world, and required tools ──
   function handleSelectPreset(preset: ScenarioPreset) {
     onConfigChange({
       scenario: {
@@ -244,6 +244,7 @@ export function ScenarioWorldColumn({ config, onConfigChange }: ScenarioWorldCol
         reward: preset.reward,
       },
       world: worldFieldsFor(preset.default_world),
+      tools: { enabled: preset.required_tools },
     } as Partial<LaunchConfig>)
   }
 
