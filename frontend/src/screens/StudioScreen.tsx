@@ -83,6 +83,20 @@ export function StudioScreen() {
 
   const totalFrames = trace?.frames.length ?? 0
 
+  // Reverse-lookup the displayed trace's attempt index (for the replay label).
+  let currentAttemptLabel: string | undefined
+  if (trace?.run_id) {
+    for (const [key, value] of Object.entries(traceByAttempt)) {
+      if (value === trace.run_id) {
+        const idx = Number(key.split(':')[1])
+        if (Number.isFinite(idx)) {
+          currentAttemptLabel = `Attempt ${String(idx + 1).padStart(3, '0')}`
+        }
+        break
+      }
+    }
+  }
+
   // Load + replay a specific attempt's trace by run id (Attempt History clicks).
   const replayTraceRunId = async (traceRunId: string) => {
     try {
@@ -481,6 +495,8 @@ export function StudioScreen() {
             onSeek={handleSeek}
             onTogglePlay={handleTogglePlay}
             speed={speed}
+            frames={trace?.frames}
+            attemptLabel={currentAttemptLabel}
           />
         </div>
       </div>

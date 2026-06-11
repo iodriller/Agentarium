@@ -74,6 +74,23 @@ export function IsometricWorldView({ trace, frameIndex }: IsometricWorldViewProp
     sceneRef.current?.renderFrame(frameIndex)
   }, [frameIndex])
 
+  // Capture the current viewport as a PNG. Phaser's renderer.snapshot works for
+  // both WebGL and Canvas renderers (it grabs during the render cycle, so it
+  // doesn't need preserveDrawingBuffer).
+  const handleScreenshot = () => {
+    const game = gameRef.current
+    if (!game) return
+    game.renderer.snapshot((image) => {
+      if (!(image instanceof HTMLImageElement)) return
+      const a = document.createElement('a')
+      a.href = image.src
+      a.download = `agentarium-frame-${trace?.run_id ?? 'view'}-${frameIndex}.png`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+    })
+  }
+
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
@@ -96,6 +113,7 @@ export function IsometricWorldView({ trace, frameIndex }: IsometricWorldViewProp
         <CamButton label="▼" title="Pan down" onClick={() => sceneRef.current?.panBy(0, 40)} />
         <CamButton label="⟳" title="Reset camera" onClick={() => sceneRef.current?.resetCamera()} />
         <CamButton label="#" title="Toggle grid" onClick={() => sceneRef.current?.toggleGrid()} />
+        <CamButton label="⤓" title="Screenshot (PNG)" onClick={handleScreenshot} />
       </div>
     </div>
   )

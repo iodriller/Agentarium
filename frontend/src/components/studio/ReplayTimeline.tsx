@@ -1,3 +1,5 @@
+import type { Frame } from '../../api/types'
+
 interface ReplayTimelineProps {
   frameIndex: number
   totalFrames: number
@@ -5,9 +7,25 @@ interface ReplayTimelineProps {
   onSeek: (frameIndex: number) => void
   onTogglePlay: () => void
   speed: number
+  frames?: Frame[]
+  attemptLabel?: string
 }
 
-const THUMB_SECONDS = [0, 15, 30, 45, 60]
+const TICK_COUNT = 5
+
+/** Index of the frame whose time is closest to ``t`` seconds. */
+function frameIndexAtTime(frames: Frame[], t: number): number {
+  let best = 0
+  let bestDelta = Infinity
+  for (let i = 0; i < frames.length; i++) {
+    const delta = Math.abs(frames[i].t - t)
+    if (delta < bestDelta) {
+      bestDelta = delta
+      best = i
+    }
+  }
+  return best
+}
 
 export function ReplayTimeline({
   frameIndex,
@@ -16,8 +34,18 @@ export function ReplayTimeline({
   onSeek,
   onTogglePlay,
   speed,
+  frames,
+  attemptLabel,
 }: ReplayTimelineProps) {
   const max = Math.max(0, totalFrames - 1)
+  const hasFrames = !!frames && frames.length > 0
+  const currentTime = hasFrames ? (frames[Math.min(frameIndex, frames.length - 1)]?.t ?? 0) : 0
+  const totalTime = hasFrames ? (frames[frames.length - 1]?.t ?? 0) : 0
+
+  // Evenly spaced, clickable time ticks derived from the trace duration.
+  const ticks = hasFrames
+    ? Array.from({ length: TICK_COUNT }, (_, i) => (totalTime * i) / (TICK_COUNT - 1))
+    : []
 
   return (
     <div>
@@ -47,7 +75,9 @@ export function ReplayTimeline({
       >
         {/* Attempt label + speed readout */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 11, color: 'var(--text-1)', fontWeight: 600 }}>Attempt 001</span>
+          <span style={{ fontSize: 11, color: 'var(--text-1)', fontWeight: 600 }}>
+            {attemptLabel ?? (hasFrames ? 'Replay' : 'No attempt loaded')}
+          </span>
           <span
             style={{
               fontSize: 10,
@@ -64,6 +94,7 @@ export function ReplayTimeline({
           <button
             onClick={onTogglePlay}
             title={playing ? 'Pause' : 'Play'}
+            disabled={!hasFrames}
             style={{
               width: 26,
               height: 26,
@@ -74,7 +105,8 @@ export function ReplayTimeline({
               color: '#fff',
               fontSize: 12,
               lineHeight: 1,
-              cursor: 'pointer',
+              cursor: hasFrames ? 'pointer' : 'not-allowed',
+              opacity: hasFrames ? 1 : 0.5,
             }}
           >
             {playing ? '❚❚' : '►'}
@@ -87,6 +119,7 @@ export function ReplayTimeline({
             step={1}
             value={Math.min(frameIndex, max)}
             onChange={(e) => onSeek(Number(e.target.value))}
+            disabled={!hasFrames}
             style={{ flex: 1, accentColor: 'var(--accent)' }}
           />
 
@@ -95,36 +128,43 @@ export function ReplayTimeline({
               fontSize: 10,
               color: 'var(--text-2)',
               fontVariantNumeric: 'tabular-nums',
-              width: 64,
+              width: 78,
               textAlign: 'right',
             }}
           >
-            {frameIndex} / {max}
+            {hasFrames ? `${currentTime.toFixed(1)}s / ${totalTime.toFixed(1)}s` : `${frameIndex} / ${max}`}
           </span>
         </div>
 
-        {/* Placeholder thumbnail row */}
-        <div style={{ display: 'flex', gap: 6 }}>
-          {THUMB_SECONDS.map((s) => (
-            <div
-              key={s}
-              style={{
-                flex: 1,
-                height: 36,
-                borderRadius: 4,
-                border: '1px dashed var(--border)',
-                display: 'flex',
-                alignItems: 'flex-end',
-                justifyContent: 'center',
-                fontSize: 9,
-                color: 'var(--text-2)',
-                paddingBottom: 2,
-              }}
-            >
-              {s}s
-            </div>
-          ))}
-        </div>
+        {/* Real time ticks — click to seek to that point in the replay. */}
+        {hasFrames && (
+          <div style={{ display: 'flex', gap: 6 }}>
+            {ticks.map((t, i) => {
+              const targetFrame = frameIndexAtTime(frames!, t)
+              const active = Math.abs(targetFrame - frameIndex) <= 1
+              return (
+                <button
+                  key={i}
+                  title={`Seek to ${t.toFixed(1)}s`}
+                  onClick={() => onSeek(targetFrame)}
+                  style={{
+                    flex: 1,
+                    height: 26,
+                    borderRadius: 4,
+                    border: active ? '1px solid var(--accent)' : '1px solid var(--border)',
+                    background: active ? 'var(--accent-soft)' : 'var(--surface-1)',
+                    color: active ? 'var(--accent)' : 'var(--text-2)',
+                    fontSize: 9,
+                    fontVariantNumeric: 'tabular-nums',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {t.toFixed(1)}s
+                </button>
+              )
+            })}
+          </div>
+        )}
       </div>
     </div>
   )
