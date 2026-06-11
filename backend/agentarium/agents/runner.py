@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import pathlib
 import uuid
 
@@ -8,6 +7,7 @@ import yaml
 from pydantic import BaseModel
 
 from agentarium.agents import get_provider
+from agentarium.agents.parsing import parse_tool_calls
 from agentarium.agents.prompts import (
     build_cooperative_user_prompt,
     build_system_prompt,
@@ -27,6 +27,11 @@ from agentarium.tools.apply import apply_tool_call
 from agentarium.tools.registry import get_tool
 
 _RUNS_DIR = pathlib.Path("runs")
+
+# Upper bound on simulated time per attempt, regardless of the user-set
+# ``simulation_duration_seconds``. Keeps runs (and the studio replay) bounded
+# while honoring durations up to this cap; the engine also caps total steps.
+_MAX_SIM_DURATION_SECONDS = 30
 
 
 class AttemptResult(BaseModel):
@@ -81,39 +86,6 @@ def _repair_rejected(
         if result.mutated:
             result.record.status = ToolCallStatus.repaired
             records[i] = result.record
-
-
-def _parse_tool_calls(raw: str) -> list[dict]:
-    """Defensively extract the ``tool_calls`` list from a completion string."""
-    text = raw.strip()
-    if text.startswith("```"):
-        # Strip code fences (```json ... ``` or ``` ... ```).
-        lines = text.splitlines()
-        if lines and lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].strip().startswith("```"):
-            lines = lines[:-1]
-        text = "\n".join(lines).strip()
-
-    # Try a direct parse, then fall back to the first {...} object.
-    candidates = [text]
-    start = text.find("{")
-    end = text.rfind("}")
-    if start != -1 and end != -1 and end > start:
-        candidates.append(text[start : end + 1])
-
-    for candidate in candidates:
-        try:
-            data = json.loads(candidate)
-        except (json.JSONDecodeError, ValueError):
-            continue
-        if isinstance(data, dict):
-            calls = data.get("tool_calls", [])
-            if isinstance(calls, list):
-                return [c for c in calls if isinstance(c, dict)]
-        if isinstance(data, list):
-            return [c for c in data if isinstance(c, dict)]
-    return []
 
 
 async def run_single_attempt(
@@ -177,7 +149,7 @@ async def run_agent_attempt(
         temperature=agent.temperature,
     )
 
-    tool_calls = _parse_tool_calls(raw)
+    tool_calls = parse_tool_calls(raw)
 
     design = DesignSpec(name=config.project_name)
     records: list[ToolCallRecord] = []
@@ -190,6 +162,8 @@ async def run_agent_attempt(
             tool=tool,
             args=args,
             enabled_tools=enabled_names,
+            max_parts=config.constraints.max_parts,
+            max_joints=config.constraints.max_joints,
         )
         records.append(result.record)
 
@@ -202,7 +176,9 @@ async def run_agent_attempt(
     # Simulate only if there is at least one dynamic body.
     trace_run_id: str | None = None
     if any(not b.static for b in design.bodies):
-        duration = min(config.constraints.simulation_duration_seconds, 5)
+        duration = min(
+            config.constraints.simulation_duration_seconds, _MAX_SIM_DURATION_SECONDS
+        )
         trace_run_id = create_run_from_design(
             design, config.world, duration_seconds=duration
         )
@@ -336,7 +312,7 @@ async def run_cooperative_attempt(
         # Per-turn map of this agent's original id → namespaced id, so its own
         # references remap while cross-agent references stay intact.
         created: dict[str, str] = {}
-        for call in _parse_tool_calls(raw):
+        for call in parse_tool_calls(raw):
             tool = call.get("tool", "")
             args = _remap_ids(agent.id, tool, call.get("args", {}) or {}, created)
             result = apply_tool_call(
@@ -345,13 +321,17 @@ async def run_cooperative_attempt(
                 tool=tool,
                 args=args,
                 enabled_tools=enabled_names,
+                max_parts=config.constraints.max_parts,
+                max_joints=config.constraints.max_joints,
             )
             records.append(result.record)
 
     # Simulate the SHARED design once (only if it has a dynamic body).
     trace_run_id: str | None = None
     if any(not b.static for b in design.bodies):
-        duration = min(config.constraints.simulation_duration_seconds, 5)
+        duration = min(
+            config.constraints.simulation_duration_seconds, _MAX_SIM_DURATION_SECONDS
+        )
         trace_run_id = create_run_from_design(
             design, config.world, duration_seconds=duration
         )

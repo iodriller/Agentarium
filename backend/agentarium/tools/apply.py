@@ -29,6 +29,13 @@ class ToolCallResult(BaseModel):
     mutated: bool
 
 
+# Tools that add a body / a joint, for constraint enforcement.
+_BODY_TOOLS = frozenset(
+    {"create_body", "add_ball", "add_beam", "add_ramp", "add_bin"}
+)
+_JOINT_TOOLS = frozenset({"add_joint"})
+
+
 def _validate_args(args: dict, schema: dict) -> str | None:
     """Lightweight JSON-Schema validation.
 
@@ -273,11 +280,18 @@ def apply_tool_call(
     tool: str,
     args: dict,
     enabled_tools: list[str],
+    max_parts: int | None = None,
+    max_joints: int | None = None,
 ) -> ToolCallResult:
     """The single mutation path for agent tool calls.
 
     Validates the call and, when valid and mutating, applies it to ``design``
     in place. Invalid calls are logged ``rejected`` and never touch the design.
+
+    ``max_parts`` / ``max_joints`` enforce the ``LaunchConfig`` budgets: a
+    body- or joint-creating call that would exceed the limit is rejected before
+    it mutates the design. ``None`` (the default) means unlimited, so existing
+    callers and tests are unaffected.
     """
     args = args or {}
 
@@ -304,6 +318,16 @@ def apply_tool_call(
     validation_error = _validate_args(args, definition.input_schema)
     if validation_error is not None:
         return _reject(f"invalid args: {validation_error}")
+
+    # Enforce part/joint budgets before mutating.
+    if max_parts is not None and tool in _BODY_TOOLS and len(design.bodies) >= max_parts:
+        return _reject(f"max_parts ({max_parts}) reached")
+    if (
+        max_joints is not None
+        and tool in _JOINT_TOOLS
+        and len(design.joints) >= max_joints
+    ):
+        return _reject(f"max_joints ({max_joints}) reached")
 
     # Mutate on a copy so a mid-mutation failure leaves the design untouched.
     working = design.model_copy(deep=True)
