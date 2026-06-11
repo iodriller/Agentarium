@@ -1,0 +1,21 @@
+{
+  "score_total": 20.00136685496889,
+  "success": false,
+  "metrics": {
+    "parts_used": 4.0,
+    "joints": 1.0,
+    "distance_m": 0.00013668555909504923,
+    "max_distance_m": 0.00013675334250347159,
+    "falls": 0.0,
+    "stability": 0.9999999999688969,
+    "energy": 28.80269883875243,
+    "duration_s": 3.0,
+    "spread_area": 2.423831183982555,
+    "bins_count": 0.0,
+    "bins_in_target": 0.0
+  },
+  "failure_events": [],
+  "summary": "Travelled 0.00m with stability 1.00 and 0 fall(s).",
+  "reward": "distance_plus_stability",
+  "improvement_hint": "Stable but short — add propulsion or extend reach."
+}
