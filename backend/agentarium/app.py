@@ -49,7 +49,17 @@ if _static.is_dir():
     if _assets.is_dir():
         app.mount("/assets", StaticFiles(directory=str(_assets)), name="assets")
 
-    # SPA fallback: any non-API path returns index.html for React Router
+    # SPA fallback: serve a real file from the static root when one exists
+    # (e.g. /favicon.svg, /icons.svg), otherwise return index.html so React
+    # Router can handle client-side routes. Without the file check, root assets
+    # referenced by index.html would be shadowed by index.html itself.
+    _static_root = _static.resolve()
+
     @app.get("/{full_path:path}", include_in_schema=False)
     async def spa_fallback(full_path: str) -> FileResponse:
+        if full_path:
+            candidate = (_static / full_path).resolve()
+            # Guard against path traversal: candidate must live under static/.
+            if _static_root in candidate.parents and candidate.is_file():
+                return FileResponse(str(candidate))
         return FileResponse(str(_static / "index.html"))
