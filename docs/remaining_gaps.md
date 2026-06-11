@@ -1,0 +1,70 @@
+# Agentarium — Remaining Gaps
+
+Captured after Step 27 (all planned MVP steps complete). Items below are deferred from
+the gap analysis or post-MVP backlog. Status legend: 🟢 **Fixed** · 🟡 **Deferred**
+· 🔵 **Product decision needed**.
+
+---
+
+## High value — shorter effort
+
+| ID | Area | Issue | Status |
+|----|------|-------|--------|
+| P1 | `run_service` | **SQLite persistence** — runs live only in memory; a server restart loses all history and the export endpoints 404 on every prior run. `ARCHITECTURE.md` names SQLite as the planned store. | 🟢 Fixed: write-through SQLite under `runs/agentarium.db`; DB fallback on `get_*`; startup reloads last 200 runs. |
+| P2 | `setup/validators` | **`manual` provider launches with a 500** — `ManualProvider.complete()` raises `NotImplementedError`. Nothing stops a user from configuring `provider: "manual"` and clicking Launch. | 🟢 Fixed: validator rejects `manual` provider with a clear message before the run starts. |
+| P3 | `setup/validators` + `openai_compatible` | **Real LLM hardening** — single 3s `_TIMEOUT` covers both the `/models` probe and generation calls (real LLM calls can take 30–120s and will `ReadTimeout`); LLM probe in validators sends no auth header and string-concats the URL (double-slash if trailing slash). | 🟢 Fixed: separate `_PROBE_TIMEOUT = 5s` / `_GENERATION_TIMEOUT = 120s`; probe uses auth headers; URL trailing slash stripped. |
+| P4 | Frontend (Setup) | **Auto-seed required tools on preset select** — picking Sorter doesn't enable `add_bin` automatically, so `Launch` stays disabled until the user manually finds and enables it. | 🟢 Fixed: `handleSelectPreset` seeds `tools.enabled` from `preset.required_tools`. |
+
+---
+
+## Medium effort — significant UX
+
+| ID | Area | Issue | Status |
+|----|------|-------|--------|
+| U1 | Studio UI | **Export Video / screenshot** — button exists, no-op. GIF/MP4 capture via Phaser canvas. | 🟡 Deferred |
+| U2 | Studio UI | **ReplayTimeline** — hardcodes "Attempt 001" and shows decorative thumbnails; needs real attempt filmstrip with per-frame scrubbing. | 🟡 Deferred |
+| U3 | `agents` | **Real-LLM end-to-end test** — all current tests use the `mock` provider; no integration test for `openai_compatible` against a live endpoint. | 🟡 Deferred (needs API key or local server in CI) |
+
+---
+
+## Engine / infrastructure
+
+| ID | Area | Issue | Status |
+|----|------|-------|--------|
+| E1 | Engines | **PyBullet3D adapter** — `EngineAdapter` base is designed for it; Pymunk2D is the only live implementation. Big physics upgrade. | 🟡 Deferred |
+| E2 | `LaunchConfig` constraints | `max_parts`, `max_joints`, `energy_budget`, `world.seed` (reproducibility), agent `context_window/mutation_strategy/behavior_mode` are parsed but never enforced. | 🟡 Deferred — mark clearly as forthcoming in the UI |
+| E3 | `runner` | `simulation_duration_seconds` (user-set, default 180) is silently hard-capped to 5s in the engine adapter. | 🟡 Deferred: name the constant, surface the cap or honor higher values |
+| E4 | `runner` | `_parse_tool_calls` is duplicated in `runner.py` and `openai_compatible.py` with slightly different logic. | 🟡 Deferred: consolidate into a shared helper |
+
+---
+
+## Multi-agent / modes
+
+| ID | Area | Issue | Status |
+|----|------|-------|--------|
+| MA1 | Orchestrator | `relay` and `sandbox` modes currently alias to the single-agent path. | 🟡 Deferred |
+| MA2 | Studio UI | Competitive mode "winner" star uses a global attempt index → wrong agent highlighted when per-agent indices diverge past attempt 1. | 🟢 Already fixed in Steps 21-25 |
+
+---
+
+## Code cleanliness / low priority
+
+| ID | Area | Issue | Status |
+|----|------|-------|--------|
+| L1 | `scoring_service` | `sorting_accuracy` / `city_score` rewards are rough proxies; real scoring would use actual physics outcomes. | 🟡 Deferred |
+| L2 | `run_service` | `create_run_from_design` always scores with `"default"` baseline; the runner re-scores with the named reward. Every attempt scores twice. | 🟡 Deferred: skip baseline score on the runner path |
+| L3 | `run_service` | `_design_summary` reports beams/ramps/sensors as 0 even though beams/ramps exist as `segment` bodies → UI part breakdown undercounts. | 🟡 Deferred |
+| L4 | `builder` | `SlideJoint`/`Spring` use hardcoded geometry; pivot ignores `anchor_b`. | 🟡 Deferred: derive from body distance / two-anchor pivot |
+| L5 | `validators` | LLM_OFFLINE probe in `validators.py` is a separate, simpler reimplementation of `OpenAICompatibleProvider.test_connection()`; should delegate to the provider. | 🟡 Deferred: consolidate after provider registry is accessible from validators |
+
+---
+
+## Open test gaps
+
+| Gap | Notes |
+|-----|-------|
+| `subscribe()` on a run that errors before `run_finished` — hang regression guard | Medium |
+| `manual` provider launch path (now validated away; test the rejection) | Small (added with P2 fix) |
+| `openai_compatible.complete()` timeout handling with real timeout | Needs mock HTTP server |
+| `relay`/`sandbox` mode routing | Deferred with MA1 |
+| SQLite DB fallback for evicted runs | Added with P1 fix |

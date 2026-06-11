@@ -11,7 +11,8 @@ from agentarium.agents.base import (
     StructuredOutputResult,
 )
 
-_TIMEOUT = 3.0
+_PROBE_TIMEOUT = 5.0       # short probe for /models reachability check
+_GENERATION_TIMEOUT = 120.0  # generation calls can take up to 2 minutes
 
 _STRUCTURED_PROMPT = (
     "Respond ONLY with a JSON object of the form "
@@ -66,9 +67,9 @@ class OpenAICompatibleProvider(AgentProvider):
         if not endpoint:
             return ProviderStatus(online=False, detail="No endpoint_url provided")
         try:
-            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            async with httpx.AsyncClient(timeout=_PROBE_TIMEOUT) as client:
                 response = await client.get(
-                    f"{endpoint}/models", headers=_headers(api_key)
+                    f"{endpoint.rstrip('/')}/models", headers=_headers(api_key)
                 )
         except Exception as exc:  # noqa: BLE001 - report any failure as offline
             return ProviderStatus(online=False, detail=str(exc))
@@ -113,9 +114,9 @@ class OpenAICompatibleProvider(AgentProvider):
             "temperature": 0.0,
         }
         try:
-            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            async with httpx.AsyncClient(timeout=_PROBE_TIMEOUT) as client:
                 response = await client.post(
-                    f"{endpoint}/chat/completions",
+                    f"{endpoint.rstrip('/')}/chat/completions",
                     headers=_headers(api_key),
                     json=payload,
                 )
@@ -167,12 +168,26 @@ class OpenAICompatibleProvider(AgentProvider):
             ],
             "temperature": temperature,
         }
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            response = await client.post(
-                f"{endpoint}/chat/completions",
-                headers=_headers(api_key),
-                json=payload,
-            )
-        response.raise_for_status()
-        data = response.json()
-        return str(data["choices"][0]["message"]["content"])
+        try:
+            async with httpx.AsyncClient(timeout=_GENERATION_TIMEOUT) as client:
+                response = await client.post(
+                    f"{endpoint.rstrip('/')}/chat/completions",
+                    headers=_headers(api_key),
+                    json=payload,
+                )
+            response.raise_for_status()
+        except httpx.TimeoutException as exc:
+            raise RuntimeError(
+                f"LLM generation timed out after {_GENERATION_TIMEOUT}s: {exc}"
+            ) from exc
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(
+                f"LLM endpoint returned HTTP {exc.response.status_code}"
+            ) from exc
+        except Exception as exc:
+            raise RuntimeError(f"LLM request failed: {exc}") from exc
+        try:
+            data = response.json()
+            return str(data["choices"][0]["message"]["content"])
+        except Exception as exc:
+            raise RuntimeError(f"Unexpected LLM response shape: {exc}") from exc
