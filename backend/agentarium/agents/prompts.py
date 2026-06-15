@@ -76,5 +76,7 @@ def build_cooperative_user_prompt(
         f"The design so far has {body_count} bodies and {joint_count} joints.\n"
         f"Existing body ids: [{ids_preview}].\n"
         "Extend and stabilize this existing design (add supports, joints, or "
-        "missing parts). Emit your tool_calls now."
+        "missing parts). To connect to an existing part, reference its id "
+        "EXACTLY as listed above (e.g. body_a/body_b on add_joint). Emit your "
+        "tool_calls now."
     )

@@ -155,7 +155,10 @@ def compute_metrics(trace: EpisodeTrace, design: DesignSpec) -> dict[str, float]
         # Normalize: a variance of ~1 rad^2 already means very wobbly.
         metrics["stability"] = _clamp01(1.0 - variance)
     else:
-        metrics["stability"] = 1.0
+        # Fewer than 2 recorded frames means nothing meaningful simulated, so a
+        # "perfect 1.0" would falsely credit a degenerate design. Report 0.0,
+        # consistent with the no-frames branch above.
+        metrics["stability"] = 0.0
 
     # --- energy proxy: summed per-frame path length of all dynamic bodies --------
     dynamic_ids = _dynamic_bodies(design)

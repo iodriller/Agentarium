@@ -54,10 +54,16 @@ class Pymunk2DEngine(EngineAdapter):
 
         # Initial frame at t=0.
         record(0)
+        last_recorded = 0
         for step in range(1, total_steps + 1):
             space.step(dt)
             if step % record_every == 0:
                 record(step)
+                last_recorded = step
+        # Always record the final state so distance/duration/falls aren't read
+        # from a frame up to (record_every - 1) steps stale.
+        if total_steps > 0 and last_recorded != total_steps:
+            record(total_steps)
 
         return trace
 
