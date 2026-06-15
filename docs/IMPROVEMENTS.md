@@ -88,10 +88,40 @@ drive every panel → trace fetched & replayed → exports**. No crash-class bug
 - **Skip double-scoring** (gap `L2`): `create_run_from_design` always computes a
   `default` score, then the runner re-scores with the named reward. Pass the reward
   through (or skip the baseline on the runner path).
-- **Enforce `max_motors`** alongside the new `max_parts`/`max_joints` enforcement.
 - **`relay` / `sandbox` modes**: currently alias the single-agent path; implement or
   hide in the UI until built.
 - **Real-LLM integration test**: a test against a mock HTTP server exercising
   `OpenAICompatibleProvider.complete()` timeouts/error wrapping (no live key needed).
 - **Bundle size**: the JS bundle is ~1.6 MB (442 KB gzipped). Code-split Phaser to
   cut first-load if the Studio screen is lazy-loaded.
+
+---
+
+## 4. Deep audit (2026-06-15) — four-part review
+
+A four-agent parallel review (backend correctness, frontend UX/polish, onboarding,
+API contracts). Priority order applied: **bugs → polish → improvements**. No
+crash-class bugs were found; the issues were silent failures, placeholder-as-real,
+onboarding robustness, and a few backend correctness nits.
+
+### Fixed 🟢 (all HIGH bugs across the stack)
+
+| Area | Fix |
+|------|-----|
+| Setup | Launch failures now surface a banner with the backend's 422 detail (`client.ts` `ApiError` carries status + body). |
+| Setup | Validation reachability tracked; TopBar pill shows Connected/Connecting/Server-offline instead of a hardcoded "System Online". No more eternal "Validating…". |
+| Setup | Tools auto-seed race fixed: checked tools derive from `config.tools.enabled` (single source), mount seed unions, preset selection merges `required_tools`. |
+| Studio | Viewport overlay for loading / error / disconnected (was a blank black canvas). |
+| Studio | WS drop → distinct `disconnected` status ("Connection lost"), not a fake "Finished". |
+| Studio | ChallengeBriefing shows real reward + constraints (new `run_started` payload); unified project-name fallback; tab title `frontend`→`Agentarium`. |
+| Onboarding | `serve` defaults to no-reload; friendly port-in-use message; browser opens only after `/api/health` is ready; `run.sh`/`run.ps1` re-check `uv` after install. |
+| Backend | `max_motors` enforced; stability `0.0` on <2 frames; engine always records the final frame; SQLite `scores`/`designs` pruned with `runs`; `save_preset` name sanitized (path-traversal); cooperative prompt instructs exact-id references. |
+
+### Deferred 🟡 / re-assessed
+
+| Item | Why |
+|------|-----|
+| **Event-loop offload** (`asyncio.to_thread` for simulate/IO) | Breaks the Starlette TestClient WS harness; it's a responsiveness optimization, not a correctness bug. Revisit with an integration-test approach. |
+| **Cooperative cross-agent joints** (audit called it "broken") | Re-assessed: the remap already preserves cross-agent ids, and the prompt now instructs exact-id use. Works with a cooperating LLM; the mock doesn't form them (mock limitation, not a bug). |
+| **Polish (priority 2)** | Not yet done: dead controls (Fullscreen button, "How it works"/"View Details" no-op links), redundant challenge dropdown+cards, remove the unused Tailwind import, replace `window.prompt`/`alert`, on-accent text token for hardcoded `#fff`, model-id picker from the connection check's model list, keyboard playback, small-width responsiveness, the "World Preview" placeholder. |
+| **Improvements (priority 3)** | `attempt_started`/`attempt_finished` emitted but unhandled (lineage dead on the wire); LLM probe hits `/models` but agents call `/chat/completions`; `name_design`/`mutate_design`/`repair_invalid_design` are no-ops reporting success; per-agent LLM settings forced shared; `WorldConfig` vs `WorldTemplate` `active_physics_zones` default (3 vs 1); double scoring (`L2`); `Frame.events` on the wire but unused. |
