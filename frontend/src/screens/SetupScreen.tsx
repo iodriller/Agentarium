@@ -6,6 +6,7 @@ import { AgentLLMColumn } from '../components/setup/AgentLLMColumn'
 import { ScenarioWorldColumn } from '../components/setup/ScenarioWorldColumn'
 import { ToolsLaunchColumn } from '../components/setup/ToolsLaunchColumn'
 import { TopBar } from '../components/shared/TopBar'
+import { useMediaQuery } from '../hooks/useMediaQuery'
 
 // Sensible defaults for the full config
 const DEFAULT_CONFIG: Partial<LaunchConfig> = {
@@ -82,6 +83,11 @@ export function SetupScreen() {
   const [presetMsg, setPresetMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [savingPreset, setSavingPreset] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Responsive breakpoints: 3 cols → 2 cols (≤1080px) → 1 col (≤720px).
+  const twoCol = useMediaQuery('(max-width: 1080px)')
+  const oneCol = useMediaQuery('(max-width: 720px)')
+  const stacked = twoCol || oneCol
 
   // Merged config change handler
   const handleConfigChange = useCallback((patch: Partial<LaunchConfig>) => {
@@ -235,22 +241,25 @@ export function SetupScreen() {
         )}
       </div>
 
-      {/* Three-column layout */}
+      {/* Three-column layout — collapses to 2 then 1 column on narrow widths */}
       <div
         style={{
           flex: 1,
           display: 'grid',
-          gridTemplateColumns: '1fr 1fr 1fr',
+          gridTemplateColumns: oneCol ? '1fr' : twoCol ? '1fr 1fr' : '1fr 1fr 1fr',
           gap: 0,
-          overflow: 'hidden',
+          // When stacked, the whole grid scrolls; on wide screens each column does.
+          overflowY: stacked ? 'auto' : 'hidden',
+          overflowX: 'hidden',
         }}
       >
         {/* Column 1 — Scenario & World */}
         <div
           style={{
-            borderRight: '1px solid var(--border)',
+            borderRight: oneCol ? 'none' : '1px solid var(--border)',
+            borderBottom: stacked ? '1px solid var(--border)' : 'none',
             padding: 16,
-            overflowY: 'auto',
+            overflowY: stacked ? 'visible' : 'auto',
           }}
         >
           <ColumnHeader number={1} title="Scenario & World Setup" badge="Required" />
@@ -260,9 +269,10 @@ export function SetupScreen() {
         {/* Column 2 — Agent & LLM */}
         <div
           style={{
-            borderRight: '1px solid var(--border)',
+            borderRight: oneCol ? 'none' : '1px solid var(--border)',
+            borderBottom: stacked ? '1px solid var(--border)' : 'none',
             padding: 16,
-            overflowY: 'auto',
+            overflowY: stacked ? 'visible' : 'auto',
           }}
         >
           <ColumnHeader number={2} title="Agent & LLM Setup" badge="Required" />
@@ -270,7 +280,7 @@ export function SetupScreen() {
         </div>
 
         {/* Column 3 — Tools, Constraints & Launch */}
-        <div style={{ padding: 16, overflowY: 'auto' }}>
+        <div style={{ padding: 16, overflowY: stacked ? 'visible' : 'auto' }}>
           <ColumnHeader number={3} title="Tools, Constraints & Launch" />
           <ToolsLaunchColumn
             config={config}
