@@ -21,6 +21,13 @@ if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
   $env:Path = "$env:USERPROFILE\.local\bin;$env:Path"
 }
 
+# Confirm uv is actually callable now; fail with a clear next step otherwise.
+if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
+  Write-Host "  x uv was installed but isn't on your PATH yet."
+  Write-Host "    Open a new PowerShell window and re-run ./run.ps1."
+  exit 1
+}
+
 # 2. Install Python + dependencies.
 Write-Host "  - Installing dependencies..."
 uv sync --all-groups

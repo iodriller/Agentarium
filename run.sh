@@ -22,6 +22,15 @@ if ! command -v uv >/dev/null 2>&1; then
   export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 fi
 
+# Confirm uv is actually callable now (the installer may land it somewhere not
+# yet on PATH for this shell). Fail with a clear next step rather than a cryptic
+# "uv: command not found" on the next line.
+if ! command -v uv >/dev/null 2>&1; then
+  echo "  ✗ uv was installed but isn't on your PATH yet."
+  echo "    Open a new terminal and re-run ./run.sh (or add ~/.local/bin to PATH)."
+  exit 1
+fi
+
 # 2. Install Python + dependencies into a managed environment.
 echo "  • Installing dependencies…"
 uv sync --all-groups
