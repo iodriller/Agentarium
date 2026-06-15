@@ -447,7 +447,13 @@ _TOOLS: list[ToolDefinition] = [
         description="Assign a human-readable name to the current design.",
         risk=RiskLevel.low,
         enabled_by_default=True,
-        input_schema={"type": "object", "properties": {}},
+        input_schema={
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+                "name": {"type": "string", "description": "Human-readable design name"},
+            },
+        },
     ),
     ToolDefinition(
         name="export_design",

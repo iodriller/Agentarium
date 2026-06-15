@@ -98,7 +98,17 @@ async def validate_launch_config(config: LaunchConfig) -> ValidationResult:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 response = await client.get(f"{base}/models", headers=headers)
             if response.status_code != 200:
-                missing.append(f"LLM endpoint unreachable: {endpoint_url}")
+                # Distinguish an auth problem (reachable but rejected) from an
+                # unreachable endpoint so the user knows whether to fix the key.
+                if response.status_code in (401, 403):
+                    missing.append(
+                        f"LLM endpoint rejected the API key (HTTP "
+                        f"{response.status_code}): {endpoint_url}"
+                    )
+                else:
+                    missing.append(
+                        f"LLM endpoint error (HTTP {response.status_code}): {endpoint_url}"
+                    )
                 return ValidationResult(
                     state=LaunchState.llm_offline, missing=missing, warnings=warnings
                 )
