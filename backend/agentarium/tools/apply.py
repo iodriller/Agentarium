@@ -271,6 +271,13 @@ def _mutate(design: DesignSpec, agent_id: str, tool: str, args: dict) -> bool:
         body.friction = float(args["friction"])
         return True
 
+    if tool == "name_design":
+        name = str(args["name"]).strip()
+        if not name:
+            raise ValueError("name must be a non-empty string")
+        design.name = name
+        return True
+
     # Non-mutating / not-yet-implemented tools: no-op at the design layer.
     return False
 

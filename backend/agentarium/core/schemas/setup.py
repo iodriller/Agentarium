@@ -126,7 +126,8 @@ class WorldConfig(BaseModel):
     engine: PhysicsEngine = PhysicsEngine.pymunk2d
     gravity: float = -9.81
     map_size: list[int] = [32, 32]
-    active_physics_zones: int = 3
+    # Matches WorldTemplate's default so template- and hand-built worlds agree.
+    active_physics_zones: int = 1
     visual_style: VisualStyle = VisualStyle.realistic
     seed: int | None = None
 

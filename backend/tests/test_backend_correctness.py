@@ -57,6 +57,26 @@ def test_max_motors_enforced():
     assert "max_motors" in (rejected.record.error or "")
 
 
+def test_name_design_sets_name():
+    d = DesignSpec(name="t")
+    r = apply_tool_call(
+        d, agent_id="a", tool="name_design",
+        args={"name": "My Bridge"}, enabled_tools=["name_design"],
+    )
+    assert r.record.status.value.lower() == "success"
+    assert r.mutated is True
+    assert d.name == "My Bridge"
+
+
+def test_name_design_rejects_missing_name():
+    d = DesignSpec(name="t")
+    r = apply_tool_call(
+        d, agent_id="a", tool="name_design", args={}, enabled_tools=["name_design"],
+    )
+    assert r.record.status.value.lower() == "rejected"
+    assert d.name == "t"
+
+
 def test_max_motors_none_unlimited():
     d = _two_bodies_one_joint()
     r = apply_tool_call(
