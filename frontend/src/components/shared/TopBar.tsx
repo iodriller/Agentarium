@@ -1,8 +1,18 @@
+type ConnectionStatus = 'online' | 'offline' | 'connecting'
+
 interface TopBarProps {
   projectName?: string
+  status?: ConnectionStatus
 }
 
-export function TopBar({ projectName = 'Agentarium' }: TopBarProps) {
+const STATUS_META: Record<ConnectionStatus, { color: string; label: string }> = {
+  online: { color: 'var(--ok)', label: 'Connected' },
+  connecting: { color: 'var(--warn)', label: 'Connecting…' },
+  offline: { color: 'var(--danger)', label: 'Server offline' },
+}
+
+export function TopBar({ projectName = 'Agentarium', status = 'connecting' }: TopBarProps) {
+  const meta = STATUS_META[status]
   return (
     <header
       style={{
@@ -31,9 +41,9 @@ export function TopBar({ projectName = 'Agentarium' }: TopBarProps) {
 
       {/* Right: status + actions */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-        <span style={{ fontSize: 11, color: 'var(--ok)', display: 'flex', alignItems: 'center', gap: 4 }}>
-          <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--ok)', display: 'inline-block' }} />
-          System Online
+        <span style={{ fontSize: 11, color: meta.color, display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: meta.color, display: 'inline-block' }} />
+          {meta.label}
         </span>
         <a href="#" style={{ color: 'var(--text-2)', fontSize: 12, textDecoration: 'none' }}>Docs</a>
         <a href="#" style={{ color: 'var(--text-2)', fontSize: 12, textDecoration: 'none' }}>Help</a>

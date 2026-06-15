@@ -51,7 +51,7 @@ export function ChallengeBriefing({
         <Row label="Max Parts" value={`${constraints?.max_parts ?? '—'}`} />
         <Row label="Energy Budget" value={`${constraints?.energy_budget ?? '—'}`} />
         <Row label="Sim Duration" value={`${constraints?.simulation_duration_seconds ?? '—'}s`} />
-        <Row label="Reward" value={reward || 'distance_plus_stability'} />
+        <Row label="Reward" value={reward || '—'} />
       </div>
     </div>
   )

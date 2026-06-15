@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { api } from '../../api/client'
 import type {
   ConstraintsConfig,
@@ -398,7 +398,13 @@ export function ToolsLaunchColumn({
 }: ToolsLaunchColumnProps) {
   // ── Tools state ──
   const [toolsData, setToolsData] = useState<ToolsResponse | null>(null)
-  const [checkedTools, setCheckedTools] = useState<Set<string>>(new Set())
+  // Checked tools are DERIVED from config.tools.enabled (the single source of
+  // truth), so a preset that seeds required_tools and the per-tool checkboxes
+  // can't diverge or clobber each other.
+  const checkedTools = useMemo(
+    () => new Set(config.tools?.enabled ?? []),
+    [config.tools?.enabled],
+  )
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set())
   const [toolsSectionOpen, setToolsSectionOpen] = useState(true)
   const [constraintsSectionOpen, setConstraintsSectionOpen] = useState(true)
@@ -421,15 +427,15 @@ export function ToolsLaunchColumn({
       .get<ToolsResponse>('/tools')
       .then((data) => {
         setToolsData(data)
-        // Seed checked tools from enabled_by_default
-        const initial = new Set<string>()
+        // Seed default-on tools, UNIONED with anything already enabled (e.g. a
+        // preset's required_tools selected before this fetch resolved) so the
+        // async seed can't clobber the preset's required tools.
+        const initial = new Set<string>(config.tools?.enabled ?? [])
         data.categories.forEach((cat) => {
           cat.tools.forEach((t) => {
             if (t.enabled_by_default) initial.add(t.name)
           })
         })
-        setCheckedTools(initial)
-        // Propagate initial selection up
         onConfigChange({ tools: { enabled: Array.from(initial) } } as Partial<LaunchConfig>)
       })
       .catch(() => {
@@ -450,19 +456,16 @@ export function ToolsLaunchColumn({
     const next = new Set(checkedTools)
     if (checked) next.add(name)
     else next.delete(name)
-    setCheckedTools(next)
     const toolsCfg: ToolsConfig = { enabled: Array.from(next) }
     onConfigChange({ tools: toolsCfg } as Partial<LaunchConfig>)
   }
 
   function handleSelectAll() {
     const all = new Set(allToolNames())
-    setCheckedTools(all)
     onConfigChange({ tools: { enabled: Array.from(all) } } as Partial<LaunchConfig>)
   }
 
   function handleClearAll() {
-    setCheckedTools(new Set())
     onConfigChange({ tools: { enabled: [] } } as Partial<LaunchConfig>)
   }
 

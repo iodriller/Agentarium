@@ -263,7 +263,9 @@ export interface RunStartedEvent {
   project_name: string
   mode: string
   objective: string
+  reward?: string
   max_attempts: number
+  constraints?: Partial<ConstraintsConfig>
   agents?: RunAgentInfo[]
 }
 
