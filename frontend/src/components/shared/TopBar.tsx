@@ -45,8 +45,14 @@ export function TopBar({ projectName = 'Agentarium', status = 'connecting' }: To
           <span style={{ width: 6, height: 6, borderRadius: '50%', background: meta.color, display: 'inline-block' }} />
           {meta.label}
         </span>
-        <a href="#" style={{ color: 'var(--text-2)', fontSize: 12, textDecoration: 'none' }}>Docs</a>
-        <a href="#" style={{ color: 'var(--text-2)', fontSize: 12, textDecoration: 'none' }}>Help</a>
+        <a
+          href="https://github.com/iodriller/agentarium#readme"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ color: 'var(--text-2)', fontSize: 12, textDecoration: 'none' }}
+        >
+          Docs
+        </a>
         <div
           style={{
             width: 28,

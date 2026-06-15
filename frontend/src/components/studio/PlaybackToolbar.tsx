@@ -6,6 +6,7 @@ interface PlaybackToolbarProps {
   onSpeedChange: (speed: number) => void
   frameIndex: number
   totalFrames: number
+  onFullscreen?: () => void
 }
 
 export function PlaybackToolbar({
@@ -16,6 +17,7 @@ export function PlaybackToolbar({
   onSpeedChange,
   frameIndex,
   totalFrames,
+  onFullscreen,
 }: PlaybackToolbarProps) {
   return (
     <div
@@ -88,7 +90,7 @@ export function PlaybackToolbar({
             borderRadius: 6,
             border: '1px solid var(--border)',
             background: 'var(--accent)',
-            color: '#fff',
+            color: 'var(--on-accent)',
             fontSize: 12,
             fontWeight: 600,
             cursor: 'pointer',
@@ -115,6 +117,8 @@ export function PlaybackToolbar({
 
         <button
           title="Fullscreen"
+          onClick={onFullscreen}
+          disabled={!onFullscreen}
           style={{
             width: 28,
             height: 28,
@@ -123,7 +127,7 @@ export function PlaybackToolbar({
             background: 'var(--surface-2)',
             color: 'var(--text-1)',
             fontSize: 13,
-            cursor: 'pointer',
+            cursor: onFullscreen ? 'pointer' : 'not-allowed',
           }}
         >
           ⛶

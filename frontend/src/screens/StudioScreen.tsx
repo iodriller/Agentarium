@@ -64,6 +64,12 @@ export function StudioScreen() {
   const [bestAttemptIndex, setBestAttemptIndex] = useState<number | null>(null)
   const DEFAULT_AGENTS: AgentInfo[] = [{ id: 'agent_a', name: 'Agent A', role: 'builder' }]
   const [agents, setAgents] = useState<AgentInfo[]>(DEFAULT_AGENTS)
+  // Mirror of `agents` for the WS handlers, which close over the effect's initial
+  // render (deps [runId]); reading the ref avoids a stale empty-agents fallback.
+  const agentsRef = useRef<AgentInfo[]>(DEFAULT_AGENTS)
+  useEffect(() => {
+    agentsRef.current = agents
+  }, [agents])
 
   const cooperative = mode === 'cooperative'
 
@@ -120,6 +126,7 @@ export function StudioScreen() {
   // ── WebSocket subscription (live runs) ─────────────────────────────────────
   // Open exactly once per runId; tolerate StrictMode double-mount + close.
   const wsRef = useRef<WebSocket | null>(null)
+  const viewportRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     if (!runId) return
@@ -163,13 +170,13 @@ export function StudioScreen() {
             setLatestAgentId('shared')
             break
           }
-          const id = event.agent_id ?? agents[0]?.id ?? 'agent_a'
+          const id = event.agent_id ?? agentsRef.current[0]?.id ?? 'agent_a'
           setDesignByAgent((prev) => ({ ...prev, [id]: event.summary }))
           setLatestAgentId(id)
           break
         }
         case 'trace_ready': {
-          const id = event.agent_id ?? (event.agent_ids ? 'shared' : agents[0]?.id ?? 'agent_a')
+          const id = event.agent_id ?? (event.agent_ids ? 'shared' : agentsRef.current[0]?.id ?? 'agent_a')
           setTraceByAttempt((prev) => ({
             ...prev,
             [`${id}:${event.attempt_index}`]: event.trace_run_id,
@@ -178,7 +185,7 @@ export function StudioScreen() {
           break
         }
         case 'score': {
-          const id = event.agent_id ?? agents[0]?.id ?? 'agent_a'
+          const id = event.agent_id ?? agentsRef.current[0]?.id ?? 'agent_a'
           setLatestScoreByAgent((prev) => ({ ...prev, [id]: event.scorecard }))
           setBestScoreByAgent((prev) => ({
             ...prev,
@@ -320,6 +327,37 @@ export function StudioScreen() {
     setFrameIndex(0)
   }
   const handleSeek = (index: number) => setFrameIndex(index)
+  const handleFullscreen = () => {
+    const el = viewportRef.current
+    if (!el) return
+    if (document.fullscreenElement) void document.exitFullscreen()
+    else void el.requestFullscreen?.()
+  }
+
+  // Keyboard playback: Space toggles play/pause, ←/→ step frames. Ignored while
+  // typing in a field so it doesn't hijack form input.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const target = e.target as HTMLElement | null
+      const tag = target?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+      if (!trace) return
+      if (e.code === 'Space') {
+        e.preventDefault()
+        setPlaying((p) => !p)
+      } else if (e.code === 'ArrowRight') {
+        e.preventDefault()
+        setPlaying(false)
+        setFrameIndex((i) => Math.min(i + 1, trace.frames.length - 1))
+      } else if (e.code === 'ArrowLeft') {
+        e.preventDefault()
+        setPlaying(false)
+        setFrameIndex((i) => Math.max(i - 1, 0))
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [trace])
 
   const running = runStatus === 'running' || runStatus === 'connecting'
   const disconnected = runStatus === 'disconnected'
@@ -439,10 +477,12 @@ export function StudioScreen() {
             onSpeedChange={setSpeed}
             frameIndex={frameIndex}
             totalFrames={totalFrames}
+            onFullscreen={handleFullscreen}
           />
 
           {/* Viewport */}
           <div
+            ref={viewportRef}
             style={{
               flex: 1,
               background: 'var(--surface-2)',
@@ -565,7 +605,6 @@ function ViewportOverlay({
   } else {
     title = 'Waiting for the first build…'
     detail = 'The agent is building — the world will appear here shortly.'
-    tone = 'var(--text-2)'
   }
 
   return (
