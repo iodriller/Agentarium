@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import pathlib
+import re
 
 import yaml
 
@@ -70,20 +71,38 @@ def get_world_template(template_id: str) -> WorldTemplate | None:
     return None
 
 
+def _safe_preset_name(name: str) -> str:
+    """Reduce ``name`` to a filename-safe slug that can't escape the presets dir.
+
+    Strips any path components and characters outside ``[A-Za-z0-9._-]`` so a
+    crafted name (``../../etc/x``) can't traverse out of ``runs/presets/``.
+    """
+    base = pathlib.PurePath(name).name  # drop any directory components
+    slug = re.sub(r"[^A-Za-z0-9._-]", "_", base).strip("._")
+    return slug
+
+
 def save_preset(name: str, config: LaunchConfig) -> str:
     """Persist a custom LaunchConfig under runs/presets/{name}.json.
 
-    Returns the path to the written file.
+    Returns the path to the written file. Raises ValueError if ``name`` has no
+    usable filename-safe characters.
     """
+    safe = _safe_preset_name(name)
+    if not safe:
+        raise ValueError("invalid preset name")
     _SAVED_PRESETS_DIR.mkdir(parents=True, exist_ok=True)
-    path = _SAVED_PRESETS_DIR / f"{name}.json"
+    path = _SAVED_PRESETS_DIR / f"{safe}.json"
     path.write_text(config.model_dump_json(indent=2), encoding="utf-8")
     return str(path)
 
 
 def load_preset(name: str) -> LaunchConfig | None:
     """Load a previously saved custom LaunchConfig, or None if missing."""
-    path = _SAVED_PRESETS_DIR / f"{name}.json"
+    safe = _safe_preset_name(name)
+    if not safe:
+        return None
+    path = _SAVED_PRESETS_DIR / f"{safe}.json"
     if not path.is_file():
         return None
     return LaunchConfig.model_validate_json(path.read_text(encoding="utf-8"))

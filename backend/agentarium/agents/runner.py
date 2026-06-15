@@ -164,6 +164,7 @@ async def run_agent_attempt(
             enabled_tools=enabled_names,
             max_parts=config.constraints.max_parts,
             max_joints=config.constraints.max_joints,
+            max_motors=config.constraints.max_motors,
         )
         records.append(result.record)
 
@@ -323,6 +324,7 @@ async def run_cooperative_attempt(
                 enabled_tools=enabled_names,
                 max_parts=config.constraints.max_parts,
                 max_joints=config.constraints.max_joints,
+                max_motors=config.constraints.max_motors,
             )
             records.append(result.record)
 

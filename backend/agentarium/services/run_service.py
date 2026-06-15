@@ -74,12 +74,15 @@ def _db_write_run(run_id: str, trace: EpisodeTrace, design: DesignSpec) -> None:
                 "INSERT OR REPLACE INTO designs (run_id, design_json) VALUES (?, ?)",
                 (run_id, design.model_dump_json()),
             )
-            # Prune oldest rows beyond the on-disk cap.
+            # Prune oldest rows beyond the on-disk cap, then drop scores/designs
+            # whose run was pruned so those tables don't grow without bound.
             conn.execute(
                 "DELETE FROM runs WHERE run_id NOT IN "
                 "(SELECT run_id FROM runs ORDER BY rowid DESC LIMIT ?)",
                 (_DB_MAX_ROWS,),
             )
+            conn.execute("DELETE FROM scores WHERE run_id NOT IN (SELECT run_id FROM runs)")
+            conn.execute("DELETE FROM designs WHERE run_id NOT IN (SELECT run_id FROM runs)")
             conn.commit()
 
 
