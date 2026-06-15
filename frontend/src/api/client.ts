@@ -1,8 +1,32 @@
 const BASE = '/api'
 
+/** Error carrying the HTTP status and parsed response body so callers can show
+ *  the backend's actual reason (e.g. a 422 validation detail) instead of a
+ *  generic failure. */
+export class ApiError extends Error {
+  status: number
+  body: unknown
+  constructor(message: string, status: number, body: unknown) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.body = body
+  }
+}
+
+async function _readError(res: Response, path: string, method: string): Promise<never> {
+  let body: unknown = null
+  try {
+    body = await res.json()
+  } catch {
+    /* response had no JSON body */
+  }
+  throw new ApiError(`${method} ${path} → ${res.status}`, res.status, body)
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`)
-  if (!res.ok) throw new Error(`GET ${path} → ${res.status}`)
+  if (!res.ok) await _readError(res, path, 'GET')
   return res.json() as Promise<T>
 }
 
@@ -12,7 +36,7 @@ async function post<T>(path: string, body: unknown): Promise<T> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  if (!res.ok) throw new Error(`POST ${path} → ${res.status}`)
+  if (!res.ok) await _readError(res, path, 'POST')
   return res.json() as Promise<T>
 }
 

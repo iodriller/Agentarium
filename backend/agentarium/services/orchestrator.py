@@ -218,7 +218,17 @@ class RunManager:
                 "project_name": config.project_name,
                 "mode": config.agents.mode.value,
                 "objective": objective,
+                "reward": config.scenario.reward,
                 "max_attempts": min(config.constraints.max_attempts, mode_cap),
+                "constraints": {
+                    "max_parts": config.constraints.max_parts,
+                    "max_joints": config.constraints.max_joints,
+                    "max_motors": config.constraints.max_motors,
+                    "energy_budget": config.constraints.energy_budget,
+                    "simulation_duration_seconds": (
+                        config.constraints.simulation_duration_seconds
+                    ),
+                },
                 "agents": [
                     {"id": a.id, "name": a.name, "role": a.role.value}
                     for a in participants

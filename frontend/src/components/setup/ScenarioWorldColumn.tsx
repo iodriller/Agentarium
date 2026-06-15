@@ -237,6 +237,11 @@ export function ScenarioWorldColumn({ config, onConfigChange }: ScenarioWorldCol
 
   // ── Selecting a challenge preset auto-fills scenario, world, and required tools ──
   function handleSelectPreset(preset: ScenarioPreset) {
+    // Merge the preset's required tools into whatever is already enabled so the
+    // challenge is launchable without wiping the user's (or default-on) tools.
+    const enabled = Array.from(
+      new Set([...(config.tools?.enabled ?? []), ...preset.required_tools]),
+    )
     onConfigChange({
       scenario: {
         preset: preset.id,
@@ -244,7 +249,7 @@ export function ScenarioWorldColumn({ config, onConfigChange }: ScenarioWorldCol
         reward: preset.reward,
       },
       world: worldFieldsFor(preset.default_world),
-      tools: { enabled: preset.required_tools },
+      tools: { enabled },
     } as Partial<LaunchConfig>)
   }
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api } from '../api/client'
+import { ApiError, api } from '../api/client'
 import type { LaunchConfig, LaunchResponse, ValidationResult } from '../api/types'
 import { AgentLLMColumn } from '../components/setup/AgentLLMColumn'
 import { ScenarioWorldColumn } from '../components/setup/ScenarioWorldColumn'
@@ -52,11 +52,31 @@ const DEFAULT_CONFIG: Partial<LaunchConfig> = {
   },
 }
 
+/** Turn a launch failure into a human message, pulling the backend's 422
+ *  validation detail (state + missing list) out of an ApiError when present. */
+function describeLaunchError(err: unknown): string {
+  if (err instanceof ApiError) {
+    const body = err.body as { detail?: { missing?: string[]; state?: string } } | null
+    const detail = body?.detail
+    if (detail?.missing && detail.missing.length > 0) {
+      return `Launch blocked: ${detail.missing.join('; ')}`
+    }
+    if (err.status === 0 || err.status >= 500) {
+      return 'Launch failed — the server is unreachable. Is it running?'
+    }
+    return `Launch failed (${err.status}). Check your configuration and try again.`
+  }
+  return 'Launch failed — the server is unreachable. Is it running?'
+}
+
 export function SetupScreen() {
   const navigate = useNavigate()
   const [config, setConfig] = useState<Partial<LaunchConfig>>(DEFAULT_CONFIG)
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null)
   const [launching, setLaunching] = useState(false)
+  // null = unknown (not yet checked); true/false = last server call reachable.
+  const [backendReachable, setBackendReachable] = useState<boolean | null>(null)
+  const [launchError, setLaunchError] = useState<string | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Merged config change handler
@@ -105,8 +125,11 @@ export function SetupScreen() {
     try {
       const result = await api.post<ValidationResult>('/setup/validate', cfg)
       setValidationResult(result)
+      setBackendReachable(true)
     } catch {
-      // Validation endpoint may not be reachable in dev; ignore
+      // Couldn't reach the validation endpoint — surface it instead of leaving
+      // the banner stuck on an eternal "Validating…".
+      setBackendReachable(false)
     }
   }
 
@@ -118,11 +141,12 @@ export function SetupScreen() {
   async function handleLaunch() {
     if (launching) return
     setLaunching(true)
+    setLaunchError(null)
     try {
       const { run_id } = await api.post<LaunchResponse>('/setup/launch', config)
       navigate(`/studio/${run_id}`)
     } catch (err) {
-      console.error('Launch failed', err)
+      setLaunchError(describeLaunchError(err))
       setLaunching(false)
     }
   }
@@ -141,7 +165,12 @@ export function SetupScreen() {
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <TopBar projectName="Bridge Builder Lab" />
+      <TopBar
+        projectName="Bridge Builder Lab"
+        status={
+          backendReachable === null ? 'connecting' : backendReachable ? 'online' : 'offline'
+        }
+      />
 
       {/* Title block */}
       <div
@@ -157,6 +186,40 @@ export function SetupScreen() {
         <p style={{ fontSize: 12, color: 'var(--text-2)' }}>
           Configure your world, agents, tools, and constraints before launch.
         </p>
+        {launchError && (
+          <div
+            role="alert"
+            style={{
+              marginTop: 12,
+              padding: '8px 12px',
+              borderRadius: 6,
+              border: '1px solid var(--danger)',
+              background: 'color-mix(in srgb, var(--danger) 12%, transparent)',
+              color: 'var(--danger)',
+              fontSize: 12,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+            }}
+          >
+            <span>{launchError}</span>
+            <button
+              onClick={() => setLaunchError(null)}
+              aria-label="Dismiss"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--danger)',
+                cursor: 'pointer',
+                fontSize: 14,
+                lineHeight: 1,
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Three-column layout */}

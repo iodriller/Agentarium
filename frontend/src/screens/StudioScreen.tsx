@@ -13,6 +13,7 @@ import { TelemetryPanel, type AttemptScore } from '../components/studio/Telemetr
 import { AttemptHistory } from '../components/studio/AttemptHistory'
 import { api, downloadUrl, wsUrl } from '../api/client'
 import type {
+  ConstraintsConfig,
   CreateRunResponse,
   DesignSummary,
   EpisodeTrace,
@@ -32,10 +33,16 @@ export function StudioScreen() {
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
 
   // ── Live run state (fed by the WebSocket) ──────────────────────────────────
-  const [runStatus, setRunStatus] = useState<'connecting' | 'running' | 'finished'>('connecting')
+  const [runStatus, setRunStatus] = useState<
+    'connecting' | 'running' | 'finished' | 'disconnected'
+  >('connecting')
   const [mode, setMode] = useState<string>('single')
   const [challengeName, setChallengeName] = useState('')
   const [objective, setObjective] = useState('')
+  const [reward, setReward] = useState('')
+  const [briefingConstraints, setBriefingConstraints] = useState<
+    Partial<ConstraintsConfig> | undefined
+  >(undefined)
   const [toolLog, setToolLog] = useState<ToolCallRecord[]>([])
   // The agent whose score/metrics/design last updated — drives the "latest"
   // displays. Falls back to the first agent.
@@ -138,6 +145,8 @@ export function StudioScreen() {
           setChallengeName(event.project_name)
           setObjective(event.objective)
           setMode(event.mode)
+          if (event.reward) setReward(event.reward)
+          if (event.constraints) setBriefingConstraints(event.constraints)
           setRunStatus('running')
           if (event.agents && event.agents.length > 0) {
             setAgents(event.agents.map((a) => ({ id: a.id, name: a.name, role: a.role })))
@@ -226,9 +235,10 @@ export function StudioScreen() {
     }
 
     ws.onclose = () => {
-      // If the socket drops without a clean run_finished (server crash, proxy
-      // timeout), leave the "running" state so the UI doesn't hang on "Building…".
-      if (!cancelled) setRunStatus((s) => (s === 'running' ? 'finished' : s))
+      // If the socket drops while still running (server crash, proxy timeout),
+      // mark it 'disconnected' — distinct from a clean 'finished' so a failure
+      // isn't misreported as success, and the UI doesn't hang on "Building…".
+      if (!cancelled) setRunStatus((s) => (s === 'running' || s === 'connecting' ? 'disconnected' : s))
     }
 
     return () => {
@@ -312,10 +322,16 @@ export function StudioScreen() {
   const handleSeek = (index: number) => setFrameIndex(index)
 
   const running = runStatus === 'running' || runStatus === 'connecting'
+  const disconnected = runStatus === 'disconnected'
+  const topBarStatus = status === 'error' || disconnected
+    ? 'offline'
+    : runStatus === 'connecting'
+      ? 'connecting'
+      : 'online'
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <TopBar projectName={challengeName || 'Creature Builder Lab'} />
+      <TopBar projectName={challengeName || 'Agentarium'} status={topBarStatus} />
 
       {/* Studio header */}
       <div
@@ -332,33 +348,40 @@ export function StudioScreen() {
         <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)' }}>
           Simulation World
         </span>
-        <span
-          style={{
-            fontSize: 11,
-            color: status === 'error' ? 'var(--danger)' : running ? 'var(--warn)' : 'var(--ok)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 4,
-          }}
-        >
-          <span
-            style={{
-              width: 6,
-              height: 6,
-              borderRadius: '50%',
-              background:
-                status === 'error' ? 'var(--danger)' : running ? 'var(--warn)' : 'var(--ok)',
-              display: 'inline-block',
-            }}
-          />
-          {status === 'error'
-            ? 'Run error'
-            : runStatus === 'connecting'
-              ? 'Connecting…'
-              : runStatus === 'running'
-                ? 'Building…'
-                : 'Finished'}
-        </span>
+        {(() => {
+          const tone =
+            status === 'error' || disconnected
+              ? 'var(--danger)'
+              : running
+                ? 'var(--warn)'
+                : 'var(--ok)'
+          const label =
+            status === 'error'
+              ? 'Run error'
+              : disconnected
+                ? 'Connection lost'
+                : runStatus === 'connecting'
+                  ? 'Connecting…'
+                  : runStatus === 'running'
+                    ? 'Building…'
+                    : 'Finished'
+          return (
+            <span
+              style={{ fontSize: 11, color: tone, display: 'flex', alignItems: 'center', gap: 4 }}
+            >
+              <span
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  background: tone,
+                  display: 'inline-block',
+                }}
+              />
+              {label}
+            </span>
+          )
+        })()}
         <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-2)' }}>
           run: {runId ?? trace?.run_id ?? '—'}
         </span>
@@ -382,7 +405,8 @@ export function StudioScreen() {
           <ChallengeBriefing
             challengeName={challengeName}
             objective={objective}
-            reward="distance_plus_stability"
+            reward={reward}
+            constraints={briefingConstraints}
           />
           <AgentStatusPanel
             agents={agents}
@@ -427,6 +451,11 @@ export function StudioScreen() {
             }}
           >
             <IsometricWorldView trace={trace} frameIndex={frameIndex} />
+            <ViewportOverlay
+              status={status}
+              runStatus={runStatus}
+              hasTrace={!!trace}
+            />
           </div>
 
           {/* Telemetry strip */}
@@ -500,6 +529,63 @@ export function StudioScreen() {
           />
         </div>
       </div>
+    </div>
+  )
+}
+
+/** Overlay shown on top of the (empty) viewport while loading, on error, or when
+ *  the connection drops — so a failed run isn't just a blank black canvas. */
+function ViewportOverlay({
+  status,
+  runStatus,
+  hasTrace,
+}: {
+  status: 'loading' | 'ready' | 'error'
+  runStatus: 'connecting' | 'running' | 'finished' | 'disconnected'
+  hasTrace: boolean
+}) {
+  // Nothing to overlay once a trace is rendering and there's no error.
+  if (hasTrace && status !== 'error' && runStatus !== 'disconnected') return null
+
+  let title: string
+  let detail: string
+  let tone = 'var(--text-2)'
+  if (status === 'error') {
+    title = 'Run error'
+    detail = 'Something went wrong loading this run. Try launching again.'
+    tone = 'var(--danger)'
+  } else if (runStatus === 'disconnected') {
+    title = 'Connection lost'
+    detail = 'The live connection dropped before the run finished.'
+    tone = 'var(--danger)'
+  } else if (runStatus === 'connecting') {
+    title = 'Connecting…'
+    detail = 'Establishing the live run connection.'
+    tone = 'var(--warn)'
+  } else {
+    title = 'Waiting for the first build…'
+    detail = 'The agent is building — the world will appear here shortly.'
+    tone = 'var(--text-2)'
+  }
+
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        inset: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        textAlign: 'center',
+        padding: 24,
+        pointerEvents: 'none',
+        background: 'color-mix(in srgb, var(--surface-2) 70%, transparent)',
+      }}
+    >
+      <div style={{ fontSize: 14, fontWeight: 600, color: tone }}>{title}</div>
+      <div style={{ fontSize: 12, color: 'var(--text-2)', maxWidth: 320 }}>{detail}</div>
     </div>
   )
 }
