@@ -12,6 +12,7 @@ import { DesignSummaryPanel } from '../components/studio/DesignSummaryPanel'
 import { TelemetryPanel, type AttemptScore } from '../components/studio/TelemetryPanel'
 import { AttemptHistory } from '../components/studio/AttemptHistory'
 import { api, downloadUrl, wsUrl } from '../api/client'
+import { useMediaQuery } from '../hooks/useMediaQuery'
 import type {
   ConstraintsConfig,
   CreateRunResponse,
@@ -158,6 +159,17 @@ export function StudioScreen() {
           if (event.agents && event.agents.length > 0) {
             setAgents(event.agents.map((a) => ({ id: a.id, name: a.name, role: a.role })))
           }
+          break
+        case 'attempt_started': {
+          // Surface the in-flight attempt as soon as it begins, rather than only
+          // when its score lands, so the "current attempt" reads as live.
+          const id = event.agent_id ?? (event.agent_ids ? 'shared' : agentsRef.current[0]?.id ?? 'agent_a')
+          setLatestAgentId(id)
+          setLatestAttemptIndex(event.attempt_index)
+          break
+        }
+        case 'attempt_finished':
+          // The score/design events already drove the panels for this attempt.
           break
         case 'tool_call':
           setToolLog((prev) => [...prev, event.record])
@@ -361,6 +373,8 @@ export function StudioScreen() {
 
   const running = runStatus === 'running' || runStatus === 'connecting'
   const disconnected = runStatus === 'disconnected'
+  // Below ~1100px the fixed rails squeeze the viewport — stack them instead.
+  const narrow = useMediaQuery('(max-width: 1100px)')
   const topBarStatus = status === 'error' || disconnected
     ? 'offline'
     : runStatus === 'connecting'
@@ -425,16 +439,25 @@ export function StudioScreen() {
         </span>
       </div>
 
-      {/* Three-region layout */}
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+      {/* Three-region layout — stacks vertically on narrow widths */}
+      <div
+        style={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: narrow ? 'column' : 'row',
+          overflowY: narrow ? 'auto' : 'hidden',
+          overflowX: 'hidden',
+        }}
+      >
         {/* Left rail — briefing & agent status */}
         <div
           style={{
-            width: 280,
+            width: narrow ? 'auto' : 280,
             flexShrink: 0,
-            borderRight: '1px solid var(--border)',
+            borderRight: narrow ? 'none' : '1px solid var(--border)',
+            borderBottom: narrow ? '1px solid var(--border)' : 'none',
             padding: 12,
-            overflowY: 'auto',
+            overflowY: narrow ? 'visible' : 'auto',
             display: 'flex',
             flexDirection: 'column',
             gap: 12,
@@ -468,7 +491,16 @@ export function StudioScreen() {
         </div>
 
         {/* Center — toolbar + isometric viewport + telemetry */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div
+          style={{
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            // Keep the viewport usable when the layout is stacked vertically.
+            minHeight: narrow ? 460 : undefined,
+          }}
+        >
           <PlaybackToolbar
             playing={playing}
             onTogglePlay={handleTogglePlay}
@@ -523,11 +555,12 @@ export function StudioScreen() {
         {/* Right rail — log, design, replay */}
         <div
           style={{
-            width: 300,
+            width: narrow ? 'auto' : 300,
             flexShrink: 0,
-            borderLeft: '1px solid var(--border)',
+            borderLeft: narrow ? 'none' : '1px solid var(--border)',
+            borderTop: narrow ? '1px solid var(--border)' : 'none',
             padding: 12,
-            overflowY: 'auto',
+            overflowY: narrow ? 'visible' : 'auto',
             display: 'flex',
             flexDirection: 'column',
             gap: 12,
