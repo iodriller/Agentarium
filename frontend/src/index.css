@@ -1,5 +1,3 @@
-@import "tailwindcss";
-
 :root {
   --bg:           #0b0d12;
   --surface-1:    #12151c;
@@ -9,6 +7,7 @@
   --text-2:       #9aa4b2;
   --accent:       #7c5cff;
   --accent-soft:  #2a2350;
+  --on-accent:    #ffffff;
   --ok:           #34d399;
   --warn:         #f59e0b;
   --danger:       #ef4444;
@@ -38,4 +37,13 @@ body {
   font-size: 13px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Buttons/inputs inherit the app font (replaces what Tailwind preflight did). */
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+  font-size: inherit;
 }

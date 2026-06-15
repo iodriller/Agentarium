@@ -196,24 +196,6 @@ function FieldRow({ label, children }: { label: string; children: React.ReactNod
   )
 }
 
-function NoOpLink({ children }: { children: React.ReactNode }) {
-  return (
-    <a
-      href="#"
-      onClick={(e) => e.preventDefault()}
-      style={{
-        fontSize: 11,
-        color: 'var(--accent)',
-        textDecoration: 'none',
-        whiteSpace: 'nowrap',
-        cursor: 'pointer',
-      }}
-    >
-      {children}
-    </a>
-  )
-}
-
 function ModeCard({
   title,
   subtitle,
@@ -502,9 +484,6 @@ export function AgentLLMColumn({ config, onConfigChange }: AgentLLMColumnProps) 
               />
             ))}
           </div>
-          <div style={{ marginBottom: 10 }}>
-            <NoOpLink>How it works</NoOpLink>
-          </div>
         </>
       )}
 
@@ -562,8 +541,17 @@ export function AgentLLMColumn({ config, onConfigChange }: AgentLLMColumnProps) 
               type="text"
               value={sharedModel}
               onChange={(e) => handleSharedLLMChange({ model: e.target.value })}
+              list="discovered-models"
+              placeholder="model id"
               style={inputStyle()}
             />
+            {status?.online && status.models && status.models.length > 0 && (
+              <datalist id="discovered-models">
+                {status.models.map((m) => (
+                  <option key={m} value={m} />
+                ))}
+              </datalist>
+            )}
           </FieldRow>
 
           <FieldRow label="Context Window">
@@ -721,17 +709,9 @@ export function AgentLLMColumn({ config, onConfigChange }: AgentLLMColumnProps) 
           {/* Models list */}
           {status?.online && status.models && status.models.length > 0 && (
             <div style={{ fontSize: 10, color: 'var(--ok)', marginTop: 6 }}>
-              ✓ {status.models.length} models available
-              <span style={{ color: 'var(--text-2)', marginLeft: 4 }}>
-                ({status.models.slice(0, 2).join(', ')}
-                {status.models.length > 2 ? ', …' : ''})
-              </span>
+              ✓ {status.models.length} models available — pick one in the Model field above.
             </div>
           )}
-
-          <div style={{ marginTop: 8 }}>
-            <NoOpLink>About connections</NoOpLink>
-          </div>
         </div>
       )}
     </div>

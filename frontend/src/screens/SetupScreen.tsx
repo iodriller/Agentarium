@@ -77,6 +77,10 @@ export function SetupScreen() {
   // null = unknown (not yet checked); true/false = last server call reachable.
   const [backendReachable, setBackendReachable] = useState<boolean | null>(null)
   const [launchError, setLaunchError] = useState<string | null>(null)
+  const [savePresetOpen, setSavePresetOpen] = useState(false)
+  const [presetName, setPresetName] = useState('')
+  const [presetMsg, setPresetMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const [savingPreset, setSavingPreset] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Merged config change handler
@@ -151,15 +155,24 @@ export function SetupScreen() {
     }
   }
 
-  async function handleSavePreset() {
-    const name = window.prompt('Save preset as:')?.trim()
-    if (!name) return
+  function handleSavePreset() {
+    setPresetName('')
+    setPresetMsg(null)
+    setSavePresetOpen(true)
+  }
+
+  async function submitSavePreset() {
+    const name = presetName.trim()
+    if (!name || savingPreset) return
+    setSavingPreset(true)
     try {
       await api.post('/setup/save-preset', { name, config })
-      window.alert(`Saved preset "${name}".`)
-    } catch (err) {
-      console.error('Save preset failed', err)
-      window.alert('Save preset failed — see console for details.')
+      setPresetMsg({ ok: true, text: `Saved preset “${name}”.` })
+      setTimeout(() => setSavePresetOpen(false), 900)
+    } catch {
+      setPresetMsg({ ok: false, text: 'Save failed — is the server running?' })
+    } finally {
+      setSavingPreset(false)
     }
   }
 
@@ -267,6 +280,133 @@ export function SetupScreen() {
             onLaunch={handleLaunch}
             onSavePreset={handleSavePreset}
           />
+        </div>
+      </div>
+
+      {savePresetOpen && (
+        <SavePresetModal
+          name={presetName}
+          onNameChange={setPresetName}
+          onSubmit={submitSavePreset}
+          onClose={() => setSavePresetOpen(false)}
+          saving={savingPreset}
+          message={presetMsg}
+        />
+      )}
+    </div>
+  )
+}
+
+function SavePresetModal({
+  name,
+  onNameChange,
+  onSubmit,
+  onClose,
+  saving,
+  message,
+}: {
+  name: string
+  onNameChange: (v: string) => void
+  onSubmit: () => void
+  onClose: () => void
+  saving: boolean
+  message: { ok: boolean; text: string } | null
+}) {
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.5)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 100,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-label="Save preset"
+        style={{
+          width: 360,
+          maxWidth: '90vw',
+          background: 'var(--surface-1)',
+          border: '1px solid var(--border)',
+          borderRadius: 10,
+          padding: 20,
+        }}
+      >
+        <h2 style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-1)', marginBottom: 4 }}>
+          Save preset
+        </h2>
+        <p style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 12 }}>
+          Save this configuration so you can reload it later.
+        </p>
+        <input
+          autoFocus
+          value={name}
+          onChange={(e) => onNameChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') onSubmit()
+            if (e.key === 'Escape') onClose()
+          }}
+          placeholder="Preset name"
+          style={{
+            width: '100%',
+            padding: '8px 10px',
+            borderRadius: 6,
+            border: '1px solid var(--border)',
+            background: 'var(--surface-2)',
+            color: 'var(--text-1)',
+            fontSize: 13,
+            marginBottom: 12,
+          }}
+        />
+        {message && (
+          <div
+            style={{
+              fontSize: 12,
+              marginBottom: 12,
+              color: message.ok ? 'var(--ok)' : 'var(--danger)',
+            }}
+          >
+            {message.text}
+          </div>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button
+            onClick={onClose}
+            style={{
+              padding: '7px 14px',
+              borderRadius: 6,
+              border: '1px solid var(--border)',
+              background: 'transparent',
+              color: 'var(--text-2)',
+              fontSize: 12,
+              cursor: 'pointer',
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onSubmit}
+            disabled={!name.trim() || saving}
+            style={{
+              padding: '7px 14px',
+              borderRadius: 6,
+              border: 'none',
+              background: 'var(--accent)',
+              color: 'var(--on-accent)',
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: !name.trim() || saving ? 'not-allowed' : 'pointer',
+              opacity: !name.trim() || saving ? 0.5 : 1,
+            }}
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </button>
         </div>
       </div>
     </div>

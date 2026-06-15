@@ -253,11 +253,6 @@ export function ScenarioWorldColumn({ config, onConfigChange }: ScenarioWorldCol
     } as Partial<LaunchConfig>)
   }
 
-  function handleSelectPresetById(id: string) {
-    const preset = allCards.find((p) => p.id === id)
-    if (preset) handleSelectPreset(preset)
-  }
-
   // ── Changing world template updates dependent fields ──
   function handleSelectWorld(worldId: string) {
     onConfigChange({ world: worldFieldsFor(worldId) } as Partial<LaunchConfig>)
@@ -286,40 +281,6 @@ export function ScenarioWorldColumn({ config, onConfigChange }: ScenarioWorldCol
         }}
       >
         Challenge Preset
-      </div>
-
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          marginBottom: 10,
-        }}
-      >
-        <select
-          value={selectedPresetId}
-          onChange={(e) => handleSelectPresetById(e.target.value)}
-          style={{ ...selectStyle(), flex: 1 }}
-        >
-          {allCards.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-        <a
-          href="#"
-          onClick={(e) => e.preventDefault()}
-          style={{
-            fontSize: 11,
-            color: 'var(--accent)',
-            textDecoration: 'none',
-            whiteSpace: 'nowrap',
-            cursor: 'pointer',
-          }}
-        >
-          View Details
-        </a>
       </div>
 
       {/* Challenge cards */}
