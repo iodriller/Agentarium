@@ -69,19 +69,34 @@ flowchart TD
 ## Tools
 
 24 tools across five categories, gated per run by `LaunchConfig.tools.enabled`.
-High-risk or advanced tools are off by default.
+Each tool declares an honest **status** so the UI and the chokepoint never imply
+behavior that isn't there:
 
-| Category | Tools | On by default |
+- **implemented** — mutates the design and takes real effect.
+- **inspection** — read-only / informational; legitimately does not mutate.
+- **experimental** — not yet implemented; **off by default**, badged in the UI,
+  and **rejected** at the chokepoint with a clear message if called (never a
+  silent no-op success).
+
+| Category | Tools (status) | On by default |
 | --- | --- | --- |
-| building | `create_body`, `add_joint`, `add_motor`, `add_beam`, `add_ramp`, `add_ball`, `add_bin` | 7 / 7 |
-| sensors_control | `add_sensor`, `set_controller`, `get_state` | 3 / 3 |
-| physics_materials | `set_material`, `set_friction`, `set_density`, `set_collision_group`, `set_gravity` | 2 / 5 |
-| simulation_inspection | `run_simulation`, `inspect_score`, `inspect_failure_events`, `compare_attempts` | 3 / 4 |
-| evolution_utilities | `mutate_design`, `save_best_design`, `repair_invalid_design`, `name_design`, `export_design` | 4 / 5 |
+| building | all 7 implemented: `create_body`, `add_joint`, `add_motor`, `add_beam`, `add_ramp`, `add_ball`, `add_bin` | 7 / 7 |
+| sensors_control | `get_state` (inspection); `add_sensor`, `set_controller` (experimental) | 1 / 3 |
+| physics_materials | `set_material`, `set_friction`, `set_density`, `set_gravity` (implemented); `set_collision_group` (experimental) | 2 / 5 |
+| simulation_inspection | all inspection: `run_simulation`, `inspect_score`, `inspect_failure_events`, `compare_attempts` | 3 / 4 |
+| evolution_utilities | `name_design` (implemented); `save_best_design`, `export_design` (inspection); `mutate_design`, `repair_invalid_design` (experimental) | 2 / 5 |
 
 Each tool has a JSON-schema `input_schema`; `apply_tool_call` enforces required
 fields, types, enums, numeric bounds, finiteness, and array lengths before
 mutating the design.
+
+### Constraint honesty
+
+`LaunchConfig.constraints` `max_parts` / `max_joints` / `max_motors` are enforced
+at the chokepoint. `energy_budget`, `material_budget`, `collision_safety`,
+`world_bounds`, and `world.seed` are **configurable but not yet enforced** — the
+Setup UI badges them "soon" / "coming soon" so they don't imply control the engine
+doesn't have.
 
 ## Scoring
 

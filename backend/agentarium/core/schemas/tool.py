@@ -17,11 +17,27 @@ class RiskLevel(StrEnum):
     high = "high"
 
 
+class ToolStatus(StrEnum):
+    """Honest implementation state of a tool, surfaced to the UI and chokepoint.
+
+    - ``implemented``: mutates the design and takes real effect.
+    - ``inspection``: read-only / informational — legitimately does not mutate.
+    - ``experimental``: not yet implemented; off by default and rejected with a
+      clear message if called, so it never silently "succeeds" as a no-op.
+    """
+
+    implemented = "implemented"
+    inspection = "inspection"
+    experimental = "experimental"
+
+
 class ToolDefinition(BaseModel):
     name: str
     category: ToolCategory
     description: str
     risk: RiskLevel = RiskLevel.low
     enabled_by_default: bool = True
+    status: ToolStatus = ToolStatus.implemented
     compatible_challenges: list[str] = []  # empty = all
     input_schema: dict = {}  # JSON Schema object for the tool args
+

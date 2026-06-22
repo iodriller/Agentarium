@@ -17,6 +17,7 @@ interface ToolDefinition {
   description: string
   risk: string
   enabled_by_default: boolean
+  status?: 'implemented' | 'inspection' | 'experimental'
 }
 
 interface ToolCategoryResponse {
@@ -105,6 +106,40 @@ function Divider() {
   )
 }
 
+function Badge({ text, color }: { text: string; color: string }) {
+  return (
+    <span
+      style={{
+        marginLeft: 6,
+        fontSize: 8,
+        fontWeight: 700,
+        letterSpacing: '0.4px',
+        textTransform: 'uppercase',
+        color,
+        border: `1px solid ${color}`,
+        borderRadius: 4,
+        padding: '0 4px',
+        whiteSpace: 'nowrap',
+        verticalAlign: 'middle',
+      }}
+    >
+      {text}
+    </span>
+  )
+}
+
+function ToolBadge({ kind }: { kind: 'experimental' | 'read-only' }) {
+  return kind === 'experimental' ? (
+    <Badge text="experimental" color="var(--warn)" />
+  ) : (
+    <Badge text="read-only" color="var(--text-2)" />
+  )
+}
+
+function ComingSoonBadge() {
+  return <Badge text="soon" color="var(--warn)" />
+}
+
 function Chip({ children }: { children: React.ReactNode }) {
   return (
     <span
@@ -133,6 +168,7 @@ function SliderRow({
   max,
   step,
   onChange,
+  comingSoon,
 }: {
   label: string
   value: number
@@ -140,6 +176,7 @@ function SliderRow({
   max: number
   step: number
   onChange: (v: number) => void
+  comingSoon?: boolean
 }) {
   return (
     <div
@@ -149,9 +186,13 @@ function SliderRow({
         alignItems: 'center',
         gap: 8,
         marginBottom: 8,
+        opacity: comingSoon ? 0.7 : 1,
       }}
     >
-      <span style={{ fontSize: 11, color: 'var(--text-2)' }}>{label}</span>
+      <span style={{ fontSize: 11, color: 'var(--text-2)' }}>
+        {label}
+        {comingSoon && <ComingSoonBadge />}
+      </span>
       <input
         type="range"
         min={min}
@@ -182,11 +223,13 @@ function SelectRow<T extends string>({
   value,
   options,
   onChange,
+  comingSoon,
 }: {
   label: string
   value: T
   options: { value: T; label: string }[]
   onChange: (v: T) => void
+  comingSoon?: boolean
 }) {
   return (
     <div
@@ -196,9 +239,13 @@ function SelectRow<T extends string>({
         alignItems: 'center',
         gap: 8,
         marginBottom: 8,
+        opacity: comingSoon ? 0.7 : 1,
       }}
     >
-      <span style={{ fontSize: 11, color: 'var(--text-2)' }}>{label}</span>
+      <span style={{ fontSize: 11, color: 'var(--text-2)' }}>
+        {label}
+        {comingSoon && <ComingSoonBadge />}
+      </span>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value as T)}
@@ -588,42 +635,48 @@ export function ToolsLaunchColumn({
 
                   {/* Tool rows */}
                   {catOpen &&
-                    cat.tools.map((tool) => (
-                      <label
-                        key={tool.name}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'flex-start',
-                          gap: 8,
-                          padding: '4px 4px 4px 8px',
-                          borderRadius: 4,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checkedTools.has(tool.name)}
-                          onChange={(e) => handleToggleTool(tool.name, e.target.checked)}
-                          style={{ marginTop: 2, accentColor: 'var(--accent)', cursor: 'pointer' }}
-                        />
-                        <div>
-                          <span
-                            style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-1)' }}
-                          >
-                            {tool.name}
-                          </span>
-                          <span
-                            style={{
-                              fontSize: 10,
-                              color: 'var(--text-2)',
-                              marginLeft: 6,
-                            }}
-                          >
-                            {tool.description}
-                          </span>
-                        </div>
-                      </label>
-                    ))}
+                    cat.tools.map((tool) => {
+                      const experimental = tool.status === 'experimental'
+                      return (
+                        <label
+                          key={tool.name}
+                          title={
+                            experimental
+                              ? 'Experimental — not yet implemented'
+                              : tool.status === 'inspection'
+                                ? 'Read-only — inspects, does not build'
+                                : undefined
+                          }
+                          style={{
+                            display: 'flex',
+                            alignItems: 'flex-start',
+                            gap: 8,
+                            padding: '4px 4px 4px 8px',
+                            borderRadius: 4,
+                            cursor: experimental ? 'not-allowed' : 'pointer',
+                            opacity: experimental ? 0.55 : 1,
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checkedTools.has(tool.name)}
+                            disabled={experimental}
+                            onChange={(e) => handleToggleTool(tool.name, e.target.checked)}
+                            style={{ marginTop: 2, accentColor: 'var(--accent)', cursor: 'inherit' }}
+                          />
+                          <div>
+                            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-1)' }}>
+                              {tool.name}
+                            </span>
+                            {tool.status === 'experimental' && <ToolBadge kind="experimental" />}
+                            {tool.status === 'inspection' && <ToolBadge kind="read-only" />}
+                            <span style={{ fontSize: 10, color: 'var(--text-2)', marginLeft: 6 }}>
+                              {tool.description}
+                            </span>
+                          </div>
+                        </label>
+                      )
+                    })}
                 </div>
               )
             })
@@ -685,6 +738,7 @@ export function ToolsLaunchColumn({
             max={5000}
             step={100}
             onChange={(v) => handleConstraintChange({ energy_budget: v })}
+            comingSoon
           />
           <SliderRow
             label="Max Attempts"
@@ -709,6 +763,7 @@ export function ToolsLaunchColumn({
             max={5000}
             step={100}
             onChange={(v) => handleConstraintChange({ material_budget: v })}
+            comingSoon
           />
 
           <SelectRow
@@ -719,6 +774,7 @@ export function ToolsLaunchColumn({
               { value: 'relaxed', label: 'Relaxed' },
             ]}
             onChange={(v) => handleConstraintChange({ collision_safety: v })}
+            comingSoon
           />
           <SelectRow
             label="World Bounds"
@@ -729,6 +785,7 @@ export function ToolsLaunchColumn({
               { value: 'disabled', label: 'Disabled' },
             ]}
             onChange={(v) => handleConstraintChange({ world_bounds: v })}
+            comingSoon
           />
           <ToggleRow
             label="Agent Repair Loop"

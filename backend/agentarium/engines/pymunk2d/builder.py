@@ -119,7 +119,13 @@ def build_space(
     Returns the space and a mapping of body id -> pymunk.Body.
     """
     space = pymunk.Space()
-    space.gravity = (0.0, world.gravity)
+    # A set_gravity tool call records an override on the design; honor it.
+    gravity_y = design.metadata.get("gravity_override", world.gravity)
+    try:
+        gravity_y = float(gravity_y)
+    except (TypeError, ValueError):
+        gravity_y = world.gravity
+    space.gravity = (0.0, gravity_y)
 
     bodies: dict[str, pymunk.Body] = {}
 
