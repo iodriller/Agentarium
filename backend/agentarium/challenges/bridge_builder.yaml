@@ -5,7 +5,7 @@ tags:
   - Construction
   - Transport
 objective: Move the crate to the goal platform.
-reward: distance_plus_stability
+reward: bridge_transport
 default_world: island_cliff_small
 required_tools:
   - create_body
@@ -16,3 +16,5 @@ recommended_tools:
   - add_ramp
   - set_material
   - inspect_score
+goal:
+  goal_x: 8.0

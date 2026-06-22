@@ -239,6 +239,7 @@ def _mutate(design: DesignSpec, agent_id: str, tool: str, args: dict) -> bool:
                 position=[float(v) for v in args["position"]],
                 size=[float(args.get("radius", 0.5))],
                 mass=float(args.get("mass", 1.0)),
+                color=args.get("color"),
                 created_by=agent_id,
             )
         )
@@ -261,9 +262,17 @@ def _mutate(design: DesignSpec, agent_id: str, tool: str, args: dict) -> bool:
                 created_by=agent_id,
             )
         )
-        # Record bin geometry in metadata so scoring can check ball containment.
+        # Record bin geometry (+ accepted class) in metadata so scoring can check
+        # both containment and correct object-class-to-bin matching.
         design.metadata.setdefault("bins", []).append(
-            {"id": bid, "x": pos[0], "y": pos[1], "width": width, "height": height}
+            {
+                "id": bid,
+                "x": pos[0],
+                "y": pos[1],
+                "width": width,
+                "height": height,
+                "accepts": args.get("accepts"),
+            }
         )
         return True
 

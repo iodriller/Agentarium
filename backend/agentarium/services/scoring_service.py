@@ -74,6 +74,7 @@ def compute_metrics(trace: EpisodeTrace, design: DesignSpec) -> dict[str, float]
     joints = float(len(design.joints))
 
     bins = design.metadata.get("bins", [])
+    challenge = design.metadata.get("challenge", {})
     metrics: dict[str, float] = {
         "parts_used": parts_used,
         "joints": joints,
@@ -86,6 +87,14 @@ def compute_metrics(trace: EpisodeTrace, design: DesignSpec) -> dict[str, float]
         "spread_area": 0.0,
         "bins_count": float(len(bins)),
         "bins_in_target": 0.0,
+        "bins_correct": 0.0,
+        # 1.0 when at least one bin declares an accepted class (matching intended).
+        "bins_matchable": 1.0 if any(b.get("accepts") for b in bins) else 0.0,
+        "reached_goal": 0.0,
+        "goal_progress": 0.0,
+        "crossed_threshold": 0.0,
+        "min_spacing": 0.0,
+        "avg_spacing": 0.0,
     }
 
     frames = trace.frames
@@ -98,14 +107,25 @@ def compute_metrics(trace: EpisodeTrace, design: DesignSpec) -> dict[str, float]
 
     end_bodies = frames[-1].bodies
 
-    # --- spread_area: bounding box of all body positions in the final frame ----
+    # --- spread_area + livability spacing of bodies in the final frame ---------
     if len(end_bodies) >= 2:
         xs = [b.x for b in end_bodies.values()]
         ys = [b.y for b in end_bodies.values()]
         metrics["spread_area"] = max(0.0, (max(xs) - min(xs)) * (max(ys) - min(ys)))
+        # Nearest-neighbour spacing: a livability proxy (well-spaced > clumped).
+        pts = [(b.x, b.y) for b in end_bodies.values()]
+        nearest = []
+        for i, (xi, yi) in enumerate(pts):
+            dists = [math.hypot(xi - xj, yi - yj) for j, (xj, yj) in enumerate(pts) if j != i]
+            if dists:
+                nearest.append(min(dists))
+        if nearest:
+            metrics["min_spacing"] = min(nearest)
+            metrics["avg_spacing"] = sum(nearest) / len(nearest)
 
-    # --- bins_in_target: dynamic bodies whose final position is inside a bin ---
+    # --- bins: containment (bins_in_target) + correct class match (bins_correct) -
     if bins:
+        colors = {b.id: b.color for b in design.bodies}
         dynamic_ids = set(_dynamic_bodies(design)) or set(end_bodies.keys())
         for bid in dynamic_ids:
             body = end_bodies.get(bid)
@@ -116,6 +136,9 @@ def compute_metrics(trace: EpisodeTrace, design: DesignSpec) -> dict[str, float]
                 half_h = bin_["height"] / 2.0
                 if abs(body.x - bin_["x"]) <= half_w and abs(body.y - bin_["y"]) <= half_h:
                     metrics["bins_in_target"] += 1.0
+                    accepts = bin_.get("accepts")
+                    if accepts is not None and colors.get(bid) == accepts:
+                        metrics["bins_correct"] += 1.0
                     break  # count each dynamic body at most once
 
     primary = _primary_body_id(trace, design)
@@ -125,14 +148,27 @@ def compute_metrics(trace: EpisodeTrace, design: DesignSpec) -> dict[str, float]
 
     # --- distance / max_distance -------------------------------------------------
     start = frames[0].bodies.get(primary)
+    final_x = None
     if start is not None:
         start_x = start.x
         xs = [
             f.bodies[primary].x for f in frames if primary in f.bodies
         ]
         if xs:
+            final_x = xs[-1]
             metrics["distance_m"] = abs(xs[-1] - start_x)
             metrics["max_distance_m"] = max(abs(x - start_x) for x in xs)
+
+    # --- goal zone / threshold (Bridge, Crawl) -----------------------------------
+    if final_x is not None and start is not None:
+        goal_x = challenge.get("goal_x")
+        if isinstance(goal_x, (int, float)) and goal_x != start_x:
+            progress = (final_x - start_x) / (goal_x - start_x)
+            metrics["goal_progress"] = _clamp01(progress)
+            metrics["reached_goal"] = 1.0 if final_x >= goal_x else 0.0
+        threshold_x = challenge.get("threshold_x")
+        if isinstance(threshold_x, (int, float)):
+            metrics["crossed_threshold"] = 1.0 if final_x >= threshold_x else 0.0
 
     # --- falls (count fall events, i.e. transitions below threshold) -------------
     falls = 0
@@ -192,40 +228,97 @@ def _reward_distance_plus_stability(m: dict[str, float]) -> tuple[float, bool, s
     return score, success, summary
 
 
+def _reward_bridge_transport(m: dict[str, float]) -> tuple[float, bool, str]:
+    """Bridge: carry the crate to the goal zone, stay standing, stay lean.
+
+    Rewards goal progress and reaching the goal, plus stability; penalizes
+    collapses and excessive parts (a bridge should be efficient).
+    """
+    progress = m.get("goal_progress", 0.0)
+    reached = m.get("reached_goal", 0.0)
+    stability = m.get("stability", 0.0)
+    falls = m.get("falls", 0.0)
+    parts = m.get("parts_used", 0.0)
+    part_penalty = max(0.0, parts - 12.0) * 2.0
+    score = progress * 50.0 + reached * 30.0 + stability * 10.0 - falls * 10.0 - part_penalty
+    success = reached >= 1.0 and falls == 0
+    summary = (
+        f"{'Reached goal' if reached else f'{progress:.0%} to goal'}; "
+        f"stability {stability:.2f}, {int(falls)} fall(s), {int(parts)} parts."
+    )
+    return score, success, summary
+
+
+def _reward_crawl_locomotion(m: dict[str, float]) -> tuple[float, bool, str]:
+    """Crawl: move the body forward and cross the threshold.
+
+    Pure locomotion — rewards net forward travel and crossing the line, with a
+    fall penalty. No part bonus (unlike a city), so it favours motion over bulk.
+    """
+    distance = m.get("distance_m", 0.0)
+    crossed = m.get("crossed_threshold", 0.0)
+    falls = m.get("falls", 0.0)
+    score = distance * 12.0 + crossed * 25.0 - falls * 8.0
+    success = crossed >= 1.0
+    summary = (
+        f"Crawled {distance:.2f}m"
+        f"{' — crossed the line' if crossed else ''}; {int(falls)} fall(s)."
+    )
+    return score, success, summary
+
+
 def _reward_sorting_accuracy(m: dict[str, float]) -> tuple[float, bool, str]:
     bins_count = m.get("bins_count", 0.0)
     bins_in_target = m.get("bins_in_target", 0.0)
+    bins_correct = m.get("bins_correct", 0.0)
     stability = m.get("stability", 0.0)
     dynamic = max(m.get("parts_used", 0.0) - bins_count, 0.0)
 
-    if bins_count > 0 and dynamic > 0:
-        accuracy = bins_in_target / dynamic
-        score = accuracy * 80.0 + stability * 20.0
+    if bins_count <= 0 or dynamic <= 0:
+        return (
+            stability * 30.0,
+            False,
+            f"No bins placed — cannot score sorting. Stability proxy: {stability:.2f}.",
+        )
+
+    # True object-class-to-bin matching when bins declare an accepted class;
+    # otherwise fall back to plain containment.
+    if m.get("bins_matchable", 0.0) > 0:
+        accuracy = bins_correct / dynamic
+        score = accuracy * 90.0 + stability * 10.0
         success = accuracy >= 0.5
         summary = (
-            f"Sorted {int(bins_in_target)}/{int(dynamic)} items into bins "
-            f"({accuracy:.0%} accuracy, stability {stability:.2f})."
+            f"Correctly sorted {int(bins_correct)}/{int(dynamic)} items into the "
+            f"matching bin ({accuracy:.0%}); {int(bins_in_target)} landed in any bin."
         )
     else:
-        # No bins placed — stability-only proxy with a clear label.
-        score = stability * 30.0
-        success = False
+        accuracy = bins_in_target / dynamic
+        score = accuracy * 70.0 + stability * 20.0
+        success = accuracy >= 0.5
         summary = (
-            f"No bins placed — cannot score sorting accuracy. "
-            f"Stability proxy: {stability:.2f}."
+            f"{int(bins_in_target)}/{int(dynamic)} items landed in a bin "
+            f"({accuracy:.0%} containment, stability {stability:.2f})."
         )
     return score, success, summary
 
 
 def _reward_city_score(m: dict[str, float]) -> tuple[float, bool, str]:
+    """Tiny City: more structures, well spread and well spaced (livable), stable."""
     parts = m.get("parts_used", 0.0)
     spread_area = m.get("spread_area", 0.0)
+    avg_spacing = m.get("avg_spacing", 0.0)
+    min_spacing = m.get("min_spacing", 0.0)
     stability = m.get("stability", 0.0)
-    score = parts * 5.0 + math.sqrt(max(0.0, spread_area)) * 3.0 + stability * 10.0
-    success = parts >= 3 and spread_area >= 1.0
+    score = (
+        parts * 4.0
+        + math.sqrt(max(0.0, spread_area)) * 2.0
+        + avg_spacing * 4.0  # livability: well-spaced beats clumped
+        + stability * 8.0
+    )
+    success = parts >= 4 and min_spacing >= 1.0
     summary = (
         f"City: {int(parts)} structures, {spread_area:.1f}u² spread, "
-        f"stability {stability:.2f}."
+        f"avg spacing {avg_spacing:.2f} (min {min_spacing:.2f})."
     )
     return score, success, summary
 
@@ -240,6 +333,8 @@ def _reward_default(m: dict[str, float]) -> tuple[float, bool, str]:
 
 REWARDS: dict[str, Callable[[dict[str, float]], tuple[float, bool, str]]] = {
     "distance_plus_stability": _reward_distance_plus_stability,
+    "bridge_transport": _reward_bridge_transport,
+    "crawl_locomotion": _reward_crawl_locomotion,
     "sorting_accuracy": _reward_sorting_accuracy,
     "city_score": _reward_city_score,
     "default": _reward_default,

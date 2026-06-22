@@ -11,3 +11,6 @@ required_tools:
   - create_body
   - run_simulation
 recommended_tools: []
+goal:
+  target_structures: 4
+  min_spacing: 1.0

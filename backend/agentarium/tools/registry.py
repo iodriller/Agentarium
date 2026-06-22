@@ -176,6 +176,10 @@ _TOOLS: list[ToolDefinition] = [
                     "minimum": 0.001,
                     "description": "Mass of the ball in kg",
                 },
+                "color": {
+                    "type": "string",
+                    "description": "Ball class/color (e.g. 'red') for sorting challenges",
+                },
             },
         },
     ),
@@ -199,6 +203,10 @@ _TOOLS: list[ToolDefinition] = [
                 },
                 "width": {"type": "number", "description": "Width of the bin opening"},
                 "height": {"type": "number", "description": "Height of the bin walls"},
+                "accepts": {
+                    "type": "string",
+                    "description": "Ball class/color this bin accepts (sorting challenges)",
+                },
             },
         },
     ),

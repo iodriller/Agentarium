@@ -97,6 +97,30 @@ drive every panel → trace fetched & replayed → exports**. No crash-class bug
 
 ---
 
+## 5. Honesty + reliability + challenge pack (2026-06-15)
+
+Three workstreams toward an honest, reliable, differentiated MVP:
+
+1. **Honesty/consistency.** Every tool declares a status (implemented / inspection
+   / experimental); experimental tools are off by default and rejected (never a
+   silent no-op). `set_density`/`set_gravity` implemented for real. Unenforced
+   constraints (`energy_budget`, `material_budget`, `collision_safety`,
+   `world_bounds`, `world.seed`) are badged "coming soon" in the UI.
+2. **Real-LLM reliability.** Configurable generation timeout + retry/backoff (env),
+   structured `LLMError` kinds (auth/rate_limit/server/timeout/malformed/empty),
+   auth-vs-unreachable messaging, and a 16-test provider-contract suite over
+   `httpx.MockTransport`. The Studio overlay shows the real failure reason.
+3. **Challenge pack differentiation.** Per-challenge goals injected into scoring;
+   distinct rewards — `bridge_transport` (goal zone + lean + stability),
+   `crawl_locomotion` (forward motion + threshold), `sorting_accuracy` (true
+   object-class→bin matching via ball color vs bin `accepts`, containment
+   fallback), `city_score` (count + spread + nearest-neighbour spacing/livability).
+
+**Still open in the challenge pack (larger follow-ups):** example "gold" designs
+per challenge; Tiny City real zoning/roads/budget (currently a spacing/livability
+proxy); world-template goal *geometry* (goal zones are scoring thresholds, not yet
+rendered markers); a richer Sorter taxonomy beyond color classes.
+
 ## 4. Deep audit (2026-06-15) — four-part review
 
 A four-agent parallel review (backend correctness, frontend UX/polish, onboarding,
