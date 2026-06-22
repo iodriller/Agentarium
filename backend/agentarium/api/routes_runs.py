@@ -12,9 +12,23 @@ from agentarium.services.run_service import (
     get_score,
     get_trace,
     hardcoded_demo_design,
+    leaderboard,
+    list_runs,
 )
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
+
+
+class RunSummary(BaseModel):
+    run_id: str
+    created_at: int | None = None
+    project_name: str | None = None
+    challenge: str | None = None
+    mode: str | None = None
+    reward: str | None = None
+    score_total: float | None = None
+    success: bool | None = None
+    artifact_dir: str | None = None
 
 
 class CreateRunRequest(BaseModel):
@@ -38,6 +52,23 @@ async def create_run(request: CreateRunRequest | None = None) -> CreateRunRespon
     world = req.world or _default_world()
     run_id = create_run_from_design(design, world, req.duration_seconds)
     return CreateRunResponse(run_id=run_id)
+
+
+def _to_summary(row: dict) -> RunSummary:
+    s = row.get("success")
+    return RunSummary(**{**row, "success": None if s is None else bool(s)})
+
+
+@router.get("/history", response_model=list[RunSummary])
+async def run_history(limit: int = 50) -> list[RunSummary]:
+    """Recent runs (newest first), persisted across restarts."""
+    return [_to_summary(r) for r in list_runs(limit)]
+
+
+@router.get("/leaderboard", response_model=list[RunSummary])
+async def run_leaderboard(challenge: str | None = None, limit: int = 10) -> list[RunSummary]:
+    """Top runs by score, optionally filtered to one challenge."""
+    return [_to_summary(r) for r in leaderboard(challenge, limit)]
 
 
 @router.get("/{run_id}/trace", response_model=EpisodeTrace)

@@ -134,9 +134,18 @@ Set via `LaunchConfig.agents.mode`. Each tool call carries its author's
 ## Persistence
 
 Run artifacts are written to `runs/{run_id}/` (`design.yaml`, `trace.json`,
-`toolcalls.jsonl`, `score.json`) and also kept in bounded in-memory stores
+`toolcalls.jsonl`, `score.json`) and kept in bounded in-memory stores
 (`RUNS` / `SCORES` / `DESIGNS`, oldest evicted past a cap; the orchestrator evicts
-oldest *finished* runs). SQLite persistence is a planned follow-up.
+oldest *finished* runs).
+
+**SQLite** (`runs/agentarium.db`) write-throughs the trace, score, and design for
+every run plus a queryable `run_meta` row (challenge, mode, reward, score, success,
+artifact dir, timestamp). `get_trace/score/design` fall back to the DB when a run is
+evicted from memory, and the last ~200 runs reload on startup — so replay, run
+**history** (`GET /api/runs/history`) and **leaderboards**
+(`GET /api/runs/leaderboard?challenge=…`) survive a restart. Access is guarded by a
+process lock; conversion to async `aiosqlite` is a possible follow-up (the sync
+layer is simpler and test-friendly today).
 
 ## Determinism
 

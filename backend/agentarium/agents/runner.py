@@ -21,6 +21,7 @@ from agentarium.services.preset_service import get_scenario_preset
 from agentarium.services.run_service import (
     create_run_from_design,
     get_trace,
+    record_run_meta,
     store_score,
 )
 from agentarium.services.scoring_service import score_attempt
@@ -248,6 +249,12 @@ async def run_agent_attempt(
     score = score_attempt(trace, design, config.scenario.reward)
     if trace_run_id is not None:
         store_score(trace_run_id, score)
+        record_run_meta(
+            trace_run_id,
+            project_name=config.project_name,
+            challenge=config.scenario.preset,
+            mode=config.agents.mode.value,
+        )
 
     # Persist artifacts under runs/{trace_run_id or attempt_id}/.
     out_dir = _RUNS_DIR / (trace_run_id or attempt_id)
@@ -405,6 +412,12 @@ async def run_cooperative_attempt(
     score = score_attempt(trace, design, config.scenario.reward)
     if trace_run_id is not None:
         store_score(trace_run_id, score)
+        record_run_meta(
+            trace_run_id,
+            project_name=config.project_name,
+            challenge=config.scenario.preset,
+            mode=config.agents.mode.value,
+        )
 
     out_dir = _RUNS_DIR / (trace_run_id or attempt_id)
     out_dir.mkdir(parents=True, exist_ok=True)
