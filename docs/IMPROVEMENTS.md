@@ -121,6 +121,27 @@ per challenge; Tiny City real zoning/roads/budget (currently a spacing/livabilit
 proxy); world-template goal *geometry* (goal zones are scoring thresholds, not yet
 rendered markers); a richer Sorter taxonomy beyond color classes.
 
+## 7. End-to-end bug audit (2026-06-15)
+
+Three parallel read-only audits (backend correctness, frontend, contracts) over the
+recently-added features. Contracts were clean (no severe type-vs-emit drift). Fixed:
+
+| Sev | Issue | Fix |
+|-----|-------|-----|
+| HIGH | `run_meta` grew unbounded and orphaned trace rows → history/leaderboard dead links once >1000 runs. | Prune `run_meta` in lockstep with `runs` on every write. |
+| HIGH | `sorting_accuracy` counted static support beams as items (a perfect 3/3 sort showed 3/5, 60%). | Denominator now uses `sortable_items` = dynamic (non-static, non-bin) bodies. |
+| MED | Demo/`POST /api/runs` runs (null challenge) polluted the global leaderboard. | Unfiltered leaderboard excludes `challenge IS NULL`. |
+| MED | Cooperative `score` event omitted `diff` (single/competitive included it). | Emit `diff` (None) for shape parity. |
+| MED | "Select All" tools enabled experimental tools (disabled, un-uncheckable, sent to launch). | Select All now skips experimental tools. |
+| LOW | `_db_upsert_meta` f-string column interpolation (latent injection pattern). | Allowlist of permitted columns. |
+| LOW | `reached_goal` wrong if a goal were placed behind the start. | Direction-aware goal check. |
+
+**Left as documented (low/cosmetic):** historical replay leaves Design Summary /
+Attempt History panels empty (best-effort, score + replay work); `HistoryScreen`
+doesn't flash "Loading…" on a filter refetch; the `attempts_cap` field is emitted +
+typed but unused; frontend `ToolDefinition` omits `compatible_challenges`/`input_schema`
+(extra wire fields, harmless).
+
 ## 6. Iteration, visible caps, run history (2026-06-15)
 
 - **Attempt diff (#4).** Each attempt computes a structured diff vs. the previous

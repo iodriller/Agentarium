@@ -499,7 +499,8 @@ class RunManager:
                     },
                 )
 
-            # A SINGLE shared score (not one per agent).
+            # A SINGLE shared score (not one per agent). diff is None for
+            # cooperative (no per-attempt lineage) but emitted for shape parity.
             self._emit(
                 run_id,
                 {
@@ -507,6 +508,7 @@ class RunManager:
                     "attempt_index": attempt_index,
                     "agent_id": "shared",
                     "scorecard": result.score.model_dump(mode="json"),
+                    "diff": result.diff,
                 },
             )
 

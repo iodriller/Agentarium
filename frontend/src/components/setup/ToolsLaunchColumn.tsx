@@ -493,8 +493,12 @@ export function ToolsLaunchColumn({
 
   // ── Helpers ──
 
-  const allToolNames = (): string[] =>
-    toolsData?.categories.flatMap((c) => c.tools.map((t) => t.name)) ?? []
+  // Selectable = everything except experimental tools (which are disabled and
+  // would be rejected at the chokepoint anyway).
+  const selectableToolNames = (): string[] =>
+    toolsData?.categories.flatMap((c) =>
+      c.tools.filter((t) => t.status !== 'experimental').map((t) => t.name),
+    ) ?? []
 
   const totalCount = toolsData?.total ?? 0
   const enabledCount = checkedTools.size
@@ -508,8 +512,9 @@ export function ToolsLaunchColumn({
   }
 
   function handleSelectAll() {
-    const all = new Set(allToolNames())
-    onConfigChange({ tools: { enabled: Array.from(all) } } as Partial<LaunchConfig>)
+    onConfigChange(
+      { tools: { enabled: selectableToolNames() } } as Partial<LaunchConfig>,
+    )
   }
 
   function handleClearAll() {

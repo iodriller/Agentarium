@@ -168,3 +168,25 @@ def test_city_rewards_spacing():
         {"parts_used": 5.0, "spread_area": 20.0, "avg_spacing": 0.3, "min_spacing": 0.2, "stability": 1.0}
     )
     assert well_spaced > clumped
+
+
+def test_sorting_denominator_ignores_static_support(_unused=None):
+    # Static support beams must NOT count as items to sort (H2 regression).
+    from agentarium.services.scoring_service import compute_metrics
+
+    d = DesignSpec(
+        name="t",
+        bodies=[
+            BodySpec(id="ball", shape=BodyShape.circle, position=[0.0, 1.0], color="red"),
+            BodySpec(id="beam", shape=BodyShape.segment, position=[2.0, 0.0], size=[3.0], static=True),
+            BodySpec(id="bin1", shape=BodyShape.box, position=[5.0, 0.0], size=[2.0, 2.0], static=True),
+        ],
+    )
+    d.metadata["bins"] = [{"id": "bin1", "x": 5.0, "y": 0.0, "width": 2.0, "height": 2.0, "accepts": "red"}]
+    m = compute_metrics(_ball_lands_in_bin(), d)
+    # Only the dynamic ball is sortable, even though a static beam is present.
+    assert m["sortable_items"] == 1.0
+    # Perfect sort scores 100% (1/1), not 1/2 from counting the beam.
+    card = score_attempt(_ball_lands_in_bin(), d, "sorting_accuracy")
+    assert card.success is True
+    assert "1/1" in card.summary
