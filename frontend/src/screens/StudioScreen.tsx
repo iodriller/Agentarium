@@ -32,6 +32,7 @@ export function StudioScreen() {
   const [playing, setPlaying] = useState(false)
   const [speed, setSpeed] = useState(1)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [errorDetail, setErrorDetail] = useState<string | null>(null)
 
   // ── Live run state (fed by the WebSocket) ──────────────────────────────────
   const [runStatus, setRunStatus] = useState<
@@ -225,6 +226,7 @@ export function StudioScreen() {
           break
         case 'error':
           setStatus('error')
+          setErrorDetail(event.detail || 'The run failed.')
           break
         default:
           break
@@ -527,6 +529,7 @@ export function StudioScreen() {
               status={status}
               runStatus={runStatus}
               hasTrace={!!trace}
+              errorDetail={errorDetail}
             />
           </div>
 
@@ -612,10 +615,12 @@ function ViewportOverlay({
   status,
   runStatus,
   hasTrace,
+  errorDetail,
 }: {
   status: 'loading' | 'ready' | 'error'
   runStatus: 'connecting' | 'running' | 'finished' | 'disconnected'
   hasTrace: boolean
+  errorDetail?: string | null
 }) {
   // Nothing to overlay once a trace is rendering and there's no error.
   if (hasTrace && status !== 'error' && runStatus !== 'disconnected') return null
@@ -625,7 +630,7 @@ function ViewportOverlay({
   let tone = 'var(--text-2)'
   if (status === 'error') {
     title = 'Run error'
-    detail = 'Something went wrong loading this run. Try launching again.'
+    detail = errorDetail || 'Something went wrong loading this run. Try launching again.'
     tone = 'var(--danger)'
   } else if (runStatus === 'disconnected') {
     title = 'Connection lost'

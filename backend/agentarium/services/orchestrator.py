@@ -181,7 +181,13 @@ class RunManager:
         try:
             await self._run_inner(run_id, config)
         except Exception as exc:  # noqa: BLE001 - surface failures to subscribers
-            self._emit(run_id, {"type": "error", "detail": str(exc)})
+            # Carry the structured kind (auth/timeout/server/…) when an LLM call
+            # failed, so the UI can show an actionable reason.
+            event = {"type": "error", "detail": str(exc)}
+            kind = getattr(exc, "kind", None)
+            if isinstance(kind, str):
+                event["kind"] = kind
+            self._emit(run_id, event)
             self._emit(
                 run_id,
                 {

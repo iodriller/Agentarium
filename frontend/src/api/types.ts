@@ -339,6 +339,8 @@ export interface RunFinishedEvent {
 export interface ErrorEvent {
   type: 'error'
   detail: string
+  // Structured failure kind for LLM errors (auth/timeout/server/…).
+  kind?: string
 }
 
 export type RunEvent =
