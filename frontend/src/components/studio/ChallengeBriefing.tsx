@@ -1,10 +1,11 @@
-import type { ConstraintsConfig } from '../../api/types'
+import type { ConstraintsConfig, RunCaps } from '../../api/types'
 
 interface ChallengeBriefingProps {
   challengeName: string
   objective: string
   reward: string
   constraints?: Partial<ConstraintsConfig>
+  caps?: RunCaps | null
 }
 
 function Row({ label, value }: { label: string; value: string }) {
@@ -23,7 +24,17 @@ export function ChallengeBriefing({
   objective,
   reward,
   constraints,
+  caps,
 }: ChallengeBriefingProps) {
+  // Build human cap notes only when the MVP cap is below what the user requested.
+  const attemptsCapped =
+    caps && caps.requestedAttempts != null && caps.requestedAttempts > caps.effectiveAttempts
+  const simCapped =
+    caps &&
+    caps.simCapS != null &&
+    caps.requestedDurationS != null &&
+    caps.requestedDurationS > caps.simCapS
+
   return (
     <div>
       <SectionLabel>Challenge</SectionLabel>
@@ -52,7 +63,32 @@ export function ChallengeBriefing({
         <Row label="Energy Budget" value={`${constraints?.energy_budget ?? '—'}`} />
         <Row label="Sim Duration" value={`${constraints?.simulation_duration_seconds ?? '—'}s`} />
         <Row label="Reward" value={reward || '—'} />
+        {caps && (
+          <Row
+            label="Attempts"
+            value={
+              attemptsCapped
+                ? `${caps.effectiveAttempts} max (you set ${caps.requestedAttempts})`
+                : `${caps.effectiveAttempts}`
+            }
+          />
+        )}
+        {simCapped && <Row label="Sim cap" value={`${caps!.simCapS}s (you set ${caps!.requestedDurationS}s)`} />}
       </div>
+
+      {(attemptsCapped || simCapped) && (
+        <div
+          style={{
+            marginTop: 6,
+            fontSize: 10,
+            color: 'var(--warn)',
+            lineHeight: 1.4,
+          }}
+        >
+          {attemptsCapped && `Capped to ${caps!.effectiveAttempts} attempts for responsiveness. `}
+          {simCapped && `Simulation capped at ${caps!.simCapS}s.`}
+        </div>
+      )}
     </div>
   )
 }

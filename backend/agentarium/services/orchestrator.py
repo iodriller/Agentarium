@@ -5,6 +5,7 @@ import uuid
 from collections.abc import AsyncIterator
 
 from agentarium.agents.runner import (
+    _MAX_SIM_DURATION_SECONDS,
     AttemptResult,
     run_agent_attempt,
     run_cooperative_attempt,
@@ -226,6 +227,12 @@ class RunManager:
                 "objective": objective,
                 "reward": config.scenario.reward,
                 "max_attempts": min(config.constraints.max_attempts, mode_cap),
+                # Surface the effective MVP caps vs. what the user requested so the
+                # UI can say "running 3 of 50" and "sim capped at 30s".
+                "requested_attempts": config.constraints.max_attempts,
+                "attempts_cap": mode_cap,
+                "requested_duration_s": config.constraints.simulation_duration_seconds,
+                "simulation_cap_s": _MAX_SIM_DURATION_SECONDS,
                 "constraints": {
                     "max_parts": config.constraints.max_parts,
                     "max_joints": config.constraints.max_joints,

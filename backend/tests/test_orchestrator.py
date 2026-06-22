@@ -157,3 +157,22 @@ def test_ws_streams_events():
                 break
         assert "run_started" in types
         assert "run_finished" in types
+
+
+def test_run_started_reports_effective_caps():
+    async def scenario() -> None:
+        manager = RunManager()
+        cfg = _config()
+        cfg.constraints.max_attempts = 50
+        cfg.constraints.simulation_duration_seconds = 180
+        run_id = await _run_to_completion(manager, cfg)
+        started = manager.get_events(run_id)[0]
+        assert started["type"] == "run_started"
+        # Effective single-agent cap is 3; sim cap is 30s; requests echoed back.
+        assert started["max_attempts"] == 3
+        assert started["requested_attempts"] == 50
+        assert started["attempts_cap"] == 3
+        assert started["simulation_cap_s"] == 30
+        assert started["requested_duration_s"] == 180
+
+    asyncio.run(scenario())
