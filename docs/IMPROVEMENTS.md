@@ -121,6 +121,22 @@ per challenge; Tiny City real zoning/roads/budget (currently a spacing/livabilit
 proxy); world-template goal *geometry* (goal zones are scoring thresholds, not yet
 rendered markers); a richer Sorter taxonomy beyond color classes.
 
+## 6. Iteration, visible caps, run history (2026-06-15)
+
+- **Attempt diff (#4).** Each attempt computes a structured diff vs. the previous
+  one (parts/joints deltas, added/removed/moved part ids, score delta, failures),
+  feeds it into the next prompt's memory ("last change: added 2 parts; score +3.1"),
+  and shows a "What Changed" panel in Studio. Cooperative attempts don't thread
+  lineage, so their diff stays empty.
+- **Visible caps (#5).** `run_started` now reports requested vs. effective attempt
+  caps and the 30s sim cap; ChallengeBriefing shows "Attempts: 3 max (you set 50)"
+  and "Sim cap: 30s" only when the cap bites.
+- **Run history + leaderboard (#6).** A `run_meta` SQLite table (challenge, mode,
+  reward, score, success, artifact dir, timestamp) + `GET /api/runs/history` and
+  `GET /api/runs/leaderboard?challenge=…`. Survives restart. **Still open:** a
+  frontend run-history / leaderboard view (the API is the foundation); optional
+  `aiosqlite` async conversion; pruning `run_meta` (tiny rows, currently unbounded).
+
 ## 4. Deep audit (2026-06-15) — four-part review
 
 A four-agent parallel review (backend correctness, frontend UX/polish, onboarding,

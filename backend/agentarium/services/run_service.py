@@ -60,7 +60,38 @@ def _init_db() -> None:
                 run_id TEXT PRIMARY KEY,
                 design_json TEXT NOT NULL
             );
+            -- Queryable summary for run history + leaderboards (resume after restart).
+            CREATE TABLE IF NOT EXISTS run_meta (
+                run_id TEXT PRIMARY KEY,
+                created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+                project_name TEXT,
+                challenge TEXT,
+                mode TEXT,
+                reward TEXT,
+                score_total REAL,
+                success INTEGER,
+                artifact_dir TEXT
+            );
+            CREATE INDEX IF NOT EXISTS ix_meta_challenge_score
+                ON run_meta (challenge, score_total DESC);
         """)
+
+
+def _db_upsert_meta(run_id: str, **fields: object) -> None:
+    """Insert or update the run_meta row for ``run_id`` with the given fields."""
+    if not fields:
+        return
+    cols = ", ".join(fields)
+    placeholders = ", ".join("?" for _ in fields)
+    updates = ", ".join(f"{c}=excluded.{c}" for c in fields)
+    with _db_lock:
+        with sqlite3.connect(_DB_PATH) as conn:
+            conn.execute(
+                f"INSERT INTO run_meta (run_id, {cols}) VALUES (?, {placeholders}) "
+                f"ON CONFLICT(run_id) DO UPDATE SET {updates}",
+                (run_id, *fields.values()),
+            )
+            conn.commit()
 
 
 def _db_write_run(run_id: str, trace: EpisodeTrace, design: DesignSpec) -> None:
@@ -289,7 +320,70 @@ def create_run_from_design(
         trace.model_dump_json(indent=2), encoding="utf-8"
     )
 
+    # Seed the run-history row with what we know here (challenge/mode/project are
+    # filled in later by the runner via record_run_meta).
+    _db_upsert_meta(
+        run_id,
+        score_total=baseline.score_total,
+        success=int(baseline.success),
+        reward=baseline.reward,
+        artifact_dir=str(run_dir),
+    )
+
     return run_id
+
+
+def record_run_meta(
+    run_id: str,
+    *,
+    project_name: str | None = None,
+    challenge: str | None = None,
+    mode: str | None = None,
+) -> None:
+    """Fill in run-history fields the runner knows (challenge/mode/project)."""
+    fields = {
+        k: v
+        for k, v in (
+            ("project_name", project_name),
+            ("challenge", challenge),
+            ("mode", mode),
+        )
+        if v is not None
+    }
+    if fields:
+        _db_upsert_meta(run_id, **fields)
+
+
+def list_runs(limit: int = 50) -> list[dict]:
+    """Most-recent runs first, for the run-history view (survives restart)."""
+    if not _DB_PATH.exists():
+        return []
+    with _db_lock:
+        with sqlite3.connect(_DB_PATH) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT * FROM run_meta ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                (max(1, min(limit, 500)),),
+            ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def leaderboard(challenge: str | None = None, limit: int = 10) -> list[dict]:
+    """Top runs by score, optionally filtered to one challenge."""
+    if not _DB_PATH.exists():
+        return []
+    query = "SELECT * FROM run_meta WHERE score_total IS NOT NULL"
+    params: list[object] = []
+    if challenge:
+        query += " AND challenge = ?"
+        params.append(challenge)
+    query += " ORDER BY score_total DESC LIMIT ?"
+    params.append(max(1, min(limit, 100)))
+    with _db_lock:
+        with sqlite3.connect(_DB_PATH) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(query, params).fetchall()
+    return [dict(r) for r in rows]
 
 
 def get_trace(run_id: str) -> EpisodeTrace | None:
@@ -301,6 +395,13 @@ def store_score(run_id: str, score: ScoreCard) -> None:
     """Store ``score`` for ``run_id`` so it can be fetched later."""
     SCORES[run_id] = score
     _db_write_score(run_id, score)
+    # Keep the run-history summary in sync with the reward-specific score.
+    _db_upsert_meta(
+        run_id,
+        score_total=score.score_total,
+        success=int(score.success),
+        reward=score.reward,
+    )
 
 
 def get_score(run_id: str) -> ScoreCard | None:
