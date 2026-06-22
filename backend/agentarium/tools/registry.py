@@ -1,4 +1,9 @@
-from agentarium.core.schemas.tool import RiskLevel, ToolCategory, ToolDefinition
+from agentarium.core.schemas.tool import (
+    RiskLevel,
+    ToolCategory,
+    ToolDefinition,
+    ToolStatus,
+)
 
 _TOOLS: list[ToolDefinition] = [
     # -------------------------------------------------------------------------
@@ -205,7 +210,8 @@ _TOOLS: list[ToolDefinition] = [
         category=ToolCategory.sensors_control,
         description="Attach a sensor to a body to measure contact, distance, or velocity.",
         risk=RiskLevel.low,
-        enabled_by_default=True,
+        enabled_by_default=False,
+        status=ToolStatus.experimental,
         input_schema={
             "type": "object",
             "required": ["id", "body_id", "type"],
@@ -228,7 +234,8 @@ _TOOLS: list[ToolDefinition] = [
         category=ToolCategory.sensors_control,
         description="Assign a motion controller to a body to drive its behaviour.",
         risk=RiskLevel.low,
-        enabled_by_default=True,
+        enabled_by_default=False,
+        status=ToolStatus.experimental,
         input_schema={
             "type": "object",
             "required": ["body_id", "type"],
@@ -255,6 +262,7 @@ _TOOLS: list[ToolDefinition] = [
         description="Return a snapshot of the current world and design state.",
         risk=RiskLevel.low,
         enabled_by_default=True,
+        status=ToolStatus.inspection,
         input_schema={"type": "object", "properties": {}},
     ),
     # -------------------------------------------------------------------------
@@ -320,6 +328,7 @@ _TOOLS: list[ToolDefinition] = [
         description="Assign a body to a collision group so it ignores collisions within the group.",
         risk=RiskLevel.low,
         enabled_by_default=False,
+        status=ToolStatus.experimental,
         input_schema={
             "type": "object",
             "required": ["body_id", "group"],
@@ -358,6 +367,7 @@ _TOOLS: list[ToolDefinition] = [
         description="Execute the physics simulation and return the outcome.",
         risk=RiskLevel.low,
         enabled_by_default=True,
+        status=ToolStatus.inspection,
         input_schema={
             "type": "object",
             "properties": {
@@ -374,6 +384,7 @@ _TOOLS: list[ToolDefinition] = [
         description="Retrieve the current score for the active challenge attempt.",
         risk=RiskLevel.low,
         enabled_by_default=True,
+        status=ToolStatus.inspection,
         input_schema={"type": "object", "properties": {}},
     ),
     ToolDefinition(
@@ -382,6 +393,7 @@ _TOOLS: list[ToolDefinition] = [
         description="List failure events from the last simulation run.",
         risk=RiskLevel.low,
         enabled_by_default=True,
+        status=ToolStatus.inspection,
         input_schema={"type": "object", "properties": {}},
     ),
     ToolDefinition(
@@ -390,6 +402,7 @@ _TOOLS: list[ToolDefinition] = [
         description="Compare two past simulation attempts side-by-side.",
         risk=RiskLevel.low,
         enabled_by_default=False,
+        status=ToolStatus.inspection,
         input_schema={
             "type": "object",
             "required": ["attempt_a", "attempt_b"],
@@ -413,7 +426,8 @@ _TOOLS: list[ToolDefinition] = [
         category=ToolCategory.evolution_utilities,
         description="Apply a random or targeted mutation to the current design.",
         risk=RiskLevel.low,
-        enabled_by_default=True,
+        enabled_by_default=False,
+        status=ToolStatus.experimental,
         input_schema={
             "type": "object",
             "properties": {
@@ -431,6 +445,7 @@ _TOOLS: list[ToolDefinition] = [
         description="Persist the highest-scoring design seen so far to storage.",
         risk=RiskLevel.low,
         enabled_by_default=True,
+        status=ToolStatus.inspection,
         input_schema={"type": "object", "properties": {}},
     ),
     ToolDefinition(
@@ -438,7 +453,8 @@ _TOOLS: list[ToolDefinition] = [
         category=ToolCategory.evolution_utilities,
         description="Automatically fix constraint violations in the current design.",
         risk=RiskLevel.low,
-        enabled_by_default=True,
+        enabled_by_default=False,
+        status=ToolStatus.experimental,
         input_schema={"type": "object", "properties": {}},
     ),
     ToolDefinition(
@@ -461,6 +477,7 @@ _TOOLS: list[ToolDefinition] = [
         description="Export the current design to a YAML or JSON file.",
         risk=RiskLevel.low,
         enabled_by_default=False,
+        status=ToolStatus.inspection,
         input_schema={
             "type": "object",
             "properties": {

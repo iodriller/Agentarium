@@ -12,8 +12,23 @@ from agentarium.core.schemas.design import (
     JointSpec,
     JointType,
 )
+from agentarium.core.schemas.tool import ToolStatus
 from agentarium.core.schemas.toolcall import ToolCallRecord, ToolCallStatus
 from agentarium.tools.registry import get_tool
+
+
+def _body_area(body: BodySpec) -> float:
+    """Approximate planar area of a body from its shape + size (for density→mass)."""
+    size = body.size or [0.5, 0.5]
+    if body.shape == BodyShape.circle:
+        r = size[0] if size else 0.5
+        return math.pi * r * r
+    if body.shape == BodyShape.segment:
+        length = size[0] if size else 1.0
+        return max(length, 1e-2) * 0.1  # thin strip
+    w = size[0] if len(size) > 0 else 0.5
+    h = size[1] if len(size) > 1 else 0.5
+    return max(w, 1e-2) * max(h, 1e-2)
 
 # Material -> friction/elasticity presets used by material-setting tools.
 _MATERIAL_FRICTION = {
@@ -271,6 +286,27 @@ def _mutate(design: DesignSpec, agent_id: str, tool: str, args: dict) -> bool:
         body.friction = float(args["friction"])
         return True
 
+    if tool == "set_density":
+        bid = args["body_id"]
+        body = next((b for b in design.bodies if b.id == bid), None)
+        if body is None:
+            raise ValueError(f"body '{bid}' not found")
+        if body.static:
+            raise ValueError(f"body '{bid}' is static; density has no effect")
+        density = float(args["density"])
+        if density <= 0:
+            raise ValueError("density must be positive")
+        body.mass = max(density * _body_area(body), 1e-3)
+        return True
+
+    if tool == "set_gravity":
+        gravity = float(args["gravity"])
+        if not math.isfinite(gravity):
+            raise ValueError("gravity must be finite")
+        # Recorded on the design; the engine reads it as a per-run override.
+        design.metadata["gravity_override"] = gravity
+        return True
+
     if tool == "name_design":
         name = str(args["name"]).strip()
         if not name:
@@ -278,7 +314,7 @@ def _mutate(design: DesignSpec, agent_id: str, tool: str, args: dict) -> bool:
         design.name = name
         return True
 
-    # Non-mutating / not-yet-implemented tools: no-op at the design layer.
+    # Inspection / informational tools legitimately don't mutate the design.
     return False
 
 
@@ -323,6 +359,11 @@ def apply_tool_call(
     definition = get_tool(tool)
     if definition is None:
         return _reject("unknown tool")
+
+    # Experimental tools are not yet implemented: reject with a clear message
+    # rather than silently "succeeding" as a no-op.
+    if definition.status == ToolStatus.experimental:
+        return _reject("experimental tool — not yet implemented")
 
     validation_error = _validate_args(args, definition.input_schema)
     if validation_error is not None:
