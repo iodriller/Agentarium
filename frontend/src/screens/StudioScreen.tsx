@@ -153,6 +153,33 @@ export function StudioScreen() {
       }
     }
 
+    // A finished/historical run isn't in the live orchestrator (evicted, or after
+    // a restart). Replay its persisted trace + score read-only instead of a dead
+    // "unknown run" error. Returns whether the historical trace loaded.
+    const loadHistorical = async (rid: string): Promise<boolean> => {
+      try {
+        const fetched = await api.get<EpisodeTrace>(`/runs/${rid}/trace`)
+        if (cancelled) return true
+        setTrace(fetched)
+        setFrameIndex(0)
+        setPlaying(true)
+        setStatus('ready')
+        setRunStatus('finished')
+        try {
+          const sc = await api.get<ScoreCard>(`/runs/${rid}/score`)
+          if (!cancelled) {
+            setLatestScoreByAgent({ agent_a: sc })
+            if (sc.reward) setReward(sc.reward)
+          }
+        } catch {
+          /* score is best-effort */
+        }
+        return true
+      } catch {
+        return false
+      }
+    }
+
     const handleEvent = (event: RunEvent) => {
       switch (event.type) {
         case 'run_started':
@@ -237,8 +264,18 @@ export function StudioScreen() {
           setRunStatus('finished')
           break
         case 'error':
-          setStatus('error')
-          setErrorDetail(event.detail || 'The run failed.')
+          // "unknown run" means it's not live — try replaying it from history.
+          if (runId && event.detail?.includes('unknown run')) {
+            void loadHistorical(runId).then((ok) => {
+              if (!ok && !cancelled) {
+                setStatus('error')
+                setErrorDetail('Run not found.')
+              }
+            })
+          } else {
+            setStatus('error')
+            setErrorDetail(event.detail || 'The run failed.')
+          }
           break
         default:
           break

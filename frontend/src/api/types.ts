@@ -216,6 +216,18 @@ export interface LaunchResponse {
   run_id: string
 }
 
+export interface RunSummary {
+  run_id: string
+  created_at?: number | null
+  project_name?: string | null
+  challenge?: string | null
+  mode?: string | null
+  reward?: string | null
+  score_total?: number | null
+  success?: boolean | null
+  artifact_dir?: string | null
+}
+
 // ─── Score / tool-call (mirrors backend score.py / toolcall.py) ────────────────
 
 export type ToolCallStatus = 'success' | 'repaired' | 'rejected'

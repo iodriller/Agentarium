@@ -1,3 +1,5 @@
+import { Link } from 'react-router-dom'
+
 type ConnectionStatus = 'online' | 'offline' | 'connecting'
 
 interface TopBarProps {
@@ -45,6 +47,9 @@ export function TopBar({ projectName = 'Agentarium', status = 'connecting' }: To
           <span style={{ width: 6, height: 6, borderRadius: '50%', background: meta.color, display: 'inline-block' }} />
           {meta.label}
         </span>
+        <Link to="/history" style={{ color: 'var(--text-2)', fontSize: 12, textDecoration: 'none' }}>
+          History
+        </Link>
         <a
           href="https://github.com/iodriller/agentarium#readme"
           target="_blank"
