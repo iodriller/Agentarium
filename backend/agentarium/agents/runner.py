@@ -17,6 +17,7 @@ from agentarium.core.schemas.design import DesignSpec
 from agentarium.core.schemas.score import ScoreCard
 from agentarium.core.schemas.setup import AgentConfig, LaunchConfig, MemoryMode
 from agentarium.core.schemas.toolcall import ToolCallRecord, ToolCallStatus
+from agentarium.services.preset_service import get_scenario_preset
 from agentarium.services.run_service import (
     create_run_from_design,
     get_trace,
@@ -27,6 +28,18 @@ from agentarium.tools.apply import apply_tool_call
 from agentarium.tools.registry import get_tool
 
 _RUNS_DIR = pathlib.Path("runs")
+
+
+def _inject_challenge_goal(config: LaunchConfig, design: DesignSpec) -> None:
+    """Record the challenge's scoring params on the design so rewards are goal-aware.
+
+    The reward functions only see ``compute_metrics`` output, which reads
+    ``design.metadata["challenge"]``; this is where goal_x / threshold_x /
+    min_spacing from the chosen preset get surfaced to scoring.
+    """
+    preset = get_scenario_preset(config.scenario.preset)
+    if preset is not None and preset.goal:
+        design.metadata["challenge"] = dict(preset.goal)
 
 # Upper bound on simulated time per attempt, regardless of the user-set
 # ``simulation_duration_seconds``. Keeps runs (and the studio replay) bounded
@@ -173,6 +186,8 @@ async def run_agent_attempt(
         r.status == ToolCallStatus.rejected for r in records
     ):
         _repair_rejected(design, agent.id, enabled_names, records)
+
+    _inject_challenge_goal(config, design)
 
     # Simulate only if there is at least one dynamic body.
     trace_run_id: str | None = None
@@ -327,6 +342,8 @@ async def run_cooperative_attempt(
                 max_motors=config.constraints.max_motors,
             )
             records.append(result.record)
+
+    _inject_challenge_goal(config, design)
 
     # Simulate the SHARED design once (only if it has a dynamic body).
     trace_run_id: str | None = None

@@ -106,13 +106,18 @@ reward** maps that to `(score_total, success, summary)`:
 
 | Reward | Used by | Idea |
 | --- | --- | --- |
-| `distance_plus_stability` | Bridge Builder, Crawl | Reward horizontal travel + stability, penalize falls. |
-| `sorting_accuracy` | Sorter | Fraction of dynamic bodies that end up inside a target bin. |
-| `city_score` | Tiny City | Structure count + spread area + stability. |
+| `bridge_transport` | Bridge Builder | Goal progress + reaching the goal zone + stability − falls − excess-part penalty. |
+| `crawl_locomotion` | Crawl | Net forward travel + crossing the threshold line − falls (no part bonus → favours motion). |
+| `sorting_accuracy` | Sorter | True object-class-to-bin matching (ball color vs bin `accepts`); falls back to plain containment when no class is declared. |
+| `city_score` | Tiny City | Structure count + spread + nearest-neighbour spacing (livability) + stability. |
+| `distance_plus_stability` | (legacy) | Horizontal travel + stability − falls. |
 | `default` | baseline | Distance-only fallback. |
 
 Rewards are pure functions registered in a `REWARDS` dict, so adding one is a
-single function plus a name — no engine or renderer changes.
+single function plus a name — no engine or renderer changes. A challenge preset's
+`goal` params (e.g. `goal_x`, `threshold_x`, `min_spacing`) are injected into the
+design metadata at scoring time, so rewards can be goal-aware without the engine or
+renderer knowing about challenges.
 
 ## Multi-agent modes
 

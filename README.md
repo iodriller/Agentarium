@@ -78,10 +78,16 @@ calls → physics runs → the world replays it → scores and telemetry stream 
 
 | Challenge | Reward | World | Goal |
 | --- | --- | --- | --- |
-| Bridge Builder | `distance_plus_stability` | Island Cliff | Move a crate across a gap to the goal. |
-| Crawl Challenge | `distance_plus_stability` | Hill Path | Build a creature that crawls to the goal. |
-| Sorter | `sorting_accuracy` | Sorting Table | Drop objects into the matching bins. |
-| Tiny City | `city_score` | Tiny City Block | Lay out a small city within the budget. |
+| Bridge Builder | `bridge_transport` | Island Cliff | Carry the crate to the goal zone, stay standing, stay lean. |
+| Crawl Challenge | `crawl_locomotion` | Hill Path | Move a creature forward and cross the threshold line. |
+| Sorter | `sorting_accuracy` | Sorting Table | Drop each ball into the bin that **accepts its class** (color). |
+| Tiny City | `city_score` | Tiny City Block | Lay out a well-spaced, livable little city. |
+
+Each challenge scores differently: Bridge rewards goal progress + reaching the
+goal, stability, and a lean part count; Crawl rewards pure forward locomotion and
+crossing the line; Sorter does true object-class-to-bin matching (falling back to
+plain containment when no class is declared); Tiny City rewards structure count,
+spread, and nearest-neighbour spacing (livability).
 
 ## How it works
 

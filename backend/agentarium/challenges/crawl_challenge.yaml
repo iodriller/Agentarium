@@ -4,7 +4,7 @@ tagline: Navigate tight spaces to reach goal.
 tags:
   - Mobility
 objective: Build a creature that crawls to the goal.
-reward: distance_plus_stability
+reward: crawl_locomotion
 default_world: hill_path
 required_tools:
   - create_body
@@ -12,6 +12,8 @@ required_tools:
   - add_motor
   - run_simulation
 recommended_tools:
-  - set_controller
-  - add_sensor
-  - mutate_design
+  - set_friction
+  - set_density
+  - inspect_score
+goal:
+  threshold_x: 6.0

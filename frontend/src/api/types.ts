@@ -155,6 +155,7 @@ export interface ScenarioPreset {
   default_world: string
   required_tools: string[]
   recommended_tools: string[]
+  goal?: Record<string, number | string>
 }
 
 export interface WorldTemplate {
