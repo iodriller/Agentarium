@@ -11,9 +11,11 @@ import { ToolCallLog } from '../components/studio/ToolCallLog'
 import { DesignSummaryPanel } from '../components/studio/DesignSummaryPanel'
 import { TelemetryPanel, type AttemptScore } from '../components/studio/TelemetryPanel'
 import { AttemptHistory } from '../components/studio/AttemptHistory'
+import { AttemptDiffPanel } from '../components/studio/AttemptDiffPanel'
 import { api, downloadUrl, wsUrl } from '../api/client'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import type {
+  AttemptDiff,
   ConstraintsConfig,
   CreateRunResponse,
   DesignSummary,
@@ -47,6 +49,7 @@ export function StudioScreen() {
     Partial<ConstraintsConfig> | undefined
   >(undefined)
   const [caps, setCaps] = useState<RunCaps | null>(null)
+  const [latestDiff, setLatestDiff] = useState<AttemptDiff | null>(null)
   const [toolLog, setToolLog] = useState<ToolCallRecord[]>([])
   // The agent whose score/metrics/design last updated — drives the "latest"
   // displays. Falls back to the first agent.
@@ -214,6 +217,7 @@ export function StudioScreen() {
           }))
           setLatestAgentId(id)
           setLatestAttemptIndex(event.attempt_index)
+          if (event.diff !== undefined) setLatestDiff(event.diff)
           setAttemptsByAgent((prev) => {
             const series = (prev[id] ?? []).filter((a) => a.index !== event.attempt_index)
             series.push({ index: event.attempt_index, scorecard: event.scorecard })
@@ -588,6 +592,7 @@ export function StudioScreen() {
             }
             onReplay={(id) => void replayTraceRunId(id)}
           />
+          <AttemptDiffPanel diff={latestDiff} attemptIndex={latestAttemptIndex} />
           <ToolCallLog records={toolLog} onClear={() => setToolLog([])} />
           <DesignSummaryPanel
             summary={designSummary}

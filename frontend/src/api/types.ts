@@ -319,12 +319,25 @@ export interface TraceReadyEvent {
   trace_run_id: string
 }
 
+export interface AttemptDiff {
+  prev_attempt_index: number
+  parts_delta: number
+  joints_delta: number
+  added_parts: string[]
+  removed_parts: string[]
+  moved_parts: string[]
+  prev_score: number
+  score_delta: number
+  failure_events: string[]
+}
+
 export interface ScoreEvent {
   type: 'score'
   attempt_index: number
   // Cooperative emits a single shared score with agent_id === "shared".
   agent_id?: string
   scorecard: ScoreCard
+  diff?: AttemptDiff | null
 }
 
 export interface AttemptFinishedEvent {

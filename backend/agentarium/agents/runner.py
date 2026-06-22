@@ -55,16 +55,61 @@ class AttemptResult(BaseModel):
     tool_calls: list[ToolCallRecord]
     parent_attempt_id: str | None = None
     attempt_index: int = 0
+    # Structured diff vs. the previous attempt (None for the first attempt).
+    diff: dict | None = None
+
+
+def _attempt_diff(prev: AttemptResult | None, design: DesignSpec, score: ScoreCard) -> dict | None:
+    """Structured diff of this attempt vs. the previous one (parts, score, failures).
+
+    Used both to feed the agent's prompt ("what you changed and how it scored")
+    and to surface "what changed" in Studio. Returns None for the first attempt.
+    """
+    if prev is None:
+        return None
+    prev_ids = {b.id for b in prev.design.bodies}
+    cur_ids = {b.id for b in design.bodies}
+    prev_pos = {b.id: tuple(b.position) for b in prev.design.bodies}
+    moved = [
+        bid
+        for b in design.bodies
+        if (bid := b.id) in prev_pos and tuple(b.position) != prev_pos[bid]
+    ]
+    return {
+        "prev_attempt_index": prev.attempt_index,
+        "parts_delta": len(design.bodies) - len(prev.design.bodies),
+        "joints_delta": len(design.joints) - len(prev.design.joints),
+        "added_parts": sorted(cur_ids - prev_ids),
+        "removed_parts": sorted(prev_ids - cur_ids),
+        "moved_parts": sorted(moved),
+        "prev_score": prev.score.score_total,
+        "score_delta": score.score_total - prev.score.score_total,
+        "failure_events": [str(e.get("type", e)) for e in score.failure_events],
+    }
 
 
 def _build_memory(prev: AttemptResult | None) -> str:
-    """Brief "previous attempts" summary (last attempt's score + hint)."""
+    """Previous-attempt summary for the prompt: score, hint, and what changed."""
     if prev is None:
         return ""
-    return (
+    line = (
         f"- Attempt #{prev.attempt_index}: score "
         f"{prev.score.score_total:.1f}. {prev.score.improvement_hint}".strip()
     )
+    diff = prev.diff
+    if diff:
+        parts = []
+        if diff["added_parts"]:
+            parts.append(f"added {len(diff['added_parts'])} part(s)")
+        if diff["removed_parts"]:
+            parts.append(f"removed {len(diff['removed_parts'])} part(s)")
+        if diff["moved_parts"]:
+            parts.append(f"moved {len(diff['moved_parts'])} part(s)")
+        delta = diff["score_delta"]
+        trend = f"score {'+' if delta >= 0 else ''}{delta:.1f} vs the attempt before"
+        change = "; ".join(parts) if parts else "no structural change"
+        line += f"\n  (last change: {change}; {trend})"
+    return line
 
 
 def _repair_rejected(
@@ -226,6 +271,7 @@ async def run_agent_attempt(
         tool_calls=records,
         parent_attempt_id=previous.attempt_id if previous is not None else None,
         attempt_index=attempt_index,
+        diff=_attempt_diff(previous, design, score),
     )
 
 
