@@ -95,7 +95,11 @@ calls → physics runs → the world replays it → scores and telemetry stream 
 - **Multi-agent.** `single`, `competitive`, and `cooperative` modes, with every
   part attributed to the agent that built it.
 - **LLM providers.** `mock` (offline, deterministic), `localdeploy`, and any
-  OpenAI-compatible endpoint.
+  OpenAI-compatible endpoint. Connection probes are short; generation calls have
+  configurable timeouts and retry/backoff, and surface structured errors
+  (auth / rate-limit / server / timeout / malformed). Tune via env vars:
+  `AGENTARIUM_LLM_TIMEOUT_S` (default 120), `AGENTARIUM_LLM_RETRIES` (default 2),
+  `AGENTARIUM_LLM_BACKOFF_S` (default 0.5).
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full component map,
 data-flow diagram, and invariants — and
