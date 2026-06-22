@@ -77,10 +77,20 @@ def _init_db() -> None:
         """)
 
 
+# Only these columns may be written via _db_upsert_meta — guards the f-string
+# column interpolation against ever taking an attacker-controlled key.
+_META_COLUMNS = frozenset(
+    {"project_name", "challenge", "mode", "reward", "score_total", "success", "artifact_dir"}
+)
+
+
 def _db_upsert_meta(run_id: str, **fields: object) -> None:
     """Insert or update the run_meta row for ``run_id`` with the given fields."""
     if not fields:
         return
+    bad = set(fields) - _META_COLUMNS
+    if bad:
+        raise ValueError(f"unknown run_meta columns: {sorted(bad)}")
     cols = ", ".join(fields)
     placeholders = ", ".join("?" for _ in fields)
     updates = ", ".join(f"{c}=excluded.{c}" for c in fields)
@@ -114,6 +124,9 @@ def _db_write_run(run_id: str, trace: EpisodeTrace, design: DesignSpec) -> None:
             )
             conn.execute("DELETE FROM scores WHERE run_id NOT IN (SELECT run_id FROM runs)")
             conn.execute("DELETE FROM designs WHERE run_id NOT IN (SELECT run_id FROM runs)")
+            # Keep run_meta in lockstep with runs so history/leaderboard never
+            # link to a run whose trace was evicted (no dead links, bounded growth).
+            conn.execute("DELETE FROM run_meta WHERE run_id NOT IN (SELECT run_id FROM runs)")
             conn.commit()
 
 
@@ -377,6 +390,9 @@ def leaderboard(challenge: str | None = None, limit: int = 10) -> list[dict]:
     if challenge:
         query += " AND challenge = ?"
         params.append(challenge)
+    else:
+        # Exclude demo / ad-hoc runs (no challenge) from the global leaderboard.
+        query += " AND challenge IS NOT NULL"
     query += " ORDER BY score_total DESC LIMIT ?"
     params.append(max(1, min(limit, 100)))
     with _db_lock:

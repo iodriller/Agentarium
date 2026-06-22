@@ -92,3 +92,37 @@ def test_history_and_leaderboard_endpoints_respond():
     r2 = client.get("/api/runs/leaderboard?limit=5")
     assert r1.status_code == 200 and isinstance(r1.json(), list)
     assert r2.status_code == 200 and isinstance(r2.json(), list)
+
+
+def test_run_meta_pruned_with_runs_no_dead_links(_db, monkeypatch):
+    # Cap on-disk runs at 2; older run_meta rows must be pruned too so history
+    # never points at a run whose trace was evicted.
+    monkeypatch.setattr(run_service, "_DB_MAX_ROWS", 2)
+    ids = [_make_run("bridge_builder", float(i)) for i in range(4)]
+    history_ids = {r["run_id"] for r in list_runs(limit=50)}
+    # Only the 2 newest survive; every history row still has a fetchable trace.
+    assert len(history_ids) <= 2
+    for rid in history_ids:
+        assert run_service.get_trace(rid) is not None
+    # The two oldest are gone from history (no dead links).
+    assert ids[0] not in history_ids
+
+
+def test_leaderboard_excludes_null_challenge_runs(_db):
+    from agentarium.core.schemas.setup import WorldConfig
+
+    # A demo run via create_run_from_design has no challenge (null).
+    world = WorldConfig(template="flat_arena", engine="pymunk2d")
+    demo = create_run_from_design(hardcoded_demo_design(), world, duration_seconds=0.05)
+    real = _make_run("bridge_builder", 99.0)
+    board = leaderboard()  # unfiltered
+    ids = {r["run_id"] for r in board}
+    assert real in ids
+    assert demo not in ids  # null-challenge demo runs excluded from global board
+
+
+def test_upsert_meta_rejects_unknown_column(_db):
+    import pytest as _pytest
+
+    with _pytest.raises(ValueError):
+        run_service._db_upsert_meta("x", bogus_col="1")

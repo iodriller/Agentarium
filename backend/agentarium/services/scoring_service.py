@@ -88,6 +88,9 @@ def compute_metrics(trace: EpisodeTrace, design: DesignSpec) -> dict[str, float]
         "bins_count": float(len(bins)),
         "bins_in_target": 0.0,
         "bins_correct": 0.0,
+        # True count of items to sort = dynamic (non-static) bodies; bins and
+        # static support beams are static and correctly excluded.
+        "sortable_items": float(len(_dynamic_bodies(design))),
         # 1.0 when at least one bin declares an accepted class (matching intended).
         "bins_matchable": 1.0 if any(b.get("accepts") for b in bins) else 0.0,
         "reached_goal": 0.0,
@@ -163,9 +166,11 @@ def compute_metrics(trace: EpisodeTrace, design: DesignSpec) -> dict[str, float]
     if final_x is not None and start is not None:
         goal_x = challenge.get("goal_x")
         if isinstance(goal_x, (int, float)) and goal_x != start_x:
+            # Direction-aware: works whether the goal is ahead of or behind start.
             progress = (final_x - start_x) / (goal_x - start_x)
             metrics["goal_progress"] = _clamp01(progress)
-            metrics["reached_goal"] = 1.0 if final_x >= goal_x else 0.0
+            reached = final_x >= goal_x if goal_x > start_x else final_x <= goal_x
+            metrics["reached_goal"] = 1.0 if reached else 0.0
         threshold_x = challenge.get("threshold_x")
         if isinstance(threshold_x, (int, float)):
             metrics["crossed_threshold"] = 1.0 if final_x >= threshold_x else 0.0
@@ -272,7 +277,9 @@ def _reward_sorting_accuracy(m: dict[str, float]) -> tuple[float, bool, str]:
     bins_in_target = m.get("bins_in_target", 0.0)
     bins_correct = m.get("bins_correct", 0.0)
     stability = m.get("stability", 0.0)
-    dynamic = max(m.get("parts_used", 0.0) - bins_count, 0.0)
+    # Items to sort = dynamic bodies (excludes bins AND static support structure),
+    # so adding beams no longer deflates the accuracy denominator.
+    dynamic = m.get("sortable_items", 0.0)
 
     if bins_count <= 0 or dynamic <= 0:
         return (
