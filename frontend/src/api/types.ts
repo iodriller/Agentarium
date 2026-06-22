@@ -266,8 +266,20 @@ export interface RunStartedEvent {
   objective: string
   reward?: string
   max_attempts: number
+  // Effective MVP caps vs. what the user requested (for the "running 3 of 50" note).
+  requested_attempts?: number
+  attempts_cap?: number
+  requested_duration_s?: number
+  simulation_cap_s?: number
   constraints?: Partial<ConstraintsConfig>
   agents?: RunAgentInfo[]
+}
+
+export interface RunCaps {
+  effectiveAttempts: number
+  requestedAttempts?: number
+  simCapS?: number
+  requestedDurationS?: number
 }
 
 export interface AttemptStartedEvent {

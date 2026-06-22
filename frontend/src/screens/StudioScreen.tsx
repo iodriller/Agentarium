@@ -18,6 +18,7 @@ import type {
   CreateRunResponse,
   DesignSummary,
   EpisodeTrace,
+  RunCaps,
   RunEvent,
   ScoreCard,
   ToolCallRecord,
@@ -45,6 +46,7 @@ export function StudioScreen() {
   const [briefingConstraints, setBriefingConstraints] = useState<
     Partial<ConstraintsConfig> | undefined
   >(undefined)
+  const [caps, setCaps] = useState<RunCaps | null>(null)
   const [toolLog, setToolLog] = useState<ToolCallRecord[]>([])
   // The agent whose score/metrics/design last updated — drives the "latest"
   // displays. Falls back to the first agent.
@@ -156,6 +158,12 @@ export function StudioScreen() {
           setMode(event.mode)
           if (event.reward) setReward(event.reward)
           if (event.constraints) setBriefingConstraints(event.constraints)
+          setCaps({
+            effectiveAttempts: event.max_attempts,
+            requestedAttempts: event.requested_attempts,
+            simCapS: event.simulation_cap_s,
+            requestedDurationS: event.requested_duration_s,
+          })
           setRunStatus('running')
           if (event.agents && event.agents.length > 0) {
             setAgents(event.agents.map((a) => ({ id: a.id, name: a.name, role: a.role })))
@@ -470,6 +478,7 @@ export function StudioScreen() {
             objective={objective}
             reward={reward}
             constraints={briefingConstraints}
+            caps={caps}
           />
           <AgentStatusPanel
             agents={agents}
