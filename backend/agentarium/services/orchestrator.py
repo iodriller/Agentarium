@@ -334,6 +334,7 @@ class RunManager:
                     "attempt_index": attempt_index,
                     "agent_id": agent.id,
                     "scorecard": result.score.model_dump(mode="json"),
+                    "diff": result.diff,
                 },
             )
 
