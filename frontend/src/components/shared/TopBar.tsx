@@ -28,11 +28,21 @@ export function TopBar({ projectName = 'Agentarium', status = 'connecting' }: To
         flexShrink: 0,
       }}
     >
-      {/* Left: wordmark + project */}
+      {/* Left: wordmark (→ home/setup) + project */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <span style={{ color: 'var(--accent)', fontWeight: 700, fontSize: 15, letterSpacing: '-0.3px' }}>
+        <Link
+          to="/setup"
+          title="Back to Simulation Setup"
+          style={{
+            color: 'var(--accent)',
+            fontWeight: 700,
+            fontSize: 15,
+            letterSpacing: '-0.3px',
+            textDecoration: 'none',
+          }}
+        >
           Agentarium
-        </span>
+        </Link>
         {projectName !== 'Agentarium' && (
           <>
             <span style={{ color: 'var(--border)' }}>›</span>
@@ -47,6 +57,20 @@ export function TopBar({ projectName = 'Agentarium', status = 'connecting' }: To
           <span style={{ width: 6, height: 6, borderRadius: '50%', background: meta.color, display: 'inline-block' }} />
           {meta.label}
         </span>
+        <Link
+          to="/setup"
+          style={{
+            color: 'var(--accent)',
+            fontSize: 12,
+            fontWeight: 600,
+            textDecoration: 'none',
+            border: '1px solid var(--accent)',
+            borderRadius: 6,
+            padding: '3px 10px',
+          }}
+        >
+          + New Simulation
+        </Link>
         <Link to="/history" style={{ color: 'var(--text-2)', fontSize: 12, textDecoration: 'none' }}>
           History
         </Link>

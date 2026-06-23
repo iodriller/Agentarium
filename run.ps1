@@ -15,6 +15,16 @@ Set-Location $PSScriptRoot
 Write-Host "> Agentarium launcher"
 
 # 1. Ensure uv is available (it manages Python itself).
+$uvBins = @(
+  "$env:USERPROFILE\.local\bin",
+  "$env:USERPROFILE\.cargo\bin"
+)
+foreach ($uvBin in $uvBins) {
+  if ((Test-Path "$uvBin\uv.exe") -and (($env:Path -split ';') -notcontains $uvBin)) {
+    $env:Path = "$uvBin;$env:Path"
+  }
+}
+
 if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
   Write-Host "  - Installing uv (one-time, no admin needed)..."
   Invoke-RestMethod https://astral.sh/uv/install.ps1 | Invoke-Expression

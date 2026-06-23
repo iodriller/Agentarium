@@ -20,17 +20,23 @@ _PROVIDERS: dict[str, AgentProvider] = {
 _PROVIDER_META: list[dict] = [
     {
         "id": "mock",
-        "name": "Mock / Random",
+        "name": "Mock / No model",
         "requires_endpoint": False,
         "requires_api_key": False,
-        "description": "Deterministic baseline, no network. Great for testing.",
+        "description": (
+            "Offline demo provider. It does not call an LLM; it emits fixed "
+            "sample tool calls so the app can launch without setup."
+        ),
     },
     {
         "id": "localdeploy",
         "name": "LocalDeploy",
         "requires_endpoint": True,
         "requires_api_key": False,
-        "description": "OpenAI-compatible local server (LM Studio, llama.cpp, etc.)",
+        "description": (
+            "LocalDeploy OpenAI-compatible server. Run the LocalDeploy GitHub "
+            "repo locally, then point Agentarium at its /v1 endpoint."
+        ),
     },
     {
         "id": "openai_compatible",

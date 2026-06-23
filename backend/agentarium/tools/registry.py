@@ -25,7 +25,12 @@ _TOOLS: list[ToolDefinition] = [
                     "enum": ["segment", "box", "circle", "polygon"],
                     "description": "Geometry type of the body",
                 },
-                "length": {"type": "number", "description": "Length (for segment/box shapes)"},
+                "length": {"type": "number", "description": "Square box side (for box shapes)"},
+                "width": {"type": "number", "description": "Box width in metres (overrides length)"},
+                "height": {
+                    "type": "number",
+                    "description": "Box height in metres — use a tall height for buildings/walls",
+                },
                 "radius": {
                     "type": "number",
                     "minimum": 0.001,
@@ -36,12 +41,16 @@ _TOOLS: list[ToolDefinition] = [
                     "minimum": 0.001,
                     "description": "Mass of the body in kg",
                 },
+                "static": {
+                    "type": "boolean",
+                    "description": "If true the body is fixed in place (e.g. a building or wall)",
+                },
                 "position": {
                     "type": "array",
                     "items": {"type": "number"},
                     "minItems": 2,
                     "maxItems": 2,
-                    "description": "Initial [x, y] position",
+                    "description": "Centre [x, y] position; a body sits on the ground when y = height/2",
                 },
             },
         },

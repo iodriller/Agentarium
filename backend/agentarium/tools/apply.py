@@ -139,6 +139,11 @@ def _mutate(design: DesignSpec, agent_id: str, tool: str, args: dict) -> bool:
         if shape == BodyShape.circle:
             radius = float(args.get("radius", 0.5))
             size = [radius]
+        elif "width" in args or "height" in args:
+            # Non-square box (a tall building/wall, a wide platform, …).
+            w = float(args.get("width", args.get("length", 1.0)))
+            h = float(args.get("height", args.get("length", 1.0)))
+            size = [w, h]
         else:
             length = float(args.get("length", 1.0))
             size = [length, length]
@@ -148,6 +153,7 @@ def _mutate(design: DesignSpec, agent_id: str, tool: str, args: dict) -> bool:
                 shape=shape,
                 position=[float(v) for v in args.get("position", [0.0, 0.0])],
                 size=size,
+                static=bool(args.get("static", False)),
                 mass=float(args.get("mass", 1.0)),
                 material=args.get("material", "metal"),
                 friction=float(args.get("friction", 0.6)),
@@ -165,6 +171,12 @@ def _mutate(design: DesignSpec, agent_id: str, tool: str, args: dict) -> bool:
             raise ValueError(f"body_a '{args['body_a']}' not present")
         if args["body_b"] not in ids:
             raise ValueError(f"body_b '{args['body_b']}' not present")
+        by_id = {b.id: b for b in design.bodies}
+        if by_id[args["body_a"]].static and by_id[args["body_b"]].static:
+            raise ValueError(
+                "joint requires at least one movable (non-static) body; "
+                "beams and ramps are static"
+            )
         design.joints.append(
             JointSpec(
                 id=jid,
@@ -196,12 +208,16 @@ def _mutate(design: DesignSpec, agent_id: str, tool: str, args: dict) -> bool:
         end = [float(v) for v in args["end"]]
         center = [(start[0] + end[0]) / 2.0, (start[1] + end[1]) / 2.0]
         length = math.dist(start, end)
+        # Keep the slope: a beam from start to end is the segment angled to match,
+        # not a flat horizontal bar at the midpoint.
+        angle = math.atan2(end[1] - start[1], end[0] - start[0])
         design.bodies.append(
             BodySpec(
                 id=bid,
                 shape=BodyShape.segment,
                 position=center,
                 size=[length or 1.0],
+                angle=angle,
                 static=True,
                 created_by=agent_id,
             )
@@ -216,12 +232,19 @@ def _mutate(design: DesignSpec, agent_id: str, tool: str, args: dict) -> bool:
         end = [float(v) for v in args["end"]]
         center = [(start[0] + end[0]) / 2.0, (start[1] + end[1]) / 2.0]
         length = math.dist(start, end)
+        # A ramp is sloped: derive its incline from start→end (or an explicit
+        # ``angle`` override in degrees) so things can actually roll/slide down it.
+        if "angle" in args:
+            angle = math.radians(float(args["angle"]))
+        else:
+            angle = math.atan2(end[1] - start[1], end[0] - start[0])
         design.bodies.append(
             BodySpec(
                 id=bid,
                 shape=BodyShape.segment,
                 position=center,
                 size=[length or 1.0],
+                angle=angle,
                 static=True,
                 created_by=agent_id,
             )

@@ -15,3 +15,19 @@ required_tools:
 recommended_tools:
   - add_ball
   - set_material
+# Starting world: two colored balls dropping in, plus the matching empty bins are
+# left for the agent to place (add_bin with accepts=red/blue). The balls are
+# dynamic, so the world simulates immediately and the agent can aim ramps/bins.
+scaffold:
+  - id: ball_red
+    shape: circle
+    position: [-3.0, 5.0]
+    size: [0.5]
+    mass: 1.0
+    color: "red"
+  - id: ball_blue
+    shape: circle
+    position: [-1.0, 6.0]
+    size: [0.5]
+    mass: 1.0
+    color: "blue"

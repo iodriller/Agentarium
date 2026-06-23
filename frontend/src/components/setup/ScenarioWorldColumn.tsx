@@ -30,6 +30,29 @@ const CUSTOM_PRESET: ScenarioPreset = {
   recommended_tools: [],
 }
 
+const PRESET_IMAGES: Record<string, { src: string; alt: string }> = {
+  bridge_builder: {
+    src: '/presets/bridge-builder.png',
+    alt: 'Bridge spanning a gap with a crate moving toward a goal platform',
+  },
+  crawl_challenge: {
+    src: '/presets/crawl-challenge.png',
+    alt: 'Segmented crawling robot moving through a narrow passage',
+  },
+  sorter: {
+    src: '/presets/sorter.png',
+    alt: 'Colored balls rolling down sorting ramps into matching bins',
+  },
+  tiny_city_preview: {
+    src: '/presets/tiny-city-preview.png',
+    alt: 'Isometric tiny city block with buildings and planning guides',
+  },
+  custom: {
+    src: '/presets/custom-scenario.png',
+    alt: 'Empty construction grid with sandbox build tools and parts',
+  },
+}
+
 // ─── Shared sub-components (match ToolsLaunchColumn styling) ───────────────────
 
 function SectionHeader({
@@ -148,6 +171,8 @@ function ChallengeCard({
   selected: boolean
   onSelect: () => void
 }) {
+  const image = PRESET_IMAGES[preset.id] ?? PRESET_IMAGES.custom
+
   return (
     <button
       onClick={onSelect}
@@ -166,17 +191,30 @@ function ChallengeCard({
         cursor: 'pointer',
       }}
     >
-      {/* Icon placeholder box */}
       <div
         style={{
-          width: 36,
-          height: 36,
+          width: 76,
+          height: 64,
           flexShrink: 0,
           borderRadius: 6,
           background: 'var(--surface-2)',
           border: '1px solid var(--border)',
+          overflow: 'hidden',
+          boxShadow: '0 8px 18px rgba(0, 0, 0, 0.22)',
         }}
-      />
+      >
+        <img
+          src={image.src}
+          alt={image.alt}
+          loading="lazy"
+          style={{
+            width: '100%',
+            height: '100%',
+            display: 'block',
+            objectFit: 'cover',
+          }}
+        />
+      </div>
       <div style={{ minWidth: 0 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-1)' }}>{preset.name}</div>
         <div style={{ fontSize: 10, color: 'var(--text-2)', marginTop: 2 }}>{preset.tagline}</div>
