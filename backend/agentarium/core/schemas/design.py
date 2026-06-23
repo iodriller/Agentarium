@@ -4,6 +4,10 @@ from enum import StrEnum
 
 from pydantic import BaseModel
 
+# ``created_by`` value for parts the challenge/world seeds (terrain, the crate,
+# goal markers) rather than an agent. Excluded from agent-effort scoring.
+WORLD_AUTHOR = "world"
+
 
 class BodyShape(StrEnum):
     segment = "segment"
@@ -17,6 +21,7 @@ class BodySpec(BaseModel):
     shape: BodyShape = BodyShape.box
     position: list[float] = [0.0, 0.0]  # [x, y]
     size: list[float] = [0.5, 0.5]  # box: [w, h]; circle: [r]; segment: [len]
+    angle: float = 0.0  # orientation in radians; lets ramps/beams slope
     mass: float = 1.0
     static: bool = False  # static bodies don't move (terrain, anchors)
     material: str = "metal"

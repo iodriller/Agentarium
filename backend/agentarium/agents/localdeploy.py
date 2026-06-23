@@ -5,4 +5,4 @@ from agentarium.agents.openai_compatible import OpenAICompatibleProvider
 
 class LocalDeployProvider(OpenAICompatibleProvider):
     name = "localdeploy"
-    default_endpoint = "http://localhost:1234/v1"
+    default_endpoint = "http://127.0.0.1:8000/v1"

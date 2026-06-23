@@ -7,3 +7,16 @@ map_size:
 gravity: -9.81
 active_physics_zones: 1
 description: A winding hill path that creatures must traverse to reach the goal.
+static_bodies:
+  - id: hill
+    shape: box
+    position: [0.5, 1.0]
+    size: [8.0, 2.0]
+    static: true
+    color: "#4d7c0f"
+  - id: hill_ramp
+    shape: segment
+    position: [-4.5, 0.8]
+    size: [3.0]
+    static: true
+    color: "#4d7c0f"

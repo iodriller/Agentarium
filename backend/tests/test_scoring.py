@@ -43,6 +43,29 @@ def _moving_trace(distance: float, *, falls: int = 0) -> EpisodeTrace:
     return EpisodeTrace(run_id="r", dt=0.5, frames=frames)
 
 
+def test_seeded_world_parts_excluded_and_city_layout_scored():
+    # A city of agent-placed structures plus seeded world terrain. Part count and
+    # layout spread/spacing must reflect only the agent's spread-out structures,
+    # never the clustered terrain.
+    design = DesignSpec(
+        name="city",
+        bodies=[
+            BodySpec(id="ground_pad", shape=BodyShape.box, position=[0.0, 0.0], created_by="world"),
+            BodySpec(id="bldg1", shape=BodyShape.box, position=[-6.0, 1.0], created_by="a"),
+            BodySpec(id="bldg2", shape=BodyShape.box, position=[0.0, 1.0], created_by="a"),
+            BodySpec(id="bldg3", shape=BodyShape.box, position=[6.0, 1.0], created_by="a"),
+            BodySpec(id="bldg4", shape=BodyShape.box, position=[0.0, 5.0], created_by="a"),
+        ],
+    )
+    trace = _moving_trace(0.0)  # positions are read from the design layout
+    metrics = compute_metrics(trace, design)
+    assert metrics["parts_used"] == 4.0  # excludes the seeded ground_pad
+    assert metrics["spread_area"] > 0.0
+    assert metrics["min_spacing"] >= 1.0
+    score, success, _ = REWARDS["city_score"](metrics)
+    assert success is True  # >= 4 structures, min_spacing >= 1.0
+
+
 def test_metrics_from_trace():
     trace = _moving_trace(4.0)
     metrics = compute_metrics(trace, _design(2))
@@ -127,23 +150,15 @@ def test_new_metric_keys_always_present():
 
 
 def test_spread_area_computed():
-    """Bodies spread across different y positions produce a non-zero spread_area."""
-    from agentarium.core.schemas.trace import EpisodeTrace, Frame, FrameBody
-
-    trace = EpisodeTrace(
-        run_id="r",
-        dt=0.5,
-        frames=[
-            Frame(
-                t=0.0,
-                bodies={
-                    "b0": FrameBody(x=0.0, y=0.0, angle=0.0),
-                    "b1": FrameBody(x=10.0, y=4.0, angle=0.0),
-                },
-            )
+    """Spread_area reflects where the agent PLACED structures (design layout)."""
+    trace = _moving_trace(0.0)  # any trace with frames; spread comes from layout
+    design = DesignSpec(
+        name="t",
+        bodies=[
+            BodySpec(id="b0", shape=BodyShape.box, position=[0.0, 0.0]),
+            BodySpec(id="b1", shape=BodyShape.box, position=[10.0, 4.0]),
         ],
     )
-    design = _design(2)
     metrics = compute_metrics(trace, design)
     assert metrics["spread_area"] == pytest.approx(40.0)
 
@@ -203,30 +218,22 @@ def test_sorting_accuracy_no_bins():
 
 # ── City score reward ────────────────────────────────────────────────────────
 
-def _city_trace_spread():
-    """Four bodies spread across a 15×4 area → spread_area = 60."""
-    from agentarium.core.schemas.trace import EpisodeTrace, Frame, FrameBody
-
-    return EpisodeTrace(
-        run_id="r",
-        dt=0.5,
-        frames=[
-            Frame(
-                t=0.0,
-                bodies={
-                    "b0": FrameBody(x=0.0, y=0.0, angle=0.0),
-                    "b1": FrameBody(x=5.0, y=2.0, angle=0.0),
-                    "b2": FrameBody(x=10.0, y=4.0, angle=0.0),
-                    "b3": FrameBody(x=15.0, y=1.0, angle=0.0),
-                },
-            )
+def _city_design_spread() -> DesignSpec:
+    """Four structures placed across a 15×4 area → spread_area = 60."""
+    return DesignSpec(
+        name="city",
+        bodies=[
+            BodySpec(id="b0", shape=BodyShape.box, position=[0.0, 0.0]),
+            BodySpec(id="b1", shape=BodyShape.box, position=[5.0, 2.0]),
+            BodySpec(id="b2", shape=BodyShape.box, position=[10.0, 4.0]),
+            BodySpec(id="b3", shape=BodyShape.box, position=[15.0, 1.0]),
         ],
     )
 
 
 def test_city_score_spread_bodies():
-    design = _design(4)
-    trace = _city_trace_spread()
+    design = _city_design_spread()
+    trace = _moving_trace(0.0)
     card = score_attempt(trace, design, "city_score")
     assert card.reward == "city_score"
     assert card.metrics["spread_area"] > 0

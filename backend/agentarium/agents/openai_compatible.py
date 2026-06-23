@@ -65,6 +65,12 @@ def _headers(api_key: str | None) -> dict[str, str]:
     return headers
 
 
+def openai_env_key() -> str | None:
+    """The OPENAI_API_KEY from the environment, if set (and non-empty)."""
+    key = os.environ.get("OPENAI_API_KEY")
+    return key or None
+
+
 def _classify_status(status: int) -> tuple[str, bool]:
     """Map an HTTP status to (error_kind, is_retryable)."""
     if status in (401, 403):
@@ -91,12 +97,25 @@ class OpenAICompatibleProvider(AgentProvider):
     def _resolve_endpoint(self, endpoint_url: str | None) -> str | None:
         return endpoint_url or self.default_endpoint
 
+    def _resolve_api_key(self, api_key: str | None) -> str | None:
+        """Fall back to OPENAI_API_KEY from the env for the hosted OpenAI provider.
+
+        Only the generic ``openai_compatible`` provider reads the env key;
+        LocalDeploy (a subclass) needs no key and must not pick it up.
+        """
+        if api_key:
+            return api_key
+        if self.name == "openai_compatible":
+            return openai_env_key()
+        return api_key
+
     async def test_connection(
         self, endpoint_url: str | None, api_key: str | None
     ) -> ProviderStatus:
         endpoint = self._resolve_endpoint(endpoint_url)
         if not endpoint:
             return ProviderStatus(online=False, detail="No endpoint_url provided")
+        api_key = self._resolve_api_key(api_key)
         try:
             async with self._client(_PROBE_TIMEOUT) as client:
                 response = await client.get(
@@ -190,6 +209,7 @@ class OpenAICompatibleProvider(AgentProvider):
         endpoint = self._resolve_endpoint(endpoint_url)
         if not endpoint:
             raise LLMError("config", "No endpoint_url provided")
+        api_key = self._resolve_api_key(api_key)
 
         url = f"{endpoint.rstrip('/')}/chat/completions"
         payload = {

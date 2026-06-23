@@ -10,7 +10,7 @@ from agentarium.agents.runner import (
     run_agent_attempt,
     run_cooperative_attempt,
 )
-from agentarium.core.schemas.design import DesignSpec
+from agentarium.core.schemas.design import WORLD_AUTHOR, DesignSpec
 from agentarium.core.schemas.setup import (
     AgentConfig,
     CollaborationMode,
@@ -48,11 +48,14 @@ def _design_summary(design: DesignSpec) -> dict:
 
     The design schema does not track beam/ramp/sensor categories, so we
     approximate: motors are joints with ``motor_rate`` set; other categories are
-    0 unless we can infer them.
+    0 unless we can infer them. Seeded world/terrain/task parts (``created_by ==
+    'world'``) are excluded so the panel shows what the AGENT built.
     """
-    bodies = len(design.bodies)
-    joints = len(design.joints)
-    motors = sum(1 for j in design.joints if j.motor_rate is not None)
+    agent_bodies = [b for b in design.bodies if b.created_by != WORLD_AUTHOR]
+    agent_joints = [j for j in design.joints if j.created_by != WORLD_AUTHOR]
+    bodies = len(agent_bodies)
+    joints = len(agent_joints)
+    motors = sum(1 for j in agent_joints if j.motor_rate is not None)
     return {
         "bodies": bodies,
         "joints": joints,

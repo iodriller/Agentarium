@@ -17,3 +17,19 @@ recommended_tools:
   - inspect_score
 goal:
   threshold_x: 6.0
+# Starting world: a body "seed" the agent should turn into a crawling creature
+# (add joints + motors), plus a goal marker at the threshold line. The seed body
+# is dynamic, so the world simulates immediately.
+scaffold:
+  - id: torso
+    shape: box
+    position: [-5.0, 1.5]
+    size: [1.4, 0.6]
+    mass: 1.5
+    color: "#6d28d9"
+  - id: goal_marker
+    shape: box
+    position: [6.0, 1.2]
+    size: [0.4, 1.6]
+    static: true
+    color: "#22c55e"

@@ -29,6 +29,41 @@ def test_pymunk_simulate_steps():
             assert hasattr(body, "angle")
 
 
+def test_ball_rolls_down_angled_ramp():
+    # A ball dropped onto an angled static segment must travel horizontally — i.e.
+    # the segment's angle is honored by the physics, so ramps actually slope.
+    import math
+
+    design = DesignSpec(
+        name="ramp",
+        bodies=[
+            BodySpec(
+                id="ramp",
+                shape=BodyShape.segment,
+                position=[0.0, 3.0],
+                size=[10.0],
+                angle=-0.4,  # downhill to the right
+                static=True,
+            ),
+            BodySpec(
+                id="ball",
+                shape=BodyShape.circle,
+                position=[-3.0, 5.0],
+                size=[0.4],
+                mass=1.0,
+            ),
+        ],
+    )
+    trace = Pymunk2DEngine().simulate(design, _world(), duration_seconds=3.0)
+    start_x = trace.frames[0].bodies["ball"].x
+    end_x = trace.frames[-1].bodies["ball"].x
+    assert end_x - start_x > 1.0  # rolled meaningfully to the right
+    # The ramp's slope is preserved in the static props for rendering.
+    ramp_prop = next(p for p in trace.world_static if p.id == "ramp")
+    assert ramp_prop.angle == -0.4
+    assert not math.isclose(ramp_prop.angle, 0.0)
+
+
 def test_falling_body_moves():
     design = DesignSpec(
         name="faller",

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import httpx
 
+from agentarium.agents.openai_compatible import openai_env_key
 from agentarium.core.schemas.setup import (
     CollaborationMode,
     LaunchConfig,
@@ -93,6 +94,14 @@ async def validate_launch_config(config: LaunchConfig) -> ValidationResult:
                 break
         if api_key is None:
             api_key = config.llm_connection.api_key
+        # Fall back to OPENAI_API_KEY from the env for hosted OpenAI participants,
+        # so the user never has to paste the key into the UI or saved config.
+        if api_key is None and any(
+            (p.endpoint_url or config.llm_connection.endpoint_url) == endpoint_url
+            and p.provider == LLMProvider.openai_compatible
+            for p in participants
+        ):
+            api_key = openai_env_key()
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:

@@ -4,7 +4,11 @@ tagline: Grow a tiny city within constraints.
 tags:
   - Economy
   - Planning
-objective: Lay out a small city within the budget.
+objective: >-
+  Lay out a small skyline of at least 6 STATIC buildings of varied heights
+  (use create_body with static:true, width 1.5-3, height 3-9). Spread them along
+  the ground from about x=-12 to x=12, spaced at least 2 apart, each sitting on
+  the ground so its y = height/2 (e.g. a height-6 building has position y=3).
 reward: city_score
 default_world: tiny_city_block
 required_tools:
@@ -12,5 +16,5 @@ required_tools:
   - run_simulation
 recommended_tools: []
 goal:
-  target_structures: 4
-  min_spacing: 1.0
+  target_structures: 6
+  min_spacing: 2.0

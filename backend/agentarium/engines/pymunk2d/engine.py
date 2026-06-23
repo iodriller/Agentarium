@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from agentarium.core.schemas.design import BodyShape, DesignSpec
 from agentarium.core.schemas.setup import WorldConfig
-from agentarium.core.schemas.trace import EpisodeTrace, Frame, FrameBody, StaticProp
+from agentarium.core.schemas.trace import (
+    BodyMeta,
+    EpisodeTrace,
+    Frame,
+    FrameBody,
+    StaticProp,
+)
 from agentarium.engines.base import EngineAdapter
 from agentarium.engines.pymunk2d.builder import GROUND_ID, build_space
 
@@ -37,8 +43,20 @@ class Pymunk2DEngine(EngineAdapter):
         trace = EpisodeTrace(
             run_id="",  # filled in by caller / run service
             engine=self.name,
+            terrain=getattr(world.terrain, "value", str(world.terrain)),
             dt=dt,
             world_static=self._build_static(design, world),
+            body_meta={
+                spec.id: BodyMeta(
+                    shape=spec.shape.value
+                    if isinstance(spec.shape, BodyShape)
+                    else str(spec.shape),
+                    size=list(spec.size),
+                    color=spec.color,
+                )
+                for spec in design.bodies
+                if not spec.static
+            },
         )
 
         def record(step: int) -> None:
@@ -89,6 +107,7 @@ class Pymunk2DEngine(EngineAdapter):
                         else str(spec.shape),
                         position=list(spec.position),
                         size=list(spec.size),
+                        angle=spec.angle,
                         color=spec.color,
                     )
                 )

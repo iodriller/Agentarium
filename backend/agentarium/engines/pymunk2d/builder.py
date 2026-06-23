@@ -76,6 +76,9 @@ def _make_body(spec: BodySpec) -> pymunk.Body:
     px = px if math.isfinite(px) else 0.0
     py = py if math.isfinite(py) else 0.0
     body.position = (px, py)
+    # Orientation (radians) — lets a segment be a sloped ramp/beam, not a flat bar.
+    angle = spec.angle if math.isfinite(spec.angle) else 0.0
+    body.angle = angle
     return body
 
 
@@ -87,6 +90,10 @@ def _add_joint(
     a = bodies.get(joint.body_a)
     b = bodies.get(joint.body_b)
     if a is None or b is None:
+        return
+    # pymunk requires at least one DYNAMIC body in a constraint; a joint between
+    # two static bodies raises and would crash the whole simulation. Skip it.
+    if a.body_type == pymunk.Body.STATIC and b.body_type == pymunk.Body.STATIC:
         return
     anchor_a = (joint.anchor_a[0], joint.anchor_a[1])
     anchor_b = (joint.anchor_b[0], joint.anchor_b[1])

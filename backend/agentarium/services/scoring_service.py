@@ -19,7 +19,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 
-from agentarium.core.schemas.design import DesignSpec
+from agentarium.core.schemas.design import WORLD_AUTHOR, DesignSpec
 from agentarium.core.schemas.score import ScoreCard
 from agentarium.core.schemas.trace import EpisodeTrace
 
@@ -31,6 +31,15 @@ _FALL_Y_THRESHOLD = -0.5
 def _dynamic_bodies(design: DesignSpec) -> list[str]:
     """Ids of bodies that can actually move (non-static)."""
     return [b.id for b in design.bodies if not b.static]
+
+
+def _agent_bodies(design: DesignSpec) -> list:
+    """Bodies the agent built — excludes seeded world/terrain/task parts.
+
+    Effort metrics (part count, city layout spread/spacing) must credit only what
+    the agent placed, not the crate/cliffs/goal markers seeded by the challenge.
+    """
+    return [b for b in design.bodies if b.created_by != WORLD_AUTHOR]
 
 
 def _primary_body_id(trace: EpisodeTrace, design: DesignSpec) -> str | None:
@@ -70,7 +79,9 @@ def compute_metrics(trace: EpisodeTrace, design: DesignSpec) -> dict[str, float]
     across consecutive frames (Manhattan distance per step). This is a
     deterministic, monotonic stand-in for "effort expended".
     """
-    parts_used = float(len(design.bodies))
+    # Part count credits only agent-built bodies (excludes seeded world/terrain).
+    agent_bodies = _agent_bodies(design)
+    parts_used = float(len(agent_bodies))
     joints = float(len(design.joints))
 
     bins = design.metadata.get("bins", [])
@@ -110,16 +121,25 @@ def compute_metrics(trace: EpisodeTrace, design: DesignSpec) -> dict[str, float]
 
     end_bodies = frames[-1].bodies
 
-    # --- spread_area + livability spacing of bodies in the final frame ---------
-    if len(end_bodies) >= 2:
-        xs = [b.x for b in end_bodies.values()]
-        ys = [b.y for b in end_bodies.values()]
+    # --- spread_area + livability spacing of the AGENT's placed layout ----------
+    # Computed from where the agent placed structures (design positions), so a
+    # city scores its intended layout whether the structures are static or fall,
+    # and seeded world/terrain parts don't distort it.
+    layout = [
+        (b.position[0], b.position[1])
+        for b in agent_bodies
+        if len(b.position) >= 2
+    ]
+    if len(layout) >= 2:
+        xs = [p[0] for p in layout]
+        ys = [p[1] for p in layout]
         metrics["spread_area"] = max(0.0, (max(xs) - min(xs)) * (max(ys) - min(ys)))
         # Nearest-neighbour spacing: a livability proxy (well-spaced > clumped).
-        pts = [(b.x, b.y) for b in end_bodies.values()]
         nearest = []
-        for i, (xi, yi) in enumerate(pts):
-            dists = [math.hypot(xi - xj, yi - yj) for j, (xj, yj) in enumerate(pts) if j != i]
+        for i, (xi, yi) in enumerate(layout):
+            dists = [
+                math.hypot(xi - xj, yi - yj) for j, (xj, yj) in enumerate(layout) if j != i
+            ]
             if dists:
                 nearest.append(min(dists))
         if nearest:
@@ -381,7 +401,7 @@ def score_attempt(
     """
     if trace is None:
         no_trace_metrics = {
-            "parts_used": float(len(design.bodies)),
+            "parts_used": float(len(_agent_bodies(design))),
             "bins_count": float(len(design.metadata.get("bins", []))),
             "bins_in_target": 0.0,
             "spread_area": 0.0,

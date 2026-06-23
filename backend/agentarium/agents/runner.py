@@ -13,11 +13,12 @@ from agentarium.agents.prompts import (
     build_system_prompt,
     build_user_prompt,
 )
-from agentarium.core.schemas.design import DesignSpec
+from agentarium.core.schemas.challenge import ScenarioPreset
+from agentarium.core.schemas.design import WORLD_AUTHOR, BodySpec, DesignSpec
 from agentarium.core.schemas.score import ScoreCard
 from agentarium.core.schemas.setup import AgentConfig, LaunchConfig, MemoryMode
 from agentarium.core.schemas.toolcall import ToolCallRecord, ToolCallStatus
-from agentarium.services.preset_service import get_scenario_preset
+from agentarium.services.preset_service import get_scenario_preset, get_world_template
 from agentarium.services.run_service import (
     create_run_from_design,
     get_trace,
@@ -42,10 +43,106 @@ def _inject_challenge_goal(config: LaunchConfig, design: DesignSpec) -> None:
     if preset is not None and preset.goal:
         design.metadata["challenge"] = dict(preset.goal)
 
+
+def _seed_bodies(design: DesignSpec, raw_bodies: list[dict], force_static: bool) -> None:
+    """Append ``raw_bodies`` (BodySpec mappings) into ``design`` (in place).
+
+    Skips duplicate ids and malformed entries. Tags untagged bodies as world
+    parts. ``force_static`` pins terrain geometry static regardless of the entry.
+    """
+    existing = {b.id for b in design.bodies}
+    for raw in raw_bodies:
+        try:
+            spec = BodySpec(**raw)
+        except Exception:  # noqa: BLE001 - skip a bad entry, keep the rest usable
+            continue
+        if spec.id in existing:
+            continue
+        if force_static:
+            spec.static = True
+        if spec.created_by is None:
+            spec.created_by = WORLD_AUTHOR
+        design.bodies.append(spec)
+        existing.add(spec.id)
+
+
+def _seed_world(design: DesignSpec, config: LaunchConfig) -> None:
+    """Seed the chosen world template's fixed terrain (cliffs, ledges, hills)."""
+    template = get_world_template(config.world.template)
+    if template is not None and template.static_bodies:
+        _seed_bodies(design, template.static_bodies, force_static=True)
+
+
+def _seed_scaffold(design: DesignSpec, preset: ScenarioPreset | None) -> None:
+    """Seed the challenge's starting objects into ``design`` (in place).
+
+    Gives every challenge a concrete, non-empty world the agent can reason about
+    and reference, and guarantees at least one dynamic body so something always
+    simulates. A malformed scaffold entry is skipped rather than failing the run.
+    """
+    if preset is None or not preset.scaffold:
+        return
+    _seed_bodies(design, preset.scaffold, force_static=False)
+
+
+def _world_context(config: LaunchConfig, preset: ScenarioPreset | None, design: DesignSpec) -> str:
+    """A grounded world description for the system prompt.
+
+    Without this, models build at pixel-scale coordinates off the visible world
+    and never place a movable body. This states the unit (meters), the bounds,
+    the objects already present, and the concrete goal.
+    """
+    w = config.world
+    half_x = int(w.map_size[0] // 2) if w.map_size else 16
+    max_y = int(w.map_size[1]) if w.map_size and len(w.map_size) > 1 else 16
+    max_y = max(10, max_y)
+    lines = [
+        f"{w.terrain.value} terrain, engine {w.engine.value}, gravity {w.gravity} m/s^2.",
+        "Coordinates are in METERS, not pixels. The ground is a flat solid floor at "
+        f"y=0 and up is +y. Keep parts within x in [-{half_x}, {half_x}] and y in "
+        f"[0, {max_y}].",
+    ]
+    if design.bodies:
+        objs = "; ".join(
+            f"{b.id} ({'fixed' if b.static else 'movable'} {b.shape.value}) at "
+            f"[{b.position[0]:.1f}, {b.position[1]:.1f}]"
+            for b in design.bodies[:10]
+        )
+        lines.append(f"Objects already in the world (build on / connect to these): {objs}.")
+    goal = preset.goal if preset else {}
+    if isinstance(goal.get("goal_x"), (int, float)):
+        lines.append(
+            f"Goal: get the movable object to x = {goal['goal_x']} (the green marker)."
+        )
+    if isinstance(goal.get("threshold_x"), (int, float)):
+        lines.append(
+            f"Goal: drive the movable object past x = {goal['threshold_x']} (the green marker)."
+        )
+    if isinstance(goal.get("target_structures"), (int, float)):
+        spacing = goal.get("min_spacing", 1.0)
+        lines.append(
+            f"Goal: place at least {int(goal['target_structures'])} separate structures, "
+            f"spread across the map and spaced at least {spacing} apart."
+        )
+    return "\n".join(lines)
+
 # Upper bound on simulated time per attempt, regardless of the user-set
 # ``simulation_duration_seconds``. Keeps runs (and the studio replay) bounded
 # while honoring durations up to this cap; the engine also caps total steps.
 _MAX_SIM_DURATION_SECONDS = 30
+
+
+def _simulate_design(design: DesignSpec, world, duration: float) -> str | None:
+    """Simulate ``design``, returning its trace run id, or None if it can't run.
+
+    Any engine/physics failure (a degenerate body or constraint that trips
+    pymunk) is contained here so one bad attempt scores zero and the run keeps
+    going, instead of an exception aborting the entire run.
+    """
+    try:
+        return create_run_from_design(design, world, duration_seconds=duration)
+    except Exception:  # noqa: BLE001 - a bad design must not abort the whole run
+        return None
 
 
 class AttemptResult(BaseModel):
@@ -187,10 +284,15 @@ async def run_agent_attempt(
     enabled_defs = [d for n in enabled_names if (d := get_tool(n)) is not None]
 
     objective = config.scenario.objective or config.scenario.preset
-    world_summary = (
-        f"{config.world.terrain.value} terrain, engine "
-        f"{config.world.engine.value}, gravity {config.world.gravity}"
-    )
+
+    # Build the starting world first so the prompt can describe it and the agent
+    # has a concrete, non-empty design to extend.
+    preset = get_scenario_preset(config.scenario.preset)
+    design = DesignSpec(name=config.project_name)
+    _seed_world(design, config)
+    _seed_scaffold(design, preset)
+
+    world_summary = _world_context(config, preset, design)
     system_prompt = build_system_prompt(objective, world_summary, enabled_defs)
     memory = (
         _build_memory(previous)
@@ -203,14 +305,13 @@ async def run_agent_attempt(
         model=agent.model,
         system=system_prompt,
         user=user_prompt,
-        endpoint_url=config.llm_connection.endpoint_url,
-        api_key=config.llm_connection.api_key,
+        endpoint_url=agent.endpoint_url or config.llm_connection.endpoint_url,
+        api_key=agent.api_key or config.llm_connection.api_key,
         temperature=agent.temperature,
     )
 
     tool_calls = parse_tool_calls(raw)
 
-    design = DesignSpec(name=config.project_name)
     records: list[ToolCallRecord] = []
     for call in tool_calls:
         tool = call.get("tool", "")
@@ -235,15 +336,15 @@ async def run_agent_attempt(
 
     _inject_challenge_goal(config, design)
 
-    # Simulate only if there is at least one dynamic body.
+    # Simulate whenever the design has any body. All-static designs (e.g. a city
+    # of fixed structures) still produce a trace + score; only a truly empty
+    # design is skipped.
     trace_run_id: str | None = None
-    if any(not b.static for b in design.bodies):
+    if design.bodies:
         duration = min(
             config.constraints.simulation_duration_seconds, _MAX_SIM_DURATION_SECONDS
         )
-        trace_run_id = create_run_from_design(
-            design, config.world, duration_seconds=duration
-        )
+        trace_run_id = _simulate_design(design, config.world, duration)
 
     trace = get_trace(trace_run_id) if trace_run_id is not None else None
     score = score_attempt(trace, design, config.scenario.reward)
@@ -343,13 +444,15 @@ async def run_cooperative_attempt(
     enabled_defs = [d for n in enabled_names if (d := get_tool(n)) is not None]
 
     objective = config.scenario.objective or config.scenario.preset
-    world_summary = (
-        f"{config.world.terrain.value} terrain, engine "
-        f"{config.world.engine.value}, gravity {config.world.gravity}"
-    )
+
+    preset = get_scenario_preset(config.scenario.preset)
+    design = DesignSpec(name=config.project_name)
+    _seed_world(design, config)
+    _seed_scaffold(design, preset)
+
+    world_summary = _world_context(config, preset, design)
     system_prompt = build_system_prompt(objective, world_summary, enabled_defs)
 
-    design = DesignSpec(name=config.project_name)
     records: list[ToolCallRecord] = []
 
     for turn_index, agent in enumerate(participants):
@@ -398,15 +501,13 @@ async def run_cooperative_attempt(
 
     _inject_challenge_goal(config, design)
 
-    # Simulate the SHARED design once (only if it has a dynamic body).
+    # Simulate the SHARED design once when it has any body (all-static included).
     trace_run_id: str | None = None
-    if any(not b.static for b in design.bodies):
+    if design.bodies:
         duration = min(
             config.constraints.simulation_duration_seconds, _MAX_SIM_DURATION_SECONDS
         )
-        trace_run_id = create_run_from_design(
-            design, config.world, duration_seconds=duration
-        )
+        trace_run_id = _simulate_design(design, config.world, duration)
 
     trace = get_trace(trace_run_id) if trace_run_id is not None else None
     score = score_attempt(trace, design, config.scenario.reward)

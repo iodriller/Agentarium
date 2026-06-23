@@ -580,6 +580,11 @@ export function StudioScreen() {
               runStatus={runStatus}
               hasTrace={!!trace}
               errorDetail={errorDetail}
+              agentName={latestAgentName}
+              attemptNumber={latestAttemptIndex != null ? latestAttemptIndex + 1 : null}
+              totalAttempts={caps?.effectiveAttempts ?? null}
+              toolCallCount={toolLog.length}
+              hint={latestScore?.improvement_hint ?? latestScore?.summary ?? null}
             />
           </div>
 
@@ -661,17 +666,29 @@ export function StudioScreen() {
 }
 
 /** Overlay shown on top of the (empty) viewport while loading, on error, or when
- *  the connection drops — so a failed run isn't just a blank black canvas. */
+ *  the connection drops — so a failed run isn't just a blank black canvas. It
+ *  surfaces what the agent is doing right now (thinking / building) and gives a
+ *  meaningful end state when a run finishes without producing a simulation. */
 function ViewportOverlay({
   status,
   runStatus,
   hasTrace,
   errorDetail,
+  agentName,
+  attemptNumber,
+  totalAttempts,
+  toolCallCount,
+  hint,
 }: {
   status: 'loading' | 'ready' | 'error'
   runStatus: 'connecting' | 'running' | 'finished' | 'disconnected'
   hasTrace: boolean
   errorDetail?: string | null
+  agentName?: string
+  attemptNumber?: number | null
+  totalAttempts?: number | null
+  toolCallCount?: number
+  hint?: string | null
 }) {
   // Nothing to overlay once a trace is rendering and there's no error.
   if (hasTrace && status !== 'error' && runStatus !== 'disconnected') return null
@@ -679,6 +696,7 @@ function ViewportOverlay({
   let title: string
   let detail: string
   let tone = 'var(--text-2)'
+  let busy = false
   if (status === 'error') {
     title = 'Run error'
     detail = errorDetail || 'Something went wrong loading this run. Try launching again.'
@@ -687,13 +705,35 @@ function ViewportOverlay({
     title = 'Connection lost'
     detail = 'The live connection dropped before the run finished.'
     tone = 'var(--danger)'
+  } else if (runStatus === 'finished') {
+    // Finished but no trace ever loaded: the agent never produced a movable
+    // design. Say so plainly instead of hanging on "Waiting for the first build".
+    title = 'No simulation produced'
+    detail =
+      hint ||
+      'The run finished without a simulatable design — the agent’s tool calls did not create a movable body. Try the mock provider, a stronger model, or enabling more building tools.'
+    tone = 'var(--warn)'
   } else if (runStatus === 'connecting') {
     title = 'Connecting…'
     detail = 'Establishing the live run connection.'
     tone = 'var(--warn)'
+    busy = true
   } else {
-    title = 'Waiting for the first build…'
-    detail = 'The agent is building — the world will appear here shortly.'
+    // Running. Distinguish "calling the model" from "applying tool calls" using
+    // whether any tool calls have streamed in for the run yet.
+    busy = true
+    const who = agentName ? `${agentName} · ` : ''
+    const of =
+      attemptNumber != null
+        ? `Attempt ${attemptNumber}${totalAttempts ? ` of ${totalAttempts}` : ''}`
+        : 'Working'
+    if (toolCallCount && toolCallCount > 0) {
+      title = `${who}${of}`
+      detail = `Building the design — ${toolCallCount} tool call${toolCallCount === 1 ? '' : 's'} so far. The world will appear once it simulates.`
+    } else {
+      title = `${who}${of}`
+      detail = 'Thinking — calling the model. Local models can take a while on the first build.'
+    }
   }
 
   return (
@@ -705,15 +745,27 @@ function ViewportOverlay({
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 8,
+        gap: 10,
         textAlign: 'center',
         padding: 24,
         pointerEvents: 'none',
         background: 'color-mix(in srgb, var(--surface-2) 70%, transparent)',
       }}
     >
+      {busy && (
+        <div
+          style={{
+            width: 26,
+            height: 26,
+            borderRadius: '50%',
+            border: '3px solid var(--border)',
+            borderTopColor: 'var(--accent)',
+            animation: 'agentarium-spin 0.8s linear infinite',
+          }}
+        />
+      )}
       <div style={{ fontSize: 14, fontWeight: 600, color: tone }}>{title}</div>
-      <div style={{ fontSize: 12, color: 'var(--text-2)', maxWidth: 320 }}>{detail}</div>
+      <div style={{ fontSize: 12, color: 'var(--text-2)', maxWidth: 340 }}>{detail}</div>
     </div>
   )
 }
