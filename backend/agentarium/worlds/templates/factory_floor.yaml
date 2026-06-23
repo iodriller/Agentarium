@@ -7,3 +7,16 @@ map_size:
 gravity: -9.81
 active_physics_zones: 1
 description: An industrial factory floor with flat working surfaces.
+static_bodies:
+  - id: machine_left
+    shape: box
+    position: [-7.0, 1.0]
+    size: [3.0, 2.0]
+    static: true
+    color: "#57534e"
+  - id: machine_right
+    shape: box
+    position: [7.0, 1.0]
+    size: [3.0, 2.0]
+    static: true
+    color: "#57534e"

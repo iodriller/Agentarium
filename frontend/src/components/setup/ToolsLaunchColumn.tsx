@@ -128,14 +128,6 @@ function Badge({ text, color }: { text: string; color: string }) {
   )
 }
 
-function ToolBadge({ kind }: { kind: 'experimental' | 'read-only' }) {
-  return kind === 'experimental' ? (
-    <Badge text="experimental" color="var(--warn)" />
-  ) : (
-    <Badge text="read-only" color="var(--text-2)" />
-  )
-}
-
 function ComingSoonBadge() {
   return <Badge text="soon" color="var(--warn)" />
 }
@@ -638,50 +630,50 @@ export function ToolsLaunchColumn({
                     </span>
                   </button>
 
-                  {/* Tool rows */}
-                  {catOpen &&
-                    cat.tools.map((tool) => {
-                      const experimental = tool.status === 'experimental'
-                      return (
-                        <label
-                          key={tool.name}
-                          title={
-                            experimental
-                              ? 'Experimental — not yet implemented'
-                              : tool.status === 'inspection'
-                                ? 'Read-only — inspects, does not build'
-                                : undefined
-                          }
-                          style={{
-                            display: 'flex',
-                            alignItems: 'flex-start',
-                            gap: 8,
-                            padding: '4px 4px 4px 8px',
-                            borderRadius: 4,
-                            cursor: experimental ? 'not-allowed' : 'pointer',
-                            opacity: experimental ? 0.55 : 1,
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={checkedTools.has(tool.name)}
+                  {/* Tool pills — name only; full description on hover. */}
+                  {catOpen && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, padding: '4px 0 2px' }}>
+                      {cat.tools.map((tool) => {
+                        const experimental = tool.status === 'experimental'
+                        const on = checkedTools.has(tool.name)
+                        const desc =
+                          tool.description +
+                          (experimental
+                            ? '  (experimental — not yet implemented)'
+                            : tool.status === 'inspection'
+                              ? '  (read-only)'
+                              : '')
+                        return (
+                          <button
+                            key={tool.name}
+                            title={desc}
                             disabled={experimental}
-                            onChange={(e) => handleToggleTool(tool.name, e.target.checked)}
-                            style={{ marginTop: 2, accentColor: 'var(--accent)', cursor: 'inherit' }}
-                          />
-                          <div>
-                            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-1)' }}>
-                              {tool.name}
-                            </span>
-                            {tool.status === 'experimental' && <ToolBadge kind="experimental" />}
-                            {tool.status === 'inspection' && <ToolBadge kind="read-only" />}
-                            <span style={{ fontSize: 10, color: 'var(--text-2)', marginLeft: 6 }}>
-                              {tool.description}
-                            </span>
-                          </div>
-                        </label>
-                      )
-                    })}
+                            onClick={() => handleToggleTool(tool.name, !on)}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              padding: '3px 8px',
+                              borderRadius: 12,
+                              fontSize: 10.5,
+                              fontWeight: 600,
+                              cursor: experimental ? 'not-allowed' : 'pointer',
+                              opacity: experimental ? 0.5 : 1,
+                              border: `1px solid ${on ? 'var(--accent)' : 'var(--border)'}`,
+                              background: on ? 'var(--accent-soft)' : 'var(--surface-2)',
+                              color: on ? 'var(--accent)' : 'var(--text-2)',
+                            }}
+                          >
+                            <span style={{ fontSize: 9 }}>{on ? '✓' : '+'}</span>
+                            {tool.name}
+                            {tool.status === 'inspection' && (
+                              <span style={{ fontSize: 8, opacity: 0.7 }}>·ro</span>
+                            )}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
               )
             })
@@ -816,8 +808,8 @@ export function ToolsLaunchColumn({
         Launch Summary
       </div>
 
-      {/* World thumbnail placeholder */}
-      <WorldThumbnail />
+      {/* Challenge preview image */}
+      <WorldThumbnail preset={config.scenario?.preset} />
 
       {/* Summary rows */}
       <div
@@ -945,11 +937,20 @@ export function ToolsLaunchColumn({
 
 // ─── World thumbnail ──────────────────────────────────────────────────────────
 
-function WorldThumbnail() {
+const PRESET_IMG: Record<string, string> = {
+  bridge_builder: '/presets/bridge-builder.png',
+  crawl_challenge: '/presets/crawl-challenge.png',
+  sorter: '/presets/sorter.png',
+  tiny_city_preview: '/presets/tiny-city-preview.png',
+  custom: '/presets/custom-scenario.png',
+}
+
+function WorldThumbnail({ preset }: { preset?: string }) {
+  const src = (preset && PRESET_IMG[preset]) || PRESET_IMG.custom
   return (
     <div
       style={{
-        height: 72,
+        height: 96,
         borderRadius: 8,
         background: 'var(--surface-2)',
         border: '1px solid var(--border)',
@@ -958,32 +959,12 @@ function WorldThumbnail() {
         position: 'relative',
       }}
     >
-      {/* Grid pattern via SVG background */}
-      <div
-        style={{
-          position: 'absolute',
-          inset: 0,
-          backgroundImage:
-            'linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px)',
-          backgroundSize: '16px 16px',
-          opacity: 0.5,
-        }}
+      <img
+        src={src}
+        alt={preset ?? 'challenge'}
+        loading="lazy"
+        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
       />
-      <div
-        style={{
-          position: 'absolute',
-          inset: 0,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: 10,
-          color: 'var(--text-2)',
-          letterSpacing: '0.5px',
-          textTransform: 'uppercase',
-        }}
-      >
-        World Preview
-      </div>
     </div>
   )
 }

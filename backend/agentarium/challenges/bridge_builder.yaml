@@ -4,7 +4,7 @@ tagline: Transport the crate to the goal.
 tags:
   - Construction
   - Transport
-objective: Move the crate to the goal platform.
+objective: The round crate starts high on the left slope and rolls down on its own. Build a bridge across the gap (roughly x=-4 to x=2) so the crate carries across to the goal platform on the right at x=8. Do NOT build on top of or beside the crate's start — leave its slope clear.
 reward: bridge_transport
 default_world: island_cliff_small
 required_tools:
@@ -18,3 +18,21 @@ recommended_tools:
   - inspect_score
 goal:
   goal_x: 8.0
+# Starting world: a round crate at the top of the left slope (the island_cliff
+# world provides the slope, pillar, and lower goal cliff) and a goal marker on the
+# right cliff. The crate rolls down the slope on its own; the agent must bridge
+# the gap so it carries across to the goal at x=8. The crate is dynamic, so the
+# world always simulates even before the agent adds anything.
+scaffold:
+  - id: crate
+    shape: circle
+    position: [-12.0, 7.5]
+    size: [0.6]
+    mass: 2.0
+    color: "#d2691e"
+  - id: goal_marker
+    shape: box
+    position: [8.0, 2.1]
+    size: [0.4, 1.2]
+    static: true
+    color: "#22c55e"

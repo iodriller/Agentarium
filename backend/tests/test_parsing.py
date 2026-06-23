@@ -37,3 +37,27 @@ def test_empty_and_garbage():
 def test_filters_non_dict_entries():
     raw = '{"tool_calls": [{"tool": "x"}, "garbage", 42]}'
     assert parse_tool_calls(raw) == [{"tool": "x"}]
+
+
+def test_strips_qwen_think_block():
+    # Qwen3 / R1-style reasoning before the answer, with stray braces inside.
+    raw = (
+        "<think>I should add a box. Maybe {id: b1}? Let me reason... "
+        'consider {"foo": 1}</think>\n'
+        '{"tool_calls": [{"tool": "create_body", "args": {"id": "b1", "shape": "box"}}]}'
+    )
+    assert parse_tool_calls(raw) == [
+        {"tool": "create_body", "args": {"id": "b1", "shape": "box"}}
+    ]
+
+
+def test_strips_dangling_think_close_tag():
+    # Streaming can drop the opening <think> tag, leaving only the closer.
+    raw = 'reasoning about braces { and } here</think> {"tool_calls": [{"tool": "add_ball"}]}'
+    assert parse_tool_calls(raw) == [{"tool": "add_ball"}]
+
+
+def test_prefers_object_with_tool_calls():
+    # A leading explanatory object must not shadow the real payload.
+    raw = '{"note": "here is my plan"} {"tool_calls": [{"tool": "add_beam", "args": {}}]}'
+    assert parse_tool_calls(raw) == [{"tool": "add_beam", "args": {}}]

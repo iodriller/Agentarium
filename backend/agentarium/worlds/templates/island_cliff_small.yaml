@@ -6,4 +6,27 @@ map_size:
   - 32
 gravity: -9.81
 active_physics_zones: 3
-description: Two cliff platforms separated by a gap to bridge across.
+description: A high sloped ledge on the left and a lower goal cliff on the right, split by a gap to bridge.
+static_bodies:
+  # A downhill ramp on the left: the crate rolls down it toward the gap.
+  - id: left_slope
+    shape: segment
+    position: [-9.0, 4.0]
+    size: [10.0]
+    angle: -0.4
+    static: true
+    color: "#6b7280"
+  # A pillar holding the high end of the slope up (visual mass).
+  - id: left_pillar
+    shape: box
+    position: [-12.0, 2.5]
+    size: [3.0, 5.0]
+    static: true
+    color: "#4b5563"
+  # The lower goal cliff on the right, across the gap.
+  - id: right_cliff
+    shape: box
+    position: [8.0, 0.75]
+    size: [12.0, 1.5]
+    static: true
+    color: "#6b7280"

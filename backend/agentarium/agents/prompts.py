@@ -4,9 +4,18 @@ from agentarium.core.schemas.tool import ToolDefinition
 
 
 def _tool_line(tool: ToolDefinition) -> str:
-    required = tool.input_schema.get("required", [])
+    schema = tool.input_schema
+    required = schema.get("required", [])
     req = ", ".join(required) if required else "(none)"
-    return f"- {tool.name}: {tool.description} required args: {req}"
+    # Surface enum constraints (e.g. shape must be box|circle|...) inline — weak
+    # models otherwise guess invalid values ("rectangle") and get rejected.
+    enums = [
+        f"{name} must be one of {props['enum']}"
+        for name, props in schema.get("properties", {}).items()
+        if props.get("enum")
+    ]
+    enum_str = (" | " + "; ".join(enums)) if enums else ""
+    return f"- {tool.name}: {tool.description} required args: {req}{enum_str}"
 
 
 def build_system_prompt(
@@ -27,6 +36,34 @@ def build_system_prompt(
         parts.append(f"Constraints: {constraints}")
     parts.append(
         "You may ONLY use the following tools:\n" + tool_lines
+    )
+    parts.append(
+        "Rules:\n"
+        "- Build in world units (METERS), not pixels — coordinates are small "
+        "numbers like 2.0 or -5.0, never 200 or 400.\n"
+        "- Your design MUST include at least one MOVABLE (non-static) body, or "
+        "nothing will move and you score zero. create_body and add_ball are "
+        "movable; add_beam and add_ramp are fixed scaffolding.\n"
+        "- To connect to an object already in the world, reference its id exactly.\n"
+        "- Prefer a few well-placed parts over many."
+    )
+    parts.append(
+        "Example of a VALID response — copy these exact field names and value "
+        "formats (only use tools that appear in the list above):\n"
+        '{"tool_calls": [\n'
+        '  {"tool": "create_body", "args": {"id": "tower1", "shape": "box", '
+        '"position": [-5.0, 3.0], "width": 2.0, "height": 6.0, "static": true}},\n'
+        '  {"tool": "create_body", "args": {"id": "ball1", "shape": "circle", '
+        '"position": [0.0, 5.0], "radius": 0.5, "mass": 1.0}},\n'
+        '  {"tool": "add_ramp", "args": {"id": "ramp1", "start": [-4.0, 2.0], '
+        '"end": [3.0, 1.0]}}\n'
+        "]}\n"
+        "Notes: shape is \"box\" (never \"rectangle\"). A box is sized with "
+        "\"width\" and \"height\" in metres (tall height = a building/wall); a "
+        "circle uses \"radius\". Positions are [x, y] arrays in metres, and a "
+        "body of height h rests ON the ground when its y = h/2. Use "
+        "\"static\": true for fixed structures like buildings, walls, and "
+        "platforms; leave it off for things that should move."
     )
     parts.append(
         "Respond with a SINGLE JSON object and nothing else, of the form:\n"

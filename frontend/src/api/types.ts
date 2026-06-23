@@ -175,6 +175,18 @@ export interface ValidationResult {
   estimated_runtime_min?: [number, number] | null
 }
 
+export interface WorkspaceConfigResponse {
+  config: LaunchConfig
+  path: string
+  mtime_ns?: number | null
+}
+
+export interface WorkspaceConfigStatus {
+  path: string
+  exists: boolean
+  mtime_ns?: number | null
+}
+
 // ─── Episode trace (mirrors backend/agentarium/core/schemas/trace.py) ──────────
 
 export interface StaticProp {
@@ -182,6 +194,7 @@ export interface StaticProp {
   kind: string // "ground" | "goal" | "prop" | body shape
   position: number[]
   size?: number[]
+  angle?: number // orientation in radians (sloped ramps/beams)
   color?: string | null
 }
 
@@ -189,6 +202,12 @@ export interface FrameBody {
   x: number
   y: number
   angle: number
+}
+
+export interface BodyMeta {
+  shape: string // box | circle | segment | polygon
+  size?: number[]
+  color?: string | null
 }
 
 export interface Frame {
@@ -203,8 +222,10 @@ export interface EpisodeTrace {
   attempt_id: string
   engine: string
   camera: string
+  terrain?: string
   dt: number
   world_static: StaticProp[]
+  body_meta?: Record<string, BodyMeta>
   frames: Frame[]
 }
 

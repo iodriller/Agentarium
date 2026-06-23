@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ApiError, api } from '../api/client'
-import type { LaunchConfig, LaunchResponse, ValidationResult } from '../api/types'
+import type {
+  LaunchConfig,
+  LaunchResponse,
+  ValidationResult,
+  WorkspaceConfigResponse,
+  WorkspaceConfigStatus,
+} from '../api/types'
 import { AgentLLMColumn } from '../components/setup/AgentLLMColumn'
 import { ScenarioWorldColumn } from '../components/setup/ScenarioWorldColumn'
 import { ToolsLaunchColumn } from '../components/setup/ToolsLaunchColumn'
@@ -20,9 +26,10 @@ const DEFAULT_CONFIG: Partial<LaunchConfig> = {
         name: 'Agent A',
         role: 'builder',
         behavior_mode: 'engineer',
-        provider: 'mock',
-        model: 'mock',
-        temperature: 0.7,
+        provider: 'localdeploy',
+        model: 'qwen3_8b_ollama',
+        endpoint_url: 'http://127.0.0.1:8000/v1',
+        temperature: 0.2,
         max_attempts: 50,
         context_window: '8k',
         memory_mode: 'none',
@@ -30,7 +37,7 @@ const DEFAULT_CONFIG: Partial<LaunchConfig> = {
       },
     ],
   },
-  llm_connection: { endpoint_url: 'http://localhost:1234/v1' },
+  llm_connection: { endpoint_url: 'http://127.0.0.1:8000/v1' },
   tools: { enabled: [] },
   constraints: {
     max_parts: 300,
@@ -52,6 +59,9 @@ const DEFAULT_CONFIG: Partial<LaunchConfig> = {
     video_capture: false,
   },
 }
+
+const WORKSPACE_SYNC_POLL_MS = 1200
+const WORKSPACE_AUTOSAVE_MS = 650
 
 /** Turn a launch failure into a human message, pulling the backend's 422
  *  validation detail (state + missing list) out of an ApiError when present. */
@@ -83,11 +93,29 @@ export function SetupScreen() {
   const [presetMsg, setPresetMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [savingPreset, setSavingPreset] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const workspaceSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const workspaceLoadedRef = useRef(false)
+  const workspaceSavingRef = useRef(false)
+  const lastWorkspaceMtimeRef = useRef<number | null>(null)
+  const lastWorkspaceJsonRef = useRef('')
+  const [workspacePath, setWorkspacePath] = useState('runs/workspace_config.json')
+  const [workspaceSyncMsg, setWorkspaceSyncMsg] = useState('Loading workspace config…')
+  const [workspaceSyncState, setWorkspaceSyncState] = useState<
+    'loading' | 'saved' | 'saving' | 'external' | 'error'
+  >('loading')
 
   // Responsive breakpoints: 3 cols → 2 cols (≤1080px) → 1 col (≤720px).
   const twoCol = useMediaQuery('(max-width: 1080px)')
   const oneCol = useMediaQuery('(max-width: 720px)')
   const stacked = twoCol || oneCol
+  const workspaceSyncColor =
+    workspaceSyncState === 'error'
+      ? 'var(--danger)'
+      : workspaceSyncState === 'saving'
+        ? 'var(--warn)'
+        : workspaceSyncState === 'external'
+          ? 'var(--accent)'
+          : 'var(--ok)'
 
   // Merged config change handler
   const handleConfigChange = useCallback((patch: Partial<LaunchConfig>) => {
@@ -118,6 +146,123 @@ export function SetupScreen() {
         ? { llm_connection: { ...prev.llm_connection, ...patch.llm_connection } }
         : {}),
     }))
+  }, [])
+
+  // Load the workspace JSON once, then keep the UI and file synced both ways.
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadWorkspaceConfig() {
+      try {
+        const result = await api.get<WorkspaceConfigResponse>('/setup/workspace-config')
+        if (cancelled) return
+
+        const signature = JSON.stringify(result.config)
+        lastWorkspaceJsonRef.current = signature
+        lastWorkspaceMtimeRef.current = result.mtime_ns ?? null
+        workspaceLoadedRef.current = true
+        setWorkspacePath(result.path)
+        setWorkspaceSyncState('saved')
+        setWorkspaceSyncMsg('Workspace config synced')
+        setConfig(result.config)
+      } catch (err) {
+        if (cancelled) return
+        workspaceLoadedRef.current = true
+        setWorkspaceSyncState('error')
+        setWorkspaceSyncMsg(
+          err instanceof Error
+            ? `Workspace config could not load: ${err.message}`
+            : 'Workspace config could not load',
+        )
+      }
+    }
+
+    loadWorkspaceConfig()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!workspaceLoadedRef.current) return
+
+    const signature = JSON.stringify(config)
+    if (signature === lastWorkspaceJsonRef.current) return
+
+    if (workspaceSaveRef.current) clearTimeout(workspaceSaveRef.current)
+    setWorkspaceSyncState('saving')
+    setWorkspaceSyncMsg('Saving workspace config…')
+
+    workspaceSaveRef.current = setTimeout(async () => {
+      workspaceSaveRef.current = null
+      workspaceSavingRef.current = true
+      try {
+        const result = await api.post<WorkspaceConfigResponse>('/setup/workspace-config', {
+          config,
+        })
+        const savedSignature = JSON.stringify(result.config)
+        lastWorkspaceJsonRef.current = savedSignature
+        lastWorkspaceMtimeRef.current = result.mtime_ns ?? null
+        setWorkspacePath(result.path)
+        setWorkspaceSyncState('saved')
+        setWorkspaceSyncMsg('Workspace config saved')
+        if (savedSignature !== signature) {
+          setConfig(result.config)
+        }
+      } catch (err) {
+        setWorkspaceSyncState('error')
+        setWorkspaceSyncMsg(
+          err instanceof Error
+            ? `Workspace config save failed: ${err.message}`
+            : 'Workspace config save failed',
+        )
+      } finally {
+        workspaceSavingRef.current = false
+      }
+    }, WORKSPACE_AUTOSAVE_MS)
+
+    return () => {
+      if (workspaceSaveRef.current) clearTimeout(workspaceSaveRef.current)
+    }
+  }, [config])
+
+  useEffect(() => {
+    const interval = window.setInterval(async () => {
+      if (
+        !workspaceLoadedRef.current ||
+        workspaceSavingRef.current ||
+        workspaceSaveRef.current
+      ) {
+        return
+      }
+
+      try {
+        const status = await api.get<WorkspaceConfigStatus>('/setup/workspace-config/status')
+        setWorkspacePath(status.path)
+        const remoteMtime = status.mtime_ns ?? null
+        if (remoteMtime === null || remoteMtime === lastWorkspaceMtimeRef.current) {
+          return
+        }
+
+        const result = await api.get<WorkspaceConfigResponse>('/setup/workspace-config')
+        const signature = JSON.stringify(result.config)
+        lastWorkspaceJsonRef.current = signature
+        lastWorkspaceMtimeRef.current = result.mtime_ns ?? null
+        setWorkspacePath(result.path)
+        setWorkspaceSyncState('external')
+        setWorkspaceSyncMsg('Reloaded saved workspace config')
+        setConfig(result.config)
+      } catch (err) {
+        setWorkspaceSyncState('error')
+        setWorkspaceSyncMsg(
+          err instanceof Error
+            ? `Workspace config sync paused: ${err.message}`
+            : 'Workspace config sync paused',
+        )
+      }
+    }, WORKSPACE_SYNC_POLL_MS)
+
+    return () => window.clearInterval(interval)
   }, [])
 
   // Debounced validation
@@ -205,6 +350,26 @@ export function SetupScreen() {
         <p style={{ fontSize: 12, color: 'var(--text-2)' }}>
           Configure your world, agents, tools, and constraints before launch.
         </p>
+        <div
+          title="Edit and save this JSON file to update the UI. UI edits autosave back to the same file."
+          style={{
+            marginTop: 8,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '3px 7px',
+            borderRadius: 5,
+            border: '1px solid var(--border)',
+            background: 'var(--surface-2)',
+            color: 'var(--text-2)',
+            fontSize: 11,
+          }}
+        >
+          <span style={{ color: workspaceSyncColor }}>●</span>
+          <span>{workspaceSyncMsg}</span>
+          <span style={{ color: 'var(--text-2)' }}>·</span>
+          <code style={{ color: 'var(--text-1)', fontSize: 11 }}>{workspacePath}</code>
+        </div>
         {launchError && (
           <div
             role="alert"
