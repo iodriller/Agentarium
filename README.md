@@ -119,11 +119,16 @@ data-flow diagram, and invariants — and
 uv run ruff check .     # lint
 uv run pytest           # backend tests
 cd frontend && npm run build   # type-check + build the UI
+
+# Browser UI diagnosis — drives the Studio and Setup screens in headless Chromium
+uv run python -m playwright install chromium   # one-time browser download
 ```
 
 CI runs lint + tests + the frontend build on every push and PR. Backend changes
 must keep all three gates green and ship with tests (use the `mock` provider so
-tests need no network). Conventions and architecture invariants live in
+tests need no network). Playwright lets you smoke-test the isometric renderer,
+tool-call log, and scorecard against a live local server — UI tests skip cleanly
+if its browser isn't installed. Conventions and architecture invariants live in
 [`CLAUDE.md`](CLAUDE.md).
 
 ## Documentation
