@@ -71,5 +71,6 @@ def test_challenge_scaffold_and_world_geometry_are_seeded_and_simulate():
     # A dynamic scaffold body means the attempt produced a replayable trace.
     assert result.trace_run_id is not None
     # Seeded world parts must not count as agent effort — only the mock's own
-    # create_body (b1) counts, not the 4 seeded crate/marker/cliff bodies.
-    assert result.score.metrics["parts_used"] == 1.0
+    # create_body bodies count, not the seeded crate/marker/cliff bodies.
+    mock_bodies = sum(1 for b in result.design.bodies if b.created_by != "world")
+    assert result.score.metrics["parts_used"] == float(mock_bodies)

@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import type { BodyMeta, EpisodeTrace, StaticProp } from '../api/types'
+import { colorForBody as kindColor, drawProp, isSemanticKind, sizePx } from './props'
 
 // The simulation is a 2D side-view physics world (gravity pulls -y, things stack
 // and fall). We render it as a straight side view — x to the right, y up — so a
@@ -248,6 +249,20 @@ export class TraceRenderer extends Phaser.Scene {
     const [px, py] = prop.position
     const color = parseHexColor(prop.color, NEUTRAL)
     const ang = prop.angle ?? 0
+
+    // Semantic kind (house/wall/bin/…) → a recognizable procedural prop.
+    if (isSemanticKind(prop.kind)) {
+      const meta = { shape: 'box', size: prop.size, color: prop.color, kind: prop.kind } as BodyMeta
+      const { w, h } = sizePx(meta, SCALE)
+      const { sx, sy } = TraceRenderer.px(px, py)
+      g.save()
+      g.translateCanvas(sx, sy)
+      g.rotateCanvas(-ang)
+      drawProp(g, prop.kind, w, h, kindColor(prop.id, meta))
+      g.restore()
+      return
+    }
+
     g.fillStyle(color, 1)
     g.lineStyle(1.5, OUTLINE, 0.6)
 
@@ -303,6 +318,16 @@ export class TraceRenderer extends Phaser.Scene {
   private createBody(id: string): void {
     const meta: BodyMeta | undefined = this.trace?.body_meta?.[id]
     const g = this.add.graphics()
+
+    // Semantic kind (house/tower/tree/…) → a recognizable procedural prop.
+    if (isSemanticKind(meta?.kind)) {
+      const { w, h } = sizePx(meta, SCALE)
+      drawProp(g, meta?.kind, w, h, kindColor(id, meta))
+      this.bodyLayer.add(g)
+      this.bodies.set(id, g)
+      return
+    }
+
     const fill = parseHexColor(meta?.color, colorForBody(id))
     g.fillStyle(fill, 1)
     g.lineStyle(2, 0xffffff, 0.4)

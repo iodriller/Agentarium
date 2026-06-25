@@ -52,6 +52,13 @@ _TOOLS: list[ToolDefinition] = [
                     "maxItems": 2,
                     "description": "Centre [x, y] position; a body sits on the ground when y = height/2",
                 },
+                "kind": {
+                    "type": "string",
+                    "description": (
+                        "Semantic label so it renders as a recognizable prop: "
+                        "house/tower/road/tree/wall/crate/water/etc."
+                    ),
+                },
             },
         },
     ),
@@ -122,6 +129,7 @@ _TOOLS: list[ToolDefinition] = [
                     "description": "End [x, y] coordinate",
                 },
                 "width": {"type": "number", "description": "Thickness of the beam"},
+                "kind": {"type": "string", "description": "Semantic label (default 'beam')"},
             },
         },
     ),
@@ -154,6 +162,7 @@ _TOOLS: list[ToolDefinition] = [
                     "type": "number",
                     "description": "Override angle in degrees (optional)",
                 },
+                "kind": {"type": "string", "description": "Semantic label (default 'ramp')"},
             },
         },
     ),
@@ -189,6 +198,7 @@ _TOOLS: list[ToolDefinition] = [
                     "type": "string",
                     "description": "Ball class/color (e.g. 'red') for sorting challenges",
                 },
+                "kind": {"type": "string", "description": "Semantic label (default 'ball')"},
             },
         },
     ),
@@ -216,6 +226,7 @@ _TOOLS: list[ToolDefinition] = [
                     "type": "string",
                     "description": "Ball class/color this bin accepts (sorting challenges)",
                 },
+                "kind": {"type": "string", "description": "Semantic label (default 'bin')"},
             },
         },
     ),

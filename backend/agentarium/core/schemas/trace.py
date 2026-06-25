@@ -22,6 +22,8 @@ class BodyMeta(BaseModel):
     shape: str  # box | circle | segment | polygon
     size: list[float] = []
     color: str | None = None
+    # Semantic label so the renderer draws a recognizable prop (house/tree/…).
+    kind: str | None = None
 
 
 class FrameBody(BaseModel):

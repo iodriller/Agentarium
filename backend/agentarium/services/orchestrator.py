@@ -21,21 +21,18 @@ from agentarium.core.schemas.setup import (
 # time. Tests set this to 0.0 to keep runs fast.
 STREAM_DELAY = 0.02
 
-# Hard cap on attempts per run for MVP responsiveness. ``run_single_attempt``
-# runs the full attempt synchronously before its tool calls can be streamed, so
-# more than a few attempts would make a launch feel unresponsive. The frontend's
-# "live" feel comes from streaming the buffered tool calls + replaying the trace.
-MAX_ATTEMPTS_CAP = 3
+# Ceiling on attempts per run. The user's ``constraints.max_attempts`` is honored
+# up to this ceiling (effective = min(requested, ceiling)), so designs can iterate
+# toward a richer result while a runaway request stays bounded.
+MAX_ATTEMPTS_CAP = 8
 
-# In competitive mode each participant runs at most this many attempts, capped
-# small for MVP responsiveness (runs are sequential — agent A fully, then agent
-# B — so total work is COMPETITIVE_ATTEMPTS_CAP * len(participants)).
-COMPETITIVE_ATTEMPTS_CAP = 2
+# Competitive: per-participant ceiling (runs are sequential — agent A fully, then
+# agent B — so total work scales with participants).
+COMPETITIVE_ATTEMPTS_CAP = 4
 
-# In cooperative mode every attempt runs ALL participants against ONE shared
-# design before a single simulation/score. That makes each attempt expensive,
-# so cap the number of shared attempts small for MVP responsiveness.
-COOPERATIVE_ATTEMPTS_CAP = 2
+# Cooperative: every attempt runs ALL participants against ONE shared design
+# before a single simulation/score, so each attempt is expensive.
+COOPERATIVE_ATTEMPTS_CAP = 4
 
 # Bound how many runs (with their buffered event history) we retain in memory.
 # Only finished runs are evicted, oldest first, so an in-flight run is never
@@ -56,13 +53,22 @@ def _design_summary(design: DesignSpec) -> dict:
     bodies = len(agent_bodies)
     joints = len(agent_joints)
     motors = sum(1 for j in agent_joints if j.motor_rate is not None)
+
+    # Per-kind breakdown so the UI shows what was built (houses/towers/trees/…).
+    by_kind: dict[str, int] = {}
+    for b in agent_bodies:
+        key = b.kind or b.shape.value
+        by_kind[key] = by_kind.get(key, 0) + 1
+
     return {
         "bodies": bodies,
         "joints": joints,
         "motors": motors,
         "sensors": 0,
-        "beams": 0,
-        "ramps": 0,
+        # Derived from the kind labels rather than hardcoded zeros.
+        "beams": by_kind.get("beam", 0),
+        "ramps": by_kind.get("ramp", 0),
+        "by_kind": by_kind,
         "total_parts": bodies + joints,
     }
 

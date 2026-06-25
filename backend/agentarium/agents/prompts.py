@@ -18,6 +18,45 @@ def _tool_line(tool: ToolDefinition) -> str:
     return f"- {tool.name}: {tool.description} required args: {req}{enum_str}"
 
 
+# Tools whose bodies accept a semantic ``kind`` label.
+_KINDABLE_TOOLS = frozenset({"create_body", "add_beam", "add_ramp", "add_ball", "add_bin"})
+
+
+def _kind_guidance(objective: str) -> str:
+    """Tell the agent to label what it builds so it renders as a real prop.
+
+    Includes concrete proportions (the renderer draws a recognizable house/tower/
+    tree/road, not a generic block) plus a per-challenge palette hint.
+    """
+    lower = objective.lower()
+    if "city" in lower:
+        palette = (
+            "For a city, vary the parts: 'house' (box ~2-4 wide x 2-3 tall), "
+            "'tower' (box ~2 wide x 5-8 tall), 'tree' (small box/circle ~1 wide), "
+            "'road' (long thin box, height ~0.3), 'plaza' (wide flat box). "
+            "Aim for a readable layout: rows of buildings along roads, with gaps."
+        )
+    elif "bridge" in lower or "crate" in lower:
+        palette = (
+            "Label structural parts 'deck' (the walkway), 'pillar'/'support' "
+            "(vertical), and the cargo 'crate'."
+        )
+    elif "creature" in lower or "crawl" in lower:
+        palette = "Label parts 'body', 'leg', and 'foot' so the creature reads clearly."
+    elif "sort" in lower or "bin" in lower:
+        palette = "Label catchers 'bin' and the items 'ball' (give each a color)."
+    else:
+        palette = (
+            "Use kinds like 'wall', 'platform', 'block', 'crate', 'ball' to make "
+            "the design readable."
+        )
+    return (
+        "Make the result LOOK like what it is: pass a `kind` label on every body "
+        "you create (the renderer draws a recognizable prop per kind, scaled to "
+        "the body's real size). " + palette
+    )
+
+
 def build_system_prompt(
     challenge_objective: str,
     world_summary: str,
@@ -37,6 +76,8 @@ def build_system_prompt(
     parts.append(
         "You may ONLY use the following tools:\n" + tool_lines
     )
+    if any(t.name in _KINDABLE_TOOLS for t in enabled_tools):
+        parts.append(_kind_guidance(challenge_objective))
     parts.append(
         "Rules:\n"
         "- Build in world units (METERS), not pixels — coordinates are small "

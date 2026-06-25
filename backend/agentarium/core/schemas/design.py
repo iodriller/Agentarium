@@ -28,6 +28,9 @@ class BodySpec(BaseModel):
     friction: float = 0.6
     elasticity: float = 0.1
     color: str | None = None
+    # Semantic label (house/tower/tree/road/wall/crate/ball/bin/water/…) so the
+    # renderer can draw a recognizable prop instead of a generic shape.
+    kind: str | None = None
     created_by: str | None = None  # agent id
 
 

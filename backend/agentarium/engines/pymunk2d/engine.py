@@ -53,6 +53,7 @@ class Pymunk2DEngine(EngineAdapter):
                     else str(spec.shape),
                     size=list(spec.size),
                     color=spec.color,
+                    kind=spec.kind,
                 )
                 for spec in design.bodies
                 if not spec.static
@@ -99,12 +100,17 @@ class Pymunk2DEngine(EngineAdapter):
         )
         for spec in design.bodies:
             if spec.static:
+                shape_name = (
+                    spec.shape.value
+                    if isinstance(spec.shape, BodyShape)
+                    else str(spec.shape)
+                )
                 props.append(
                     StaticProp(
                         id=spec.id,
-                        kind=spec.shape.value
-                        if isinstance(spec.shape, BodyShape)
-                        else str(spec.shape),
+                        # Prefer the semantic label so static structures render as
+                        # themselves (wall/bin/house) rather than a raw shape.
+                        kind=spec.kind or shape_name,
                         position=list(spec.position),
                         size=list(spec.size),
                         angle=spec.angle,

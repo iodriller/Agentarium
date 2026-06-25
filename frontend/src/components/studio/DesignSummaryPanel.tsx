@@ -14,7 +14,9 @@ interface DesignSummaryPanelProps {
 
 const AGENT_COLORS = ['var(--agent-a)', 'var(--agent-b)']
 
-const ROWS: { key: keyof DesignSummary; label: string }[] = [
+type NumKey = 'bodies' | 'joints' | 'motors' | 'sensors' | 'beams' | 'ramps' | 'total_parts'
+
+const ROWS: { key: NumKey; label: string }[] = [
   { key: 'bodies', label: 'Bodies' },
   { key: 'joints', label: 'Joints' },
   { key: 'motors', label: 'Motors' },
@@ -73,6 +75,35 @@ export function DesignSummaryPanel({
             </span>
           </div>
         ))}
+        {summary?.by_kind && Object.keys(summary.by_kind).length > 0 && (
+          <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid var(--border)' }}>
+            <div
+              style={{
+                fontSize: 9,
+                fontWeight: 700,
+                color: 'var(--text-2)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px',
+                marginBottom: 4,
+              }}
+            >
+              Composition
+            </div>
+            {Object.entries(summary.by_kind)
+              .sort((a, b) => b[1] - a[1])
+              .map(([kind, count]) => (
+                <div
+                  key={kind}
+                  style={{ display: 'flex', justifyContent: 'space-between', padding: '1px 0' }}
+                >
+                  <span style={{ fontSize: 11, color: 'var(--text-2)', textTransform: 'capitalize' }}>
+                    {kind}
+                  </span>
+                  <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-1)' }}>{count}</span>
+                </div>
+              ))}
+          </div>
+        )}
         {ownership.length > 0 && (
           <div
             style={{
