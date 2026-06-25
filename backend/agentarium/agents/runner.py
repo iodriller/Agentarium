@@ -126,10 +126,10 @@ def _world_context(config: LaunchConfig, preset: ScenarioPreset | None, design: 
         )
     return "\n".join(lines)
 
-# Upper bound on simulated time per attempt, regardless of the user-set
-# ``simulation_duration_seconds``. Keeps runs (and the studio replay) bounded
-# while honoring durations up to this cap; the engine also caps total steps.
-_MAX_SIM_DURATION_SECONDS = 30
+# Ceiling on simulated time per attempt. The user's
+# ``simulation_duration_seconds`` is honored up to this cap; the engine also caps
+# total steps, so longer designs can settle while runs stay bounded.
+_MAX_SIM_DURATION_SECONDS = 60
 
 
 def _simulate_design(design: DesignSpec, world, duration: float) -> str | None:

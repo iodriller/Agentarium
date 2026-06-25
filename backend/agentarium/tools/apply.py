@@ -157,6 +157,7 @@ def _mutate(design: DesignSpec, agent_id: str, tool: str, args: dict) -> bool:
                 mass=float(args.get("mass", 1.0)),
                 material=args.get("material", "metal"),
                 friction=float(args.get("friction", 0.6)),
+                kind=args.get("kind"),
                 created_by=agent_id,
             )
         )
@@ -219,6 +220,7 @@ def _mutate(design: DesignSpec, agent_id: str, tool: str, args: dict) -> bool:
                 size=[length or 1.0],
                 angle=angle,
                 static=True,
+                kind=args.get("kind") or "beam",
                 created_by=agent_id,
             )
         )
@@ -246,6 +248,7 @@ def _mutate(design: DesignSpec, agent_id: str, tool: str, args: dict) -> bool:
                 size=[length or 1.0],
                 angle=angle,
                 static=True,
+                kind=args.get("kind") or "ramp",
                 created_by=agent_id,
             )
         )
@@ -263,6 +266,7 @@ def _mutate(design: DesignSpec, agent_id: str, tool: str, args: dict) -> bool:
                 size=[float(args.get("radius", 0.5))],
                 mass=float(args.get("mass", 1.0)),
                 color=args.get("color"),
+                kind=args.get("kind") or "ball",
                 created_by=agent_id,
             )
         )
@@ -282,6 +286,7 @@ def _mutate(design: DesignSpec, agent_id: str, tool: str, args: dict) -> bool:
                 position=pos,
                 size=[width, height],
                 static=True,
+                kind=args.get("kind") or "bin",
                 created_by=agent_id,
             )
         )

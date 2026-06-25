@@ -168,11 +168,14 @@ def test_run_started_reports_effective_caps():
         run_id = await _run_to_completion(manager, cfg)
         started = manager.get_events(run_id)[0]
         assert started["type"] == "run_started"
-        # Effective single-agent cap is 3; sim cap is 30s; requests echoed back.
-        assert started["max_attempts"] == 3
+        # Effective single-agent cap is the ceiling; sim cap too; requests echoed.
+        from agentarium.agents.runner import _MAX_SIM_DURATION_SECONDS
+        from agentarium.services.orchestrator import MAX_ATTEMPTS_CAP
+
+        assert started["max_attempts"] == MAX_ATTEMPTS_CAP
         assert started["requested_attempts"] == 50
-        assert started["attempts_cap"] == 3
-        assert started["simulation_cap_s"] == 30
+        assert started["attempts_cap"] == MAX_ATTEMPTS_CAP
+        assert started["simulation_cap_s"] == _MAX_SIM_DURATION_SECONDS
         assert started["requested_duration_s"] == 180
 
     asyncio.run(scenario())

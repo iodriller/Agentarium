@@ -208,6 +208,7 @@ export interface BodyMeta {
   shape: string // box | circle | segment | polygon
   size?: number[]
   color?: string | null
+  kind?: string | null // semantic label (house/tower/tree/road/…)
 }
 
 export interface Frame {
@@ -281,6 +282,8 @@ export interface DesignSummary {
   beams: number
   ramps: number
   total_parts: number
+  // Per-kind breakdown (house/tower/tree/road/…) of what was built.
+  by_kind?: Record<string, number>
 }
 
 // ─── Live run events (mirrors backend orchestrator event protocol) ─────────────
