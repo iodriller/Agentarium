@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import Phaser from 'phaser'
 import type { EpisodeTrace } from '../../api/types'
 import { TraceRenderer } from '../../phaser/TraceRenderer'
@@ -9,7 +9,33 @@ interface WorldViewProps {
   frameIndex: number
 }
 
-export function WorldView({ trace, frameIndex }: WorldViewProps) {
+export interface WorldViewHandle {
+  captureScreenshot: () => void
+  recordWebm: (durationMs: number) => Promise<void>
+}
+
+function downloadHref(href: string, filename: string): void {
+  const a = document.createElement('a')
+  a.href = href
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+}
+
+function webmMimeType(): string | undefined {
+  if (typeof MediaRecorder === 'undefined') return undefined
+  return [
+    'video/webm;codecs=vp9',
+    'video/webm;codecs=vp8',
+    'video/webm',
+  ].find((type) => MediaRecorder.isTypeSupported(type))
+}
+
+export const WorldView = forwardRef<WorldViewHandle, WorldViewProps>(function WorldView(
+  { trace, frameIndex },
+  ref,
+) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const gameRef = useRef<Phaser.Game | null>(null)
   const sceneRef = useRef<TraceRenderer | null>(null)
@@ -82,14 +108,63 @@ export function WorldView({ trace, frameIndex }: WorldViewProps) {
     if (!game) return
     game.renderer.snapshot((image) => {
       if (!(image instanceof HTMLImageElement)) return
-      const a = document.createElement('a')
-      a.href = image.src
-      a.download = `agentarium-frame-${trace?.run_id ?? 'view'}-${frameIndex}.png`
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
+      downloadHref(
+        image.src,
+        `agentarium-frame-${trace?.run_id ?? 'view'}-${frameIndex}.png`,
+      )
     })
   }
+
+  const recordWebm = (durationMs: number) => {
+    const game = gameRef.current
+    const canvas = game?.canvas as HTMLCanvasElement | undefined
+    if (!canvas || typeof canvas.captureStream !== 'function') {
+      return Promise.reject(new Error('Canvas video capture is not supported in this browser.'))
+    }
+    if (typeof MediaRecorder === 'undefined') {
+      return Promise.reject(new Error('MediaRecorder is not supported in this browser.'))
+    }
+
+    const mimeType = webmMimeType()
+    const stream = canvas.captureStream(30)
+    const chunks: Blob[] = []
+    const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
+
+    return new Promise<void>((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        if (recorder.state !== 'inactive') recorder.stop()
+      }, Math.max(1000, durationMs))
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunks.push(event.data)
+      }
+      recorder.onerror = () => {
+        window.clearTimeout(timeout)
+        stream.getTracks().forEach((track) => track.stop())
+        reject(new Error('Video recording failed.'))
+      }
+      recorder.onstop = () => {
+        window.clearTimeout(timeout)
+        stream.getTracks().forEach((track) => track.stop())
+        if (chunks.length === 0) {
+          reject(new Error('Video recording produced no frames.'))
+          return
+        }
+        const blob = new Blob(chunks, { type: mimeType ?? 'video/webm' })
+        const url = URL.createObjectURL(blob)
+        downloadHref(url, `agentarium-replay-${trace?.run_id ?? 'view'}.webm`)
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+        resolve()
+      }
+
+      recorder.start(250)
+    })
+  }
+
+  useImperativeHandle(ref, () => ({
+    captureScreenshot: handleScreenshot,
+    recordWebm,
+  }))
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -120,7 +195,7 @@ export function WorldView({ trace, frameIndex }: WorldViewProps) {
       </div>
     </div>
   )
-}
+})
 
 function CamButton({
   label,

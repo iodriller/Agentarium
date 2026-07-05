@@ -233,3 +233,73 @@ regenerating the Setup screen's preset preview images.
 
 Verified visually again: screenshotted the full Setup screen with the new thumbnails in
 place at real size (76×64, `object-fit: cover`) — all five read clearly at that scale.
+
+## 9. Export, visual CI, docs, and bundle split (2026-07-05)
+
+Closed out the non-visual-realism parts of the follow-up plan:
+
+| Area | Fix |
+|------|-----|
+| **Studio video export** | `ReplayTimeline` now has an `Export WebM` action. It records the live Phaser canvas with browser-native `MediaRecorder`, downloads a `.webm`, and avoids a server encoder or new npm dependency. |
+| **Visual test artifacts** | Added opt-in Playwright screenshot checks for Setup, all five challenge preview thumbnails, and a Studio replay. CI runs them in a dedicated job and uploads `visual-artifacts/` screenshots. |
+| **Provider tests** | Added an explicit 429/rate-limit retry contract test and opt-in live OpenAI smoke tests behind `AGENTARIUM_LIVE_OPENAI_TESTS=1`; completion smoke is additionally gated by `AGENTARIUM_LIVE_OPENAI_MODEL`. |
+| **Docs structure** | Moved original planning/build docs under `docs/archive/`; top-level docs are now the living set: `ARCHITECTURE.md`, `remaining_gaps.md`, `IMPROVEMENTS.md`, and examples. |
+| **Bundle split** | Lazy-loaded `/studio/:runId`, so the Phaser-heavy Studio route is no longer part of the initial Setup bundle. |
+
+Still deferred by product choice: visual-realism/content upgrades to challenge
+assets and primitives, plus GIF/MP4 export beyond browser-native WebM.
+
+## 10. Updated visual realism plan (2026-07-05)
+
+This updates the attached "setup -> validated tools -> physical attempt -> trace
+-> score" plan against the current repo. The core gap is still real, but narrower:
+Tiny City now has semantic `kind` drawing, challenge/world YAML dressing, real
+Setup thumbnails, WebM export, visual screenshots in CI, and lazy Studio loading.
+The remaining weakness is consistency across every challenge and making interim
+build states first-class.
+
+### Fixed now
+
+| Area | Fix |
+|------|-----|
+| Mock challenge demos | `MockProvider` now emits challenge-specific builds: Bridge uses beams, Crawl uses legs/joints/motors, Sorter uses bins/ramps, City uses roads/buildings/trees. The generic fallback remains one visible crate using only `create_body` + `run_simulation`. |
+| Mock routing bug | Challenge selection now comes from the per-attempt user prompt, not the full system prompt. That avoids false positives from generic examples in the prompt. |
+| Tests | Runner tests now assert the mock actually exercises the relevant tools and semantic body kinds for Bridge, Crawl, Sorter, and City. |
+
+### Strong plan from here
+
+1. **DesignSnapshot as the missing product primitive.** Add a tiny serializable
+   `DesignSnapshot` record per attempt: attempt id, score, tool-call statuses,
+   body/joint counts, added/removed/moved ids, optional screenshot path, and
+   trace id. Start as derived metadata in the run store, not a new engine feature.
+2. **Build timeline, not only replay timeline.** Studio should show snapshots as
+   a sequence: prompt submitted -> tools accepted/rejected -> design changed ->
+   simulation ready -> score. Reuse the existing attempt diff and screenshot
+   capture; no new renderer required.
+3. **Golden challenge traces.** For each preset, keep one deterministic mock run
+   fixture and assert meaningful features: Bridge has spanning beams, Crawl has
+   motorized joints, Sorter has matching bin metadata, City has roads/parks/trees.
+   CI should upload the associated screenshots/video artifact on failure.
+4. **Renderer polish by semantic kind.** Extend the existing `kind` renderer for
+   the non-city challenge parts before adding any new engine: deck/support/beam,
+   leg/foot/body, bin/ball/chute, goal/finish marker. This is the cheapest path
+   to "looks like the task" without promising 3D.
+5. **World dressing stays YAML-first.** Add small `static_bodies` context to
+   non-city worlds only where it clarifies the task: bridge cliffs/goal marker,
+   crawler start/finish hints, sorter table/bin zones. Keep `created_by="world"`
+   so scoring remains honest.
+6. **More realistic tests, minimal code.** Keep Playwright opt-in visual tests,
+   but make them compare structured scene facts plus screenshot artifacts rather
+   than brittle pixel diffs. Use the existing `visual-artifacts/` path and
+   browser-native WebM export.
+7. **Real LLM confidence.** Keep live OpenAI smoke tests opt-in. Add one local
+   mock-HTTP completion test for malformed JSON, empty choices, timeout, and
+   retry behavior so CI covers provider behavior without a real key.
+8. **Docs/scripts cleanup stays conservative.** Keep one launch path per OS
+   (`run.ps1`, `run.sh`, `Makefile serve`) and one living roadmap. Archive old
+   planning docs; do not let duplicate "truth" files accumulate again.
+
+This is intentionally smaller than a 3D rewrite: it uses the existing schemas,
+runner events, attempt diffs, `kind` labels, Playwright screenshots, and browser
+recording path. The larger PyBullet/Three.js work remains a separate product
+decision.

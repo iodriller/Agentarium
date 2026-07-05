@@ -4,7 +4,11 @@ LocalDeploy (a subclass that needs no key) must not pick it up."""
 from __future__ import annotations
 
 from agentarium.agents.localdeploy import LocalDeployProvider
-from agentarium.agents.openai_compatible import OpenAICompatibleProvider, openai_env_key
+from agentarium.agents.openai_compatible import (
+    OpenAICompatibleProvider,
+    mask_secret,
+    openai_env_key,
+)
 
 
 def test_openai_env_key_reads_environment(monkeypatch):
@@ -20,6 +24,16 @@ def test_openai_provider_falls_back_to_env(monkeypatch):
     # An explicit key always wins; otherwise the env key is used.
     assert provider._resolve_api_key("sk-explicit") == "sk-explicit"
     assert provider._resolve_api_key(None) == "sk-env-key"
+
+
+def test_mask_secret_never_returns_full_key():
+    key = "sk-test-1234567890"
+    masked = mask_secret(key)
+    assert masked is not None
+    assert masked != key
+    assert masked.startswith("sk-")
+    assert masked.endswith("7890")
+    assert "test-123456" not in masked
 
 
 def test_localdeploy_ignores_openai_env_key(monkeypatch):

@@ -19,6 +19,8 @@ class ProviderMeta(BaseModel):
     requires_endpoint: bool
     requires_api_key: bool
     description: str
+    env_api_key_available: bool = False
+    env_api_key_preview: str | None = None
 
 
 class TestConnectionRequest(BaseModel):

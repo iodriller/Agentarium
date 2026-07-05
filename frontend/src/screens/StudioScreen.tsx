@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { TopBar } from '../components/shared/TopBar'
-import { WorldView } from '../components/studio/WorldView'
+import { WorldView, type WorldViewHandle } from '../components/studio/WorldView'
 import { PlaybackToolbar } from '../components/studio/PlaybackToolbar'
 import { ReplayTimeline } from '../components/studio/ReplayTimeline'
 import { ChallengeBriefing } from '../components/studio/ChallengeBriefing'
@@ -36,6 +36,8 @@ export function StudioScreen() {
   const [speed, setSpeed] = useState(1)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [errorDetail, setErrorDetail] = useState<string | null>(null)
+  const [videoExporting, setVideoExporting] = useState(false)
+  const [videoMessage, setVideoMessage] = useState<string | null>(null)
 
   // ── Live run state (fed by the WebSocket) ──────────────────────────────────
   const [runStatus, setRunStatus] = useState<
@@ -134,6 +136,7 @@ export function StudioScreen() {
   // Open exactly once per runId; tolerate StrictMode double-mount + close.
   const wsRef = useRef<WebSocket | null>(null)
   const viewportRef = useRef<HTMLDivElement | null>(null)
+  const worldViewRef = useRef<WorldViewHandle | null>(null)
 
   useEffect(() => {
     if (!runId) return
@@ -397,6 +400,29 @@ export function StudioScreen() {
     else void el.requestFullscreen?.()
   }
 
+  const handleExportVideo = async () => {
+    if (!trace || videoExporting) return
+    const worldView = worldViewRef.current
+    if (!worldView) return
+
+    const totalTime = trace.frames.at(-1)?.t ?? trace.frames.length * (trace.dt || 1 / 60)
+    const durationMs = Math.min(Math.max(totalTime * 1000, 1500), 20000)
+
+    setVideoExporting(true)
+    setVideoMessage(`Recording ${(durationMs / 1000).toFixed(1)}s`)
+    setFrameIndex(0)
+    setPlaying(true)
+    try {
+      await worldView.recordWebm(durationMs)
+      setVideoMessage('Downloaded WebM')
+    } catch (err) {
+      setVideoMessage(err instanceof Error ? err.message : 'Video export failed')
+    } finally {
+      setVideoExporting(false)
+      window.setTimeout(() => setVideoMessage(null), 3000)
+    }
+  }
+
   // Keyboard playback: Space toggles play/pause, ←/→ step frames. Ignored while
   // typing in a field so it doesn't hijack form input.
   useEffect(() => {
@@ -574,7 +600,7 @@ export function StudioScreen() {
               overflow: 'hidden',
             }}
           >
-            <WorldView trace={trace} frameIndex={frameIndex} />
+            <WorldView ref={worldViewRef} trace={trace} frameIndex={frameIndex} />
             <ViewportOverlay
               status={status}
               runStatus={runStatus}
@@ -658,6 +684,9 @@ export function StudioScreen() {
             speed={speed}
             frames={trace?.frames}
             attemptLabel={currentAttemptLabel}
+            onExportVideo={handleExportVideo}
+            videoExporting={videoExporting}
+            videoMessage={videoMessage}
           />
         </div>
       </div>

@@ -43,7 +43,7 @@ if [ ! -f backend/agentarium/static/index.html ]; then
     (cd frontend && npm install && npm run build)
   else
     echo "  ✗ No prebuilt UI found and Node/npm isn't installed."
-    echo "    Install Node 18+ from https://nodejs.org and re-run, or restore the"
+    echo "    Install Node 20.19+ or 22.12+ from https://nodejs.org and re-run, or restore the"
     echo "    committed bundle with: git checkout -- backend/agentarium/static"
     exit 1
   fi

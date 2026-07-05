@@ -21,7 +21,7 @@ the gap analysis or post-MVP backlog. Status legend: 🟢 **Fixed** · 🟡 **De
 
 | ID | Area | Issue | Status |
 |----|------|-------|--------|
-| U1 | Studio UI | **Screenshot / Export Video** — screenshot now captures the live viewport as PNG via Phaser `renderer.snapshot`. GIF/MP4 video capture still deferred (needs a frame-encode loop + would add an npm dep). | 🟢 Partly fixed: PNG screenshot live; video deferred |
+| U1 | Studio UI | **Screenshot / Export Video** — screenshot captures the live viewport as PNG via Phaser `renderer.snapshot`; replay video export records the Phaser canvas in-browser as WebM via `MediaRecorder`. GIF/MP4 export still deferred because it needs a heavier encoder/transcode path. | 🟢 Partly fixed: PNG screenshot + WebM video live; GIF/MP4 deferred |
 | U2 | Studio UI | **ReplayTimeline** — hardcoded "Attempt 001" + decorative thumbnails. | 🟢 Fixed: shows the real attempt number, real elapsed/total seconds from the trace, and clickable time ticks that seek the replay. |
 | U3 | `agents` | **Real-LLM end-to-end test** — all current tests use the `mock` provider; no integration test for `openai_compatible` against a live endpoint. | 🟡 Deferred (needs API key or local server in CI) |
 

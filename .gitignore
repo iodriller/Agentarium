@@ -35,5 +35,6 @@ Thumbs.db
 # Test / coverage
 .pytest_cache/
 .ruff_cache/
+visual-artifacts/
 htmlcov/
 .coverage

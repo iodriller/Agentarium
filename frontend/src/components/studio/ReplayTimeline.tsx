@@ -9,6 +9,9 @@ interface ReplayTimelineProps {
   speed: number
   frames?: Frame[]
   attemptLabel?: string
+  onExportVideo?: () => void
+  videoExporting?: boolean
+  videoMessage?: string | null
 }
 
 const TICK_COUNT = 5
@@ -36,6 +39,9 @@ export function ReplayTimeline({
   speed,
   frames,
   attemptLabel,
+  onExportVideo,
+  videoExporting = false,
+  videoMessage,
 }: ReplayTimelineProps) {
   const max = Math.max(0, totalFrames - 1)
   const hasFrames = !!frames && frames.length > 0
@@ -165,6 +171,30 @@ export function ReplayTimeline({
             })}
           </div>
         )}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            onClick={onExportVideo}
+            disabled={!hasFrames || !onExportVideo || videoExporting}
+            title="Export replay video"
+            style={{
+              padding: '6px 9px',
+              borderRadius: 5,
+              border: '1px solid var(--border)',
+              background: 'var(--surface-1)',
+              color: 'var(--text-1)',
+              fontSize: 10,
+              fontWeight: 700,
+              cursor: hasFrames && onExportVideo && !videoExporting ? 'pointer' : 'not-allowed',
+              opacity: hasFrames && onExportVideo && !videoExporting ? 1 : 0.55,
+            }}
+          >
+            {videoExporting ? 'Recording…' : 'Export WebM'}
+          </button>
+          {videoMessage && (
+            <span style={{ fontSize: 10, color: 'var(--text-2)' }}>{videoMessage}</span>
+          )}
+        </div>
       </div>
     </div>
   )
