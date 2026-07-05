@@ -16,18 +16,137 @@ def _body(bid: str, shape: str, pos: list[float], kind: str, **extra: object) ->
     }
 
 
-# A small, deterministic "scene" with semantic kinds so a no-network (mock) run
-# visibly demonstrates the procedural renderer: a little row of houses, a tower,
-# a tree and a crate rather than identical boxes. Uses only create_body +
-# run_simulation, which are broadly enabled across challenges.
+# Generic fallback for ad-hoc/custom scenarios. It uses only create_body +
+# run_simulation, which are broadly enabled, and produces a visible movable body
+# instead of the old invisible/default body-at-origin trap.
 _SAMPLE_TOOL_CALLS = [
-    _body("house_1", "box", [-5.0, 1.5], "house", width=2.6, height=2.6, static=True),
-    _body("house_2", "box", [-2.0, 1.5], "house", width=2.6, height=2.6, static=True),
-    _body("tower_1", "box", [1.0, 3.0], "tower", width=2.0, height=6.0, static=True),
-    _body("tree_1", "circle", [3.5, 1.0], "tree", radius=1.0, static=True),
-    _body("crate_1", "box", [0.0, 7.0], "crate", width=1.0, height=1.0),
+    _body("crate_1", "box", [0.0, 3.0], "crate", width=1.0, height=1.0),
     {"tool": "run_simulation", "args": {}},
 ]
+
+
+_BRIDGE_TOOL_CALLS = [
+    {
+        "tool": "add_beam",
+        "args": {
+            "id": "bridge_left",
+            "start": [-8.5, 2.35],
+            "end": [-4.0, 2.15],
+            "width": 0.22,
+            "kind": "beam",
+        },
+    },
+    {
+        "tool": "add_beam",
+        "args": {
+            "id": "bridge_span",
+            "start": [-4.0, 2.15],
+            "end": [2.4, 2.15],
+            "width": 0.22,
+            "kind": "beam",
+        },
+    },
+    {
+        "tool": "add_beam",
+        "args": {
+            "id": "bridge_right",
+            "start": [2.4, 2.15],
+            "end": [8.3, 2.25],
+            "width": 0.22,
+            "kind": "beam",
+        },
+    },
+    {
+        "tool": "add_beam",
+        "args": {
+            "id": "underbrace_a",
+            "start": [-3.8, 1.15],
+            "end": [-0.5, 2.05],
+            "width": 0.16,
+            "kind": "beam",
+        },
+    },
+    {
+        "tool": "add_beam",
+        "args": {
+            "id": "underbrace_b",
+            "start": [2.2, 1.15],
+            "end": [-0.5, 2.05],
+            "width": 0.16,
+            "kind": "beam",
+        },
+    },
+    {"tool": "run_simulation", "args": {}},
+]
+
+
+_CRAWL_TOOL_CALLS = [
+    _body(
+        "front_leg",
+        "segment",
+        [-4.35, 0.85],
+        "leg",
+        length=1.25,
+        mass=0.35,
+        friction=0.95,
+    ),
+    _body(
+        "rear_leg",
+        "segment",
+        [-5.65, 0.85],
+        "leg",
+        length=1.25,
+        mass=0.35,
+        friction=0.95,
+    ),
+    {
+        "tool": "add_joint",
+        "args": {"id": "front_hip", "body_a": "torso", "body_b": "front_leg", "type": "pivot"},
+    },
+    {
+        "tool": "add_joint",
+        "args": {"id": "rear_hip", "body_a": "torso", "body_b": "rear_leg", "type": "pivot"},
+    },
+    {"tool": "add_motor", "args": {"id": "front_drive", "joint_id": "front_hip", "rate": 4.0}},
+    {"tool": "add_motor", "args": {"id": "rear_drive", "joint_id": "rear_hip", "rate": -4.0}},
+    {"tool": "run_simulation", "args": {}},
+]
+
+
+_SORTER_TOOL_CALLS = [
+    {
+        "tool": "add_bin",
+        "args": {
+            "id": "red_bin",
+            "position": [-3.0, 1.8],
+            "width": 1.8,
+            "height": 4.0,
+            "accepts": "red",
+            "kind": "bin",
+        },
+    },
+    {
+        "tool": "add_bin",
+        "args": {
+            "id": "blue_bin",
+            "position": [-1.0, 1.8],
+            "width": 1.8,
+            "height": 4.0,
+            "accepts": "blue",
+            "kind": "bin",
+        },
+    },
+    {
+        "tool": "add_ramp",
+        "args": {"id": "red_chute", "start": [-3.7, 3.2], "end": [-3.0, 2.3], "kind": "ramp"},
+    },
+    {
+        "tool": "add_ramp",
+        "args": {"id": "blue_chute", "start": [-0.3, 3.2], "end": [-1.0, 2.3], "kind": "ramp"},
+    },
+    {"tool": "run_simulation", "args": {}},
+]
+
 
 # A small but varied city scene (roads, a park, trees, buildings of different
 # heights/kinds) so the no-LLM demo actually looks like a city, not one box.
@@ -73,6 +192,35 @@ _CITY_TOOL_CALLS = [
 ]
 
 
+def _objective_from_user_prompt(user: str) -> str:
+    prompt = user.lower()
+    marker = "achieve:"
+    if marker not in prompt:
+        return prompt
+    objective = prompt.split(marker, 1)[1].strip()
+    objective = objective.split("\n", 1)[0]
+    objective = objective.replace("emit your tool_calls now.", "")
+    return objective.strip().removesuffix(".").strip()
+
+
+def _calls_for_prompt(system: str, user: str) -> list[dict]:
+    # Route from the per-attempt user prompt. The system prompt contains generic
+    # examples/tool guidance, so scanning it first can accidentally trigger the
+    # wrong challenge behavior (e.g. bridge examples on a distance challenge).
+    # Cooperative prompts also list existing body ids, so narrow this to the
+    # objective phrase and ignore "agent_a_crate_1"-style context.
+    prompt = _objective_from_user_prompt(user)
+    if "city" in prompt or "plaza" in prompt or "park" in prompt:
+        return _CITY_TOOL_CALLS
+    if "sorter" in prompt or "sort " in prompt or "matching bin" in prompt:
+        return _SORTER_TOOL_CALLS
+    if "crawl" in prompt or "creature" in prompt or "threshold" in prompt:
+        return _CRAWL_TOOL_CALLS
+    if "bridge" in prompt or "crate" in prompt or "goal platform" in prompt:
+        return _BRIDGE_TOOL_CALLS
+    return _SAMPLE_TOOL_CALLS
+
+
 class MockProvider(AgentProvider):
     name = "mock"
 
@@ -104,8 +252,9 @@ class MockProvider(AgentProvider):
         api_key: str | None,
         temperature: float = 0.7,
     ) -> str:
-        # The objective (embedded in ``system`` by build_system_prompt) names the
-        # challenge; recognize a city objective so the no-LLM demo shows a real
-        # scene instead of one box, without touching mock's behavior elsewhere.
-        calls = _CITY_TOOL_CALLS if "city" in system.lower() else _SAMPLE_TOOL_CALLS
+        # The objective/world context are embedded in the prompts. Emit a
+        # challenge-specific deterministic build so the no-network demo is honest:
+        # bridge -> beams, crawl -> legs/joints/motors, sorter -> bins/ramps,
+        # city -> semantic city props. Custom prompts fall back to one crate.
+        calls = _calls_for_prompt(system, user)
         return json.dumps({"tool_calls": calls})

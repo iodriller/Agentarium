@@ -50,7 +50,7 @@ if (-not (Test-Path backend/agentarium/static/index.html)) {
     Push-Location frontend; npm install; npm run build; Pop-Location
   } else {
     Write-Host "  x No prebuilt UI found and Node/npm isn't installed."
-    Write-Host "    Install Node 18+ from https://nodejs.org and re-run, or restore the"
+    Write-Host "    Install Node 20.19+ or 22.12+ from https://nodejs.org and re-run, or restore the"
     Write-Host "    committed bundle with: git checkout -- backend/agentarium/static"
     exit 1
   }

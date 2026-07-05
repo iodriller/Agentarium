@@ -48,7 +48,7 @@ def _bridge_config() -> LaunchConfig:
                 AgentConfig(id="a", name="Builder", provider=LLMProvider.mock),
             ]
         ),
-        tools=ToolsConfig(enabled=["create_body", "run_simulation"]),
+        tools=ToolsConfig(enabled=["create_body", "add_beam", "add_joint", "run_simulation"]),
     )
 
 
@@ -115,3 +115,58 @@ def test_city_prompt_does_not_require_movable_body():
     assert "MUST include at least one MOVABLE" in default_prompt
     assert "MUST include at least one MOVABLE" not in city_prompt
     assert "mostly-static scene" in city_prompt
+
+
+def _crawl_config() -> LaunchConfig:
+    return LaunchConfig(
+        scenario=ScenarioConfig(preset="crawl_challenge"),
+        world=WorldConfig(template="hill_path"),
+        agents=AgentsConfig(
+            participants=[
+                AgentConfig(id="a", name="Builder", provider=LLMProvider.mock),
+            ]
+        ),
+        tools=ToolsConfig(enabled=["create_body", "add_joint", "add_motor", "run_simulation"]),
+    )
+
+
+def _sorter_config() -> LaunchConfig:
+    return LaunchConfig(
+        scenario=ScenarioConfig(preset="sorter"),
+        world=WorldConfig(template="sorting_table"),
+        agents=AgentsConfig(
+            participants=[
+                AgentConfig(id="a", name="Builder", provider=LLMProvider.mock),
+            ]
+        ),
+        tools=ToolsConfig(enabled=["create_body", "add_ramp", "add_bin", "run_simulation"]),
+    )
+
+
+def test_bridge_mock_builds_bridge_parts_not_generic_scene():
+    result = asyncio.run(run_single_attempt(_bridge_config()))
+    agent_bodies = [b for b in result.design.bodies if b.created_by == "a"]
+    ids = {b.id for b in agent_bodies}
+    assert {"bridge_left", "bridge_span", "bridge_right"} <= ids
+    assert all(b.kind == "beam" for b in agent_bodies)
+    assert all(call.status.value == "success" for call in result.tool_calls)
+
+
+def test_crawl_mock_builds_driven_creature_parts():
+    result = asyncio.run(run_single_attempt(_crawl_config()))
+    ids = {b.id for b in result.design.bodies}
+    joint_ids = {j.id for j in result.design.joints}
+    assert {"torso", "front_leg", "rear_leg"} <= ids
+    assert {"front_hip", "rear_hip"} <= joint_ids
+    assert any(j.motor_rate is not None for j in result.design.joints)
+    assert all(call.status.value == "success" for call in result.tool_calls)
+
+
+def test_sorter_mock_places_matching_bins_and_ramps():
+    result = asyncio.run(run_single_attempt(_sorter_config()))
+    bins = result.design.metadata.get("bins", [])
+    accepts = {b.get("accepts") for b in bins}
+    body_kinds = {b.kind for b in result.design.bodies if b.created_by == "a"}
+    assert accepts == {"red", "blue"}
+    assert {"bin", "ramp"} <= body_kinds
+    assert all(call.status.value == "success" for call in result.tool_calls)

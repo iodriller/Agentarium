@@ -149,6 +149,21 @@ def test_timeout_retries_then_raises_timeout(monkeypatch):
     assert calls["n"] == 2  # initial + 1 retry
 
 
+def test_rate_limit_retries_then_fails(monkeypatch):
+    monkeypatch.setenv("AGENTARIUM_LLM_RETRIES", "2")
+    monkeypatch.setenv("AGENTARIUM_LLM_BACKOFF_S", "0")
+    calls = {"n": 0}
+
+    def handler(_req: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(429, json={"error": "slow down"})
+
+    with pytest.raises(LLMError) as exc:
+        asyncio.run(_complete(_provider(handler)))
+    assert exc.value.kind == "rate_limit"
+    assert calls["n"] == 3  # initial + 2 retries
+
+
 def test_auth_does_not_retry(monkeypatch):
     monkeypatch.setenv("AGENTARIUM_LLM_RETRIES", "3")
     monkeypatch.setenv("AGENTARIUM_LLM_BACKOFF_S", "0")

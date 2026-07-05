@@ -77,6 +77,8 @@ export interface ProviderMeta {
   requires_endpoint: boolean
   requires_api_key: boolean
   description: string
+  env_api_key_available?: boolean
+  env_api_key_preview?: string | null
 }
 
 export interface ProviderStatus {

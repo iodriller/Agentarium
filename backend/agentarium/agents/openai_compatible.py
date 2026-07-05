@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import os
+import pathlib
 
 import httpx
+from dotenv import load_dotenv
 
 from agentarium.agents.base import (
     AgentProvider,
@@ -15,6 +17,7 @@ from agentarium.agents.parsing import parse_tool_calls
 # Connection probes are health checks — keep them short. Generation calls can take
 # much longer and are configurable via env so real/local deployments can tune them.
 _PROBE_TIMEOUT = 5.0
+_DOTENV_LOADED = False
 
 
 def _gen_timeout() -> float:
@@ -65,8 +68,39 @@ def _headers(api_key: str | None) -> dict[str, str]:
     return headers
 
 
+def _load_dotenv_once() -> None:
+    """Load repo-local .env values without overriding the process environment."""
+    global _DOTENV_LOADED
+    if _DOTENV_LOADED:
+        return
+
+    repo_root = pathlib.Path(__file__).resolve().parents[3]
+    candidates = [pathlib.Path.cwd() / ".env", repo_root / ".env"]
+    seen: set[pathlib.Path] = set()
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if resolved.is_file():
+            load_dotenv(resolved, override=False)
+            break
+    _DOTENV_LOADED = True
+
+
+def mask_secret(secret: str | None) -> str | None:
+    """Return a UI-safe preview that never includes the full secret."""
+    if not secret:
+        return None
+    suffix = secret[-4:] if len(secret) > 4 else ""
+    prefix = "sk-" if secret.startswith("sk-") else ""
+    masked = "*" * max(8, min(12, len(secret) - len(prefix) - len(suffix)))
+    return f"{prefix}{masked}{suffix}"
+
+
 def openai_env_key() -> str | None:
-    """The OPENAI_API_KEY from the environment, if set (and non-empty)."""
+    """The OPENAI_API_KEY from the process environment or repo .env, if set."""
+    _load_dotenv_once()
     key = os.environ.get("OPENAI_API_KEY")
     return key or None
 

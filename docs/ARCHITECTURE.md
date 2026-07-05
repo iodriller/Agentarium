@@ -155,7 +155,7 @@ fast and deterministic.
 
 ## See also
 
-- [`COMPREHENSIVE_PLAN.md`](COMPREHENSIVE_PLAN.md) — product + UI spec.
-- [`IMPLEMENTATION_STEPS.md`](IMPLEMENTATION_STEPS.md) — the Step 1–27 build guide.
-- [`GAP_ANALYSIS.md`](GAP_ANALYSIS.md) — known gaps and deferred items.
+- [`remaining_gaps.md`](remaining_gaps.md) — current backlog and deferred items.
+- [`IMPROVEMENTS.md`](IMPROVEMENTS.md) — review notes, shipped improvements, and roadmap.
+- [`archive/`](archive/) — historical product plan, build guide, and early gap analysis.
 - [`examples/`](examples/) — a real generated run report + scorecard.

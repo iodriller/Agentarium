@@ -8,7 +8,11 @@ from agentarium.agents.base import (
 from agentarium.agents.localdeploy import LocalDeployProvider
 from agentarium.agents.manual_provider import ManualProvider
 from agentarium.agents.mock_provider import MockProvider
-from agentarium.agents.openai_compatible import OpenAICompatibleProvider
+from agentarium.agents.openai_compatible import (
+    OpenAICompatibleProvider,
+    mask_secret,
+    openai_env_key,
+)
 
 _PROVIDERS: dict[str, AgentProvider] = {
     "mock": MockProvider(),
@@ -60,7 +64,18 @@ def get_provider(provider: str) -> AgentProvider | None:
 
 
 def list_providers() -> list[dict]:
-    return [dict(meta) for meta in _PROVIDER_META]
+    env_key = openai_env_key()
+    providers: list[dict] = []
+    for meta in _PROVIDER_META:
+        item = dict(meta)
+        if item["id"] == "openai_compatible":
+            item["env_api_key_available"] = env_key is not None
+            item["env_api_key_preview"] = mask_secret(env_key)
+        else:
+            item["env_api_key_available"] = False
+            item["env_api_key_preview"] = None
+        providers.append(item)
+    return providers
 
 
 __all__ = [

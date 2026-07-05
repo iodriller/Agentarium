@@ -202,6 +202,10 @@ function AgentCard({
   const meta = providers.find((p) => p.id === provider)
   const usesModel = provider !== 'mock' && provider !== 'manual'
   const requiresKey = meta?.requires_api_key ?? false
+  const envKeyAvailable =
+    provider === 'openai_compatible' && Boolean(meta?.env_api_key_available)
+  const envKeyPreview = meta?.env_api_key_preview ?? '********'
+  const hasEffectiveKey = Boolean(agent.api_key) || envKeyAvailable
   const models = status?.online ? (status.models ?? []) : []
 
   function setProvider(next: LLMProvider) {
@@ -239,8 +243,10 @@ function AgentCard({
   // Auto-detect models when the provider/endpoint changes — no need to click.
   useEffect(() => {
     if (!usesModel || !agent.endpoint_url) return
-    setStatus(null)
-    const t = setTimeout(() => void check(), 600)
+    const t = setTimeout(() => {
+      setStatus(null)
+      void check()
+    }, 600)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider, agent.endpoint_url, agent.api_key, usesModel])
@@ -309,6 +315,7 @@ function AgentCard({
               {providers.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
+                  {p.env_api_key_available ? ' (env key)' : ''}
                 </option>
               ))}
             </select>
@@ -356,19 +363,60 @@ function AgentCard({
                 style={inputStyle()}
               />
             </Field>
-            <Field label={requiresKey ? 'API Key — required' : 'API Key (optional)'}>
+            <Field
+              label={
+                requiresKey
+                  ? envKeyAvailable && !agent.api_key
+                    ? 'API Key - from env'
+                    : 'API Key - required'
+                  : 'API Key (optional)'
+              }
+            >
               <input
                 type="password"
                 value={agent.api_key ?? ''}
                 onChange={(e) => onChange({ api_key: e.target.value || null })}
-                placeholder={requiresKey ? 'sk-… (required)' : 'optional'}
+                placeholder={
+                  envKeyAvailable && !agent.api_key
+                    ? envKeyPreview
+                    : requiresKey
+                      ? 'sk-... (required)'
+                      : 'optional'
+                }
                 style={{
                   ...inputStyle(),
                   borderColor:
-                    requiresKey && !agent.api_key ? 'var(--warn)' : 'var(--border)',
+                    requiresKey && !hasEffectiveKey ? 'var(--warn)' : 'var(--border)',
                 }}
               />
             </Field>
+            {requiresKey && envKeyAvailable && !agent.api_key && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  marginTop: -3,
+                  marginBottom: 7,
+                  fontSize: 10,
+                  color: 'var(--ok)',
+                }}
+              >
+                <span>Server OPENAI_API_KEY</span>
+                <code
+                  style={{
+                    color: 'var(--text-1)',
+                    background: 'var(--surface-2)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 4,
+                    padding: '1px 5px',
+                    fontSize: 10,
+                  }}
+                >
+                  {envKeyPreview}
+                </code>
+              </div>
+            )}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
               <button
                 onClick={check}

@@ -15,6 +15,17 @@ def test_list_providers():
     assert "localdeploy" in ids
 
 
+def test_list_providers_reports_masked_openai_env_key(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-1234567890")
+    r = client.get("/api/agents/providers")
+    assert r.status_code == 200
+    openai = next(p for p in r.json() if p["id"] == "openai_compatible")
+    assert openai["env_api_key_available"] is True
+    assert openai["env_api_key_preview"] != "sk-test-1234567890"
+    assert openai["env_api_key_preview"].startswith("sk-")
+    assert openai["env_api_key_preview"].endswith("7890")
+
+
 def test_mock_connection_online():
     r = client.post("/api/agents/test-connection", json={"provider": "mock"})
     assert r.status_code == 200

@@ -50,7 +50,8 @@ uv sync --all-groups                 # install Python + deps
 uv run agentarium serve --open       # start the server, open the browser
 ```
 
-To rebuild the web UI (only needed if you change the frontend; requires Node 18+):
+To rebuild the web UI (only needed if you change the frontend; requires Node
+20.19+ or 22.12+):
 
 ```bash
 cd frontend && npm install && npm run build
@@ -107,6 +108,18 @@ spread, and nearest-neighbour spacing (livability).
   `AGENTARIUM_LLM_TIMEOUT_S` (default 120), `AGENTARIUM_LLM_RETRIES` (default 2),
   `AGENTARIUM_LLM_BACKOFF_S` (default 0.5).
 
+### OpenAI API key
+
+For OpenAI-compatible hosted models, put your key in a repo-root `.env` file:
+
+```bash
+OPENAI_API_KEY=sk-...
+```
+
+The backend loads that file automatically. The Setup screen shows a masked
+preview such as `sk-********1234`, uses the env key when the API-key field is
+blank, and does not save the real key into `runs/workspace_config.json`.
+
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full component map,
 data-flow diagram, and invariants — and
 [`docs/examples/`](docs/examples/) for a real generated
@@ -116,12 +129,17 @@ data-flow diagram, and invariants — and
 ## Development
 
 ```bash
-uv run ruff check .     # lint
-uv run pytest           # backend tests
-cd frontend && npm run build   # type-check + build the UI
+uv run ruff check .            # lint
+uv run pytest                  # backend tests
+cd frontend && npm run build   # type-check + build the UI; Node 20.19+ or 22.12+
+npm --prefix frontend run lint # frontend lint
 
 # Browser UI diagnosis — drives the Studio and Setup screens in headless Chromium
 uv run python -m playwright install chromium   # one-time browser download
+AGENTARIUM_VISUAL_TESTS=1 uv run pytest backend/tests/test_visual_playwright.py
+
+# Optional live OpenAI smoke checks (normal tests stay offline)
+AGENTARIUM_LIVE_OPENAI_TESTS=1 uv run pytest backend/tests/test_openai_live_smoke.py
 ```
 
 CI runs lint + tests + the frontend build on every push and PR. Backend changes
@@ -133,12 +151,18 @@ if its browser isn't installed. Conventions and architecture invariants live in
 
 ## Documentation
 
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — components, data flow, tools,
-  scoring, multi-agent modes, invariants.
-- [`docs/COMPREHENSIVE_PLAN.md`](docs/COMPREHENSIVE_PLAN.md) — master product &
-  engineering plan with a pixel-accurate UI spec for both screens.
-- [`docs/IMPLEMENTATION_STEPS.md`](docs/IMPLEMENTATION_STEPS.md) — the Step 1–27
-  build guide with acceptance checks.
-- [`docs/GAP_ANALYSIS.md`](docs/GAP_ANALYSIS.md) — known gaps and deferred items.
-- [`docs/AGENTARIUM_PLAN.md`](docs/AGENTARIUM_PLAN.md) — original roadmap, schemas,
-  and repo layout.
+Current docs:
+
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — implemented architecture,
+  contracts, tools, scoring, modes, and invariants.
+- [`docs/remaining_gaps.md`](docs/remaining_gaps.md) — current backlog of known
+  gaps and deferred work.
+- [`docs/IMPROVEMENTS.md`](docs/IMPROVEMENTS.md) — review notes, shipped
+  improvements, and larger roadmap items.
+- [`docs/examples/`](docs/examples/) — sample exported report and scorecard.
+
+Historical planning docs:
+
+- [`docs/archive/`](docs/archive/) captures the original product plan, build
+  sequence, and early gap analysis. Treat these as background unless you are
+  auditing how the MVP got here.

@@ -8,7 +8,7 @@ run:
 install:
 	uv sync --all-groups
 
-# Build the production web UI (requires Node 18+).
+# Build the production web UI (requires Node 20.19+ or 22.12+).
 ui:
 	cd frontend && npm install && npm run build
 
