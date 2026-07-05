@@ -14,18 +14,6 @@ const NEUTRAL = 0x9aa4b2
 const GRID_LINE = 0x232a36
 const OUTLINE = 0x0b0e14
 
-// Default fill per semantic prop `kind` (overridden by an explicit prop/body color).
-const KIND_COLORS: Record<string, number> = {
-  house: 0xc97b4a,
-  tower: 0x6b7686,
-  shop: 0xd1a13b,
-  tree: 0x3f7d3a,
-  road: 0x2b2f36,
-  park: 0x3f6d2f,
-  water: 0x2f6fb0,
-  goal: 0x22c55e,
-}
-
 // Per-terrain ground + sky palette so picking a terrain visibly changes the world.
 const TERRAIN: Record<string, { sky: number; ground: number; groundEdge: number }> = {
   grassland: { sky: 0x101826, ground: 0x3f6d2f, groundEdge: 0x2f5122 },
@@ -294,123 +282,6 @@ export class TraceRenderer extends Phaser.Scene {
     }
   }
 
-  /**
-   * Draw a body/prop with a shape matching its semantic `kind` (house roof,
-   * tree canopy, road markings, …) instead of a plain rectangle. All drawing
-   * is procedural (no assets). Returns false for an unrecognized/absent kind
-   * so the caller falls back to the plain box/circle/segment rendering.
-   * `(px, py)` are the shape's centre — world metres for static props, or
-   * (0, 0) for a dynamic body's own local origin (both use the same
-   * `TraceRenderer.px` scale+flip, so one implementation serves both).
-   */
-  private drawByKind(
-    g: Phaser.GameObjects.Graphics,
-    kind: string | undefined,
-    px: number,
-    py: number,
-    w: number,
-    h: number,
-    ang: number,
-    colorOverride?: string | null,
-  ): boolean {
-    if (!kind || !(kind in KIND_COLORS)) return false
-    const tint = parseHexColor(colorOverride, KIND_COLORS[kind])
-
-    if (kind === 'tree') {
-      const trunkColor = 0x6b4a2f
-      const trunkW = Math.max(w * 0.25, 0.15)
-      const trunkH = h * 0.4
-      g.fillStyle(trunkColor, 1)
-      this.fillRotatedRect(g, px, py - h / 2 + trunkH / 2, trunkW, trunkH, 0)
-      const r = (Math.max(w, 0.5) / 2) * SCALE
-      const { sx, sy } = TraceRenderer.px(px, py - h / 2 + trunkH + r / SCALE * 0.6)
-      g.fillStyle(tint, 1)
-      g.fillCircle(sx, sy, r)
-      g.lineStyle(1.5, OUTLINE, 0.5)
-      g.strokeCircle(sx, sy, r)
-      return true
-    }
-
-    if (kind === 'road') {
-      g.fillStyle(tint, 1)
-      this.fillRotatedRect(g, px, py, w, h, ang)
-      const cos = Math.cos(ang)
-      const sin = Math.sin(ang)
-      const dashLen = 0.6
-      const gap = 0.4
-      g.lineStyle(Math.max(1, h * SCALE * 0.15), 0xd6c66b, 0.9)
-      let t = -w / 2
-      while (t < w / 2) {
-        const t2 = Math.min(t + dashLen, w / 2)
-        const a = TraceRenderer.px(px + t * cos, py + t * sin)
-        const c = TraceRenderer.px(px + t2 * cos, py + t2 * sin)
-        g.lineBetween(a.sx, a.sy, c.sx, c.sy)
-        t += dashLen + gap
-      }
-      return true
-    }
-
-    if (kind === 'park' || kind === 'water') {
-      g.fillStyle(tint, 1)
-      g.lineStyle(1.5, OUTLINE, 0.4)
-      this.fillRotatedRect(g, px, py, w, h, ang)
-      return true
-    }
-
-    if (kind === 'goal') {
-      g.fillStyle(0x888888, 1)
-      this.fillRotatedRect(g, px, py, Math.max(w * 0.15, 0.08), h, 0)
-      const base = TraceRenderer.px(px, py + h / 2)
-      const mid = TraceRenderer.px(px, py + h / 2 - h * 0.3)
-      const tip = TraceRenderer.px(px + w * 0.8, py + h / 2 - h * 0.15)
-      g.fillStyle(tint, 1)
-      g.fillTriangle(base.sx, base.sy, mid.sx, mid.sy, tip.sx, tip.sy)
-      return true
-    }
-
-    // house | tower | shop
-    g.fillStyle(tint, 1)
-    g.lineStyle(1.5, OUTLINE, 0.6)
-    this.fillRotatedRect(g, px, py, w, h, ang)
-    if (Math.abs(ang) < 0.05) {
-      this.drawWindows(g, px, py, w, h)
-      if (kind === 'house') {
-        const roofColor = 0x7a3b2e
-        const apex = TraceRenderer.px(px, py + h / 2 + w * 0.35)
-        const left = TraceRenderer.px(px - w / 2 - 0.1, py + h / 2)
-        const right = TraceRenderer.px(px + w / 2 + 0.1, py + h / 2)
-        g.fillStyle(roofColor, 1)
-        g.fillTriangle(left.sx, left.sy, right.sx, right.sy, apex.sx, apex.sy)
-        g.lineStyle(1.5, OUTLINE, 0.5)
-        g.strokeTriangle(left.sx, left.sy, right.sx, right.sy, apex.sx, apex.sy)
-      }
-    }
-    return true
-  }
-
-  /** A small grid of window rects on a building face, upright only (ang≈0). */
-  private drawWindows(
-    g: Phaser.GameObjects.Graphics,
-    px: number,
-    py: number,
-    w: number,
-    h: number,
-  ): void {
-    const cols = Math.max(1, Math.floor(w / 0.8))
-    const rows = Math.max(1, Math.floor(h / 1.0))
-    const winW = (w / cols) * 0.5
-    const winH = (h / rows) * 0.45
-    g.fillStyle(0xf5e08a, 0.75)
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const wx = px - w / 2 + (c + 0.5) * (w / cols)
-        const wy = py - h / 2 + (r + 0.5) * (h / rows)
-        const { sx, sy } = TraceRenderer.px(wx, wy)
-        g.fillRect(sx - (winW * SCALE) / 2, sy - (winH * SCALE) / 2, winW * SCALE, winH * SCALE)
-      }
-    }
-  }
-
   /** Draw a static prop to scale, rotated by its angle — a recognizable shape
    * for a semantic `kind` (house/road/tree/…), else a plain box/circle/segment. */
   private drawStaticProp(prop: StaticProp): void {
@@ -432,6 +303,9 @@ export class TraceRenderer extends Phaser.Scene {
     }
 
     const w = prop.size?.[0] ?? 1
+    const h = prop.kind === 'segment' ? 0.25 : (prop.size?.[1] ?? prop.size?.[0] ?? 1)
+    const color = parseHexColor(prop.color, NEUTRAL)
+    g.fillStyle(color, 1)
     g.lineStyle(1.5, OUTLINE, 0.6)
 
     if (prop.kind === 'circle') {
