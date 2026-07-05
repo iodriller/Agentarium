@@ -50,6 +50,28 @@ def test_create_body_width_height_static():
     assert body.static is True
 
 
+def test_create_body_kind_flows_through():
+    # The cosmetic `kind` hint (renderer-only) must land on the BodySpec so the
+    # engine/renderer can pick it up later.
+    design = DesignSpec()
+    result = apply_tool_call(
+        design,
+        agent_id="a",
+        tool="create_body",
+        args={
+            "id": "house1",
+            "shape": "box",
+            "width": 2.0,
+            "height": 3.0,
+            "static": True,
+            "kind": "house",
+        },
+        enabled_tools=["create_body"],
+    )
+    assert result.mutated is True
+    assert design.bodies[0].kind == "house"
+
+
 def test_joint_between_two_static_bodies_rejected():
     # A joint between two static bodies is invalid (pymunk needs one dynamic) and
     # would otherwise crash the whole simulation — reject it with feedback.

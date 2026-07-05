@@ -32,6 +32,7 @@ scaffold:
     color: "#d2691e"
   - id: goal_marker
     shape: box
+    kind: goal
     position: [8.0, 2.1]
     size: [0.4, 1.2]
     static: true

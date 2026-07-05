@@ -246,3 +246,49 @@ def test_city_score_single_body_not_success():
     card = score_attempt(trace, _design(1), "city_score")
     assert card.reward == "city_score"
     assert card.success is False
+
+
+def _city_design_with_kinds(kinds: list[str | None]) -> DesignSpec:
+    return DesignSpec(
+        name="city",
+        bodies=[
+            BodySpec(
+                id=f"b{i}", shape=BodyShape.box, position=[float(i * 3), 1.0],
+                size=[2.0, 3.0], static=True, kind=k,
+            )
+            for i, k in enumerate(kinds)
+        ],
+    )
+
+
+def test_city_score_rewards_infrastructure_variety():
+    # A layout with a road, a park, and a tree (real city infra) must outscore
+    # the same number of plain, kind-less boxes — this is what pushes agents to
+    # build an actual city instead of a row of identical buildings.
+    trace = _moving_trace(0.0)
+    plain = _city_design_with_kinds([None] * 6)
+    varied = _city_design_with_kinds(["road", "park", "tree", "house", "tower", "shop"])
+    plain_score, _, _ = REWARDS["city_score"](compute_metrics(trace, plain))
+    varied_score, _, _ = REWARDS["city_score"](compute_metrics(trace, varied))
+    assert varied_score > plain_score
+
+
+def test_city_score_kind_metrics_ignore_seeded_world_props():
+    # The world template seeds its own road/trees (created_by="world") purely
+    # for visual backdrop; they must not inflate the agent's infra-variety score.
+    trace = _moving_trace(0.0)
+    design = DesignSpec(
+        name="city",
+        bodies=[
+            BodySpec(
+                id="world_road", shape=BodyShape.box, position=[0.0, 0.1],
+                size=[20.0, 0.3], static=True, kind="road", created_by="world",
+            ),
+            BodySpec(
+                id="b0", shape=BodyShape.box, position=[-6.0, 1.5],
+                size=[2.0, 3.0], static=True, kind="house", created_by="a",
+            ),
+        ],
+    )
+    metrics = compute_metrics(trace, design)
+    assert metrics["road_count"] == 0.0  # world-seeded road excluded

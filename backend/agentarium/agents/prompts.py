@@ -62,8 +62,14 @@ def build_system_prompt(
     world_summary: str,
     enabled_tools: list[ToolDefinition],
     constraints: str = "",
+    movable_body_required: bool = True,
 ) -> str:
-    """System prompt for a single builder agent in the physics sandbox."""
+    """System prompt for a single builder agent in the physics sandbox.
+
+    ``movable_body_required`` gates the "include a movable body" rule below —
+    false for challenges (e.g. Tiny City) whose objective is a mostly-static
+    scene, where forcing a movable body would fight the actual objective.
+    """
     tool_lines = "\n".join(_tool_line(t) for t in enabled_tools)
     parts = [
         "You are a builder agent in a 2D physics sandbox. Your job is to "
@@ -78,13 +84,19 @@ def build_system_prompt(
     )
     if any(t.name in _KINDABLE_TOOLS for t in enabled_tools):
         parts.append(_kind_guidance(challenge_objective))
+    movable_rule = (
+        "- Your design MUST include at least one MOVABLE (non-static) body, or "
+        "nothing will move and you score zero. create_body and add_ball are "
+        "movable; add_beam and add_ramp are fixed scaffolding.\n"
+        if movable_body_required
+        else "- This is a mostly-static scene — most or all bodies should be "
+        "static:true (buildings, roads, parks). You do NOT need a moving body.\n"
+    )
     parts.append(
         "Rules:\n"
         "- Build in world units (METERS), not pixels — coordinates are small "
         "numbers like 2.0 or -5.0, never 200 or 400.\n"
-        "- Your design MUST include at least one MOVABLE (non-static) body, or "
-        "nothing will move and you score zero. create_body and add_ball are "
-        "movable; add_beam and add_ramp are fixed scaffolding.\n"
+        f"{movable_rule}"
         "- To connect to an object already in the world, reference its id exactly.\n"
         "- Prefer a few well-placed parts over many."
     )

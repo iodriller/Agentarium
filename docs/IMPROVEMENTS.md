@@ -187,3 +187,49 @@ onboarding robustness, and a few backend correctness nits.
 | **Polish (priority 2)** | 🟢 Done in the polish pass: wired the Fullscreen button (viewport `requestFullscreen`); removed the dead no-op links ("How it works"/"About connections"/"View Details") and made TopBar "Docs" a real link; removed the redundant challenge dropdown (kept the cards); removed the unused Tailwind import + plugin + dep (CSS bundle 7.9 kB → 0.56 kB); replaced `window.prompt`/`alert` Save Preset with an inline styled modal; added an `--on-accent` token; added a model picker (`<datalist>`) from the connection check's model list; added keyboard playback (Space play/pause, ←/→ frame step); fixed the stale-agents closure with a ref. **Still open:** small-width responsiveness and the "World Preview" placeholder thumbnail. |
 | **Improvements (priority 3)** | 🟢 Done: `attempt_started`/`attempt_finished` now handled (in-flight attempt surfaces live); `name_design` implemented (schema gained a `name` field; sets `design.name` instead of a false-success no-op); LLM probe distinguishes auth failure (401/403 → "rejected the API key") from unreachable; `WorldConfig.active_physics_zones` default aligned to `WorldTemplate` (1). **Still open:** LLM probe still hits `/models` not `/chat/completions` (a passing probe can still fail at generation); `mutate_design`/`repair_invalid_design` remain no-ops; per-agent LLM settings forced shared; double scoring (`L2`); `Frame.events` on the wire but unused; the PyBullet 3D engine (§1). |
 | **Responsiveness** | 🟢 Done: Setup collapses 3→2→1 columns; Studio stacks its rails below ~1100px. Still open: the "World Preview" placeholder thumbnail. |
+
+## 8. Tiny City visual overhaul (2026-07-05)
+
+User complaint: "when I saw agents build a city it should look more like a city." Root
+cause was the renderer, not the challenge content — `TraceRenderer.ts` only knew how to
+draw `ground`/`circle`/`segment`/box, so every building (however well laid out) rendered
+as an identical gray rectangle.
+
+### Fixed 🟢
+
+| Area | Fix |
+|------|-----|
+| Schema | Added an optional cosmetic `kind` field (`house`/`tower`/`shop`/`tree`/`road`/`park`/`water`/`goal`) to `BodySpec`, `BodyMeta`, and `StaticProp` — purely visual, no physics effect. |
+| Tools | `create_body` gained an optional `kind` enum arg (no new tool — `_tool_line`'s existing enum-surfacing auto-documents it to agents). |
+| Engine | `_build_static`/`body_meta` emit `kind = spec.kind or shape` so untagged bodies (every pre-existing challenge) render exactly as before. |
+| Renderer | `TraceRenderer.drawByKind` procedurally draws each kind (house w/ triangular roof, tower/shop w/ window grid, tree w/ trunk+canopy, road w/ dashed centerline, park/water fill, goal flag) — no assets, one code path shared by static props and dynamic bodies. Added a faint parallax skyline backdrop for `terrain: city`. |
+| Renderer bug found in visual verification | `worldBounds()` inflated the **Y** bound by a wide prop's **width** (`Math.max(w,h)` isotropic radius) — a 28m-wide road zoomed the whole scene out to a tiny strip. Replaced with a proper rotated-AABB half-extent calc. Pre-existing bug, newly exposed because Tiny City is the first world with a wide flat prop. |
+| Prompt | Fixed a real contradiction: the system prompt unconditionally required "at least one MOVABLE body or score zero," which fights a static-scene challenge. `build_system_prompt` gained `movable_body_required`, false for `city_score`. |
+| World/challenge content | `tiny_city_block.yaml` now seeds a road + 2 roadside trees (visual backdrop, `created_by="world"`, excluded from scoring). `tiny_city_preview.yaml`'s objective asks for buildings + a road + a park/plaza + trees, not just 6 boxes in a row. |
+| Scoring | `city_score` adds an infra-variety bonus (road/park/tree counts + building height variety), computed only from the agent's own bodies (world backdrop excluded) so agents are pushed toward a real mix, not just spread-out boxes. |
+| Mock provider | `MockProvider.complete()` recognizes a city objective (via the embedded "Objective: …" text) and emits a 9-part scene (road, park, 2 houses, 2 towers, 1 shop, 2 trees) instead of one box — the no-LLM demo now actually looks like a city. |
+
+Verified visually: generated a mock Tiny City run and screenshotted the Studio replay
+(Playwright) before/after the `worldBounds` fix — confirmed recognizable houses (roofs),
+towers (windows), and a road render correctly and fill the viewport properly.
+
+### Noted, not changed
+
+| Item | Why |
+|------|-----|
+| `city_score` is still a metrics proxy (L1 in `remaining_gaps.md`), just a better one — it doesn't verify visual correctness (e.g. overlapping props). |
+
+### Follow-up polish pass (2026-07-05, same day)
+
+Closed out the naming gap noted above and found a second, more consequential bug while
+regenerating the Setup screen's preset preview images.
+
+| Area | Fix |
+|------|-----|
+| Naming | `IsometricWorldView` → `WorldView`; `PlaybackToolbar`'s "CAMERA: Isometric" → "Side View" (matches what `TraceRenderer` actually draws). Deleted `frontend/src/phaser/iso.ts` — a real isometric-projection module that was never imported anywhere (dead code left over from an abandoned earlier direction). |
+| `kind` coverage | `bridge_builder.yaml` / `crawl_challenge.yaml` goal markers tagged `kind: goal` so they render as a flag instead of a plain green rectangle. |
+| **Preset preview images** | All 5 Setup-screen preset cards (`bridge_builder`, `crawl_challenge`, `sorter`, `tiny_city_preview`, `custom`) showed polished 3D isometric mockup art (fountain, streetlights, low-poly robots) with **zero visual relationship** to the actual 2D side-view renderer. This is almost certainly the real source of "it should look more like a city" — the promo image promised a 3D isometric city, the delivered result was a simple 2D scene. Replaced all 5 with real screenshots of the actual Studio renderer (Playwright, mock provider, one generated run per challenge), confirmed with the user first since overwriting curated art is a one-way product call. New images are also ~2-6 KB each vs. the old ones' much larger file size. Added `data-hide-for-capture` to `WorldView`'s camera-control button cluster so future preview regeneration can hide UI chrome from the shot. |
+| **Mock provider ground-tunneling bug** | Found while the "custom scenario" screenshot came out as an empty grid: the mock's placeholder body (`create_body`, no `position` → schema default `[0, 0]`) spawns fully embedded in the paper-thin (`radius=0.1`) ground segment and **tunnels through it forever** (`y -> -4412` by t=30s) instead of resting on top. This silently affected every non-city mock demo (bridge/crawl/sorter each had an invisible `b1` falling forever off-screen). Fixed by giving the mock's placeholder an explicit `position: [0, 3]` so it drops onto the ground normally. The underlying engine robustness gap (any body spawned embedded in the ground can tunnel through) is logged as `E5` in `remaining_gaps.md` — not fully fixed, since a general solution needs either a thicker ground collider or spawn-position validation. |
+
+Verified visually again: screenshotted the full Setup screen with the new thumbnails in
+place at real size (76×64, `object-fit: cover`) — all five read clearly at that scale.

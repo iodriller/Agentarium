@@ -7,3 +7,22 @@ map_size:
 gravity: -9.81
 active_physics_zones: 4
 description: A large city block for laying out compact urban designs.
+static_bodies:
+  - id: main_road
+    shape: box
+    kind: road
+    position: [0.0, 0.15]
+    size: [28.0, 0.4]
+    static: true
+  - id: roadside_tree_1
+    shape: box
+    kind: tree
+    position: [-13.0, 0.9]
+    size: [1.0, 1.8]
+    static: true
+  - id: roadside_tree_2
+    shape: box
+    kind: tree
+    position: [13.0, 0.9]
+    size: [1.0, 1.8]
+    static: true

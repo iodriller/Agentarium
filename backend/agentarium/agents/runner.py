@@ -293,7 +293,12 @@ async def run_agent_attempt(
     _seed_scaffold(design, preset)
 
     world_summary = _world_context(config, preset, design)
-    system_prompt = build_system_prompt(objective, world_summary, enabled_defs)
+    system_prompt = build_system_prompt(
+        objective,
+        world_summary,
+        enabled_defs,
+        movable_body_required=preset is None or preset.reward != "city_score",
+    )
     memory = (
         _build_memory(previous)
         if agent.memory_mode in (MemoryMode.episodic, MemoryMode.best_attempt_summary)
@@ -451,7 +456,12 @@ async def run_cooperative_attempt(
     _seed_scaffold(design, preset)
 
     world_summary = _world_context(config, preset, design)
-    system_prompt = build_system_prompt(objective, world_summary, enabled_defs)
+    system_prompt = build_system_prompt(
+        objective,
+        world_summary,
+        enabled_defs,
+        movable_body_required=preset is None or preset.reward != "city_score",
+    )
 
     records: list[ToolCallRecord] = []
 
