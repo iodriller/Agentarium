@@ -90,3 +90,40 @@ def test_world_static_includes_ground():
     trace = engine.simulate(hardcoded_demo_design(), _world(), duration_seconds=0.5)
     kinds = {p.kind for p in trace.world_static}
     assert "ground" in kinds
+
+
+def test_kind_flows_to_static_prop_and_body_meta():
+    # A cosmetic `kind` (e.g. "house") must reach both the static-prop trace
+    # (for static bodies) and body_meta (for dynamic bodies) so the renderer
+    # can draw a recognizable shape instead of a plain rectangle.
+    design = DesignSpec(
+        name="scene",
+        bodies=[
+            BodySpec(
+                id="house1", shape=BodyShape.box, position=[0.0, 1.5],
+                size=[2.0, 3.0], static=True, kind="house",
+            ),
+            BodySpec(
+                id="crate1", shape=BodyShape.box, position=[5.0, 5.0],
+                size=[1.0, 1.0], static=False, kind="tree",
+            ),
+        ],
+    )
+    trace = Pymunk2DEngine().simulate(design, _world(), duration_seconds=0.2)
+    house_prop = next(p for p in trace.world_static if p.id == "house1")
+    assert house_prop.kind == "house"
+    assert trace.body_meta["crate1"].kind == "tree"
+
+
+def test_kind_falls_back_to_shape_when_absent():
+    # Bodies without a `kind` keep the old shape-name fallback (backward compat
+    # with challenges that don't use the cosmetic kind hint, e.g. bridge/crawl).
+    design = DesignSpec(
+        name="scene",
+        bodies=[
+            BodySpec(id="beam1", shape=BodyShape.segment, position=[0.0, 1.0], size=[2.0], static=True),
+        ],
+    )
+    trace = Pymunk2DEngine().simulate(design, _world(), duration_seconds=0.2)
+    beam_prop = next(p for p in trace.world_static if p.id == "beam1")
+    assert beam_prop.kind == "segment"

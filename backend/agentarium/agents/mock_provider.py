@@ -29,6 +29,49 @@ _SAMPLE_TOOL_CALLS = [
     {"tool": "run_simulation", "args": {}},
 ]
 
+# A small but varied city scene (roads, a park, trees, buildings of different
+# heights/kinds) so the no-LLM demo actually looks like a city, not one box.
+# Used only when the objective is recognizably a city challenge (see complete()).
+_CITY_TOOL_CALLS = [
+    {"tool": "create_body", "args": {
+        "id": "road1", "shape": "box", "kind": "road",
+        "position": [0.0, 0.15], "width": 20.0, "height": 0.3, "static": True,
+    }},
+    {"tool": "create_body", "args": {
+        "id": "park1", "shape": "box", "kind": "park",
+        "position": [-9.0, 0.1], "width": 3.0, "height": 0.2, "static": True,
+    }},
+    {"tool": "create_body", "args": {
+        "id": "house1", "shape": "box", "kind": "house",
+        "position": [-6.0, 1.5], "width": 2.0, "height": 3.0, "static": True,
+    }},
+    {"tool": "create_body", "args": {
+        "id": "tower1", "shape": "box", "kind": "tower",
+        "position": [-2.5, 4.0], "width": 2.5, "height": 8.0, "static": True,
+    }},
+    {"tool": "create_body", "args": {
+        "id": "shop1", "shape": "box", "kind": "shop",
+        "position": [1.0, 2.0], "width": 2.0, "height": 4.0, "static": True,
+    }},
+    {"tool": "create_body", "args": {
+        "id": "house2", "shape": "box", "kind": "house",
+        "position": [4.0, 1.5], "width": 2.0, "height": 3.0, "static": True,
+    }},
+    {"tool": "create_body", "args": {
+        "id": "tower2", "shape": "box", "kind": "tower",
+        "position": [7.5, 3.0], "width": 2.0, "height": 6.0, "static": True,
+    }},
+    {"tool": "create_body", "args": {
+        "id": "tree1", "shape": "box", "kind": "tree",
+        "position": [-4.0, 0.9], "width": 1.0, "height": 1.8, "static": True,
+    }},
+    {"tool": "create_body", "args": {
+        "id": "tree2", "shape": "box", "kind": "tree",
+        "position": [9.5, 0.9], "width": 1.0, "height": 1.8, "static": True,
+    }},
+    {"tool": "run_simulation", "args": {}},
+]
+
 
 class MockProvider(AgentProvider):
     name = "mock"
@@ -61,4 +104,8 @@ class MockProvider(AgentProvider):
         api_key: str | None,
         temperature: float = 0.7,
     ) -> str:
-        return json.dumps({"tool_calls": _SAMPLE_TOOL_CALLS})
+        # The objective (embedded in ``system`` by build_system_prompt) names the
+        # challenge; recognize a city objective so the no-LLM demo shows a real
+        # scene instead of one box, without touching mock's behavior elsewhere.
+        calls = _CITY_TOOL_CALLS if "city" in system.lower() else _SAMPLE_TOOL_CALLS
+        return json.dumps({"tool_calls": calls})

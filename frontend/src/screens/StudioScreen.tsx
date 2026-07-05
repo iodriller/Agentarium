@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { TopBar } from '../components/shared/TopBar'
-import { IsometricWorldView } from '../components/studio/IsometricWorldView'
+import { WorldView } from '../components/studio/WorldView'
 import { PlaybackToolbar } from '../components/studio/PlaybackToolbar'
 import { ReplayTimeline } from '../components/studio/ReplayTimeline'
 import { ChallengeBriefing } from '../components/studio/ChallengeBriefing'
@@ -542,7 +542,7 @@ export function StudioScreen() {
           />
         </div>
 
-        {/* Center — toolbar + isometric viewport + telemetry */}
+        {/* Center — toolbar + world viewport + telemetry */}
         <div
           style={{
             flex: 1,
@@ -574,7 +574,7 @@ export function StudioScreen() {
               overflow: 'hidden',
             }}
           >
-            <IsometricWorldView trace={trace} frameIndex={frameIndex} />
+            <WorldView trace={trace} frameIndex={frameIndex} />
             <ViewportOverlay
               status={status}
               runStatus={runStatus}

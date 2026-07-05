@@ -42,7 +42,7 @@ export function PlaybackToolbar({
       >
         Camera
       </span>
-      <span style={{ fontSize: 12, color: 'var(--text-1)' }}>Isometric</span>
+      <span style={{ fontSize: 12, color: 'var(--text-1)' }}>Side View</span>
 
       <span
         style={{

@@ -4,12 +4,12 @@ import type { EpisodeTrace } from '../../api/types'
 import { TraceRenderer } from '../../phaser/TraceRenderer'
 import { attachCameraControls } from '../../phaser/CameraControls'
 
-interface IsometricWorldViewProps {
+interface WorldViewProps {
   trace: EpisodeTrace | null
   frameIndex: number
 }
 
-export function IsometricWorldView({ trace, frameIndex }: IsometricWorldViewProps) {
+export function WorldView({ trace, frameIndex }: WorldViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const gameRef = useRef<Phaser.Game | null>(null)
   const sceneRef = useRef<TraceRenderer | null>(null)
@@ -95,8 +95,11 @@ export function IsometricWorldView({ trace, frameIndex }: IsometricWorldViewProp
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
 
-      {/* Camera control cluster (bottom-left). */}
+      {/* Camera control cluster (bottom-left). data-hide-for-capture lets a
+          screenshot tool (e.g. regenerating preset preview images) hide this
+          overlay so it doesn't show up on top of the rendered scene. */}
       <div
+        data-hide-for-capture
         style={{
           position: 'absolute',
           left: 12,

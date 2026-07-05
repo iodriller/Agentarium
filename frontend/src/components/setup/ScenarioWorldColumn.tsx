@@ -30,26 +30,29 @@ const CUSTOM_PRESET: ScenarioPreset = {
   recommended_tools: [],
 }
 
+// Real in-engine screenshots (side-view renderer), not concept art — what you
+// see here is what the Studio actually renders for a mock attempt at this
+// challenge, so the preview never oversells the result.
 const PRESET_IMAGES: Record<string, { src: string; alt: string }> = {
   bridge_builder: {
     src: '/presets/bridge-builder.png',
-    alt: 'Bridge spanning a gap with a crate moving toward a goal platform',
+    alt: 'Side-view render: a crate on a ramp beside a gap, with a goal flag on the far platform',
   },
   crawl_challenge: {
     src: '/presets/crawl-challenge.png',
-    alt: 'Segmented crawling robot moving through a narrow passage',
+    alt: 'Side-view render: a creature seed body on a hill path with a goal flag ahead',
   },
   sorter: {
     src: '/presets/sorter.png',
-    alt: 'Colored balls rolling down sorting ramps into matching bins',
+    alt: 'Side-view render: colored balls beside a sorting table',
   },
   tiny_city_preview: {
     src: '/presets/tiny-city-preview.png',
-    alt: 'Isometric tiny city block with buildings and planning guides',
+    alt: 'Side-view render: a small city block with houses, towers, a road, and trees',
   },
   custom: {
     src: '/presets/custom-scenario.png',
-    alt: 'Empty construction grid with sandbox build tools and parts',
+    alt: 'Side-view render: an open flat arena for freeform building',
   },
 }
 

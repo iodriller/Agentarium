@@ -109,6 +109,10 @@ def compute_metrics(trace: EpisodeTrace, design: DesignSpec) -> dict[str, float]
         "crossed_threshold": 0.0,
         "min_spacing": 0.0,
         "avg_spacing": 0.0,
+        "road_count": 0.0,
+        "park_count": 0.0,
+        "tree_count": 0.0,
+        "height_variety": 0.0,
     }
 
     frames = trace.frames
@@ -145,6 +149,24 @@ def compute_metrics(trace: EpisodeTrace, design: DesignSpec) -> dict[str, float]
         if nearest:
             metrics["min_spacing"] = min(nearest)
             metrics["avg_spacing"] = sum(nearest) / len(nearest)
+
+    # --- city kind variety: did the agent build infra, not just buildings? ------
+    # Counted from the agent's OWN bodies only (seeded world backdrop, e.g. the
+    # world template's road/trees, is excluded — this credits agent effort).
+    kind_counts: dict[str, int] = {}
+    for b in agent_bodies:
+        if b.kind:
+            kind_counts[b.kind] = kind_counts.get(b.kind, 0) + 1
+    metrics["road_count"] = float(kind_counts.get("road", 0))
+    metrics["park_count"] = float(kind_counts.get("park", 0) + kind_counts.get("plaza", 0))
+    metrics["tree_count"] = float(kind_counts.get("tree", 0))
+    building_heights = [
+        b.size[1]
+        for b in agent_bodies
+        if b.static and len(b.size) >= 2 and b.kind in (None, "house", "tower", "shop")
+    ]
+    if len(building_heights) >= 2:
+        metrics["height_variety"] = max(building_heights) - min(building_heights)
 
     # --- bins: containment (bins_in_target) + correct class match (bins_correct) -
     if bins:
@@ -330,22 +352,35 @@ def _reward_sorting_accuracy(m: dict[str, float]) -> tuple[float, bool, str]:
 
 
 def _reward_city_score(m: dict[str, float]) -> tuple[float, bool, str]:
-    """Tiny City: more structures, well spread and well spaced (livable), stable."""
+    """Tiny City: more structures, well spread/spaced (livable), stable, and a
+    real mix of city infrastructure — not just a row of identical buildings."""
     parts = m.get("parts_used", 0.0)
     spread_area = m.get("spread_area", 0.0)
     avg_spacing = m.get("avg_spacing", 0.0)
     min_spacing = m.get("min_spacing", 0.0)
     stability = m.get("stability", 0.0)
+    road_count = m.get("road_count", 0.0)
+    park_count = m.get("park_count", 0.0)
+    tree_count = m.get("tree_count", 0.0)
+    height_variety = m.get("height_variety", 0.0)
+    infra_bonus = (
+        min(road_count, 2.0) * 6.0
+        + min(park_count, 2.0) * 6.0
+        + min(tree_count, 4.0) * 2.0
+        + min(height_variety, 6.0) * 2.0
+    )
     score = (
         parts * 4.0
         + math.sqrt(max(0.0, spread_area)) * 2.0
         + avg_spacing * 4.0  # livability: well-spaced beats clumped
         + stability * 8.0
+        + infra_bonus
     )
     success = parts >= 4 and min_spacing >= 1.0
     summary = (
-        f"City: {int(parts)} structures, {spread_area:.1f}u² spread, "
-        f"avg spacing {avg_spacing:.2f} (min {min_spacing:.2f})."
+        f"City: {int(parts)} structures ({int(road_count)} road, {int(park_count)} "
+        f"park, {int(tree_count)} tree), {spread_area:.1f}u² spread, avg spacing "
+        f"{avg_spacing:.2f} (min {min_spacing:.2f})."
     )
     return score, success, summary
 

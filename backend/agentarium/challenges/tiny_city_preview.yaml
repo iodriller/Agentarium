@@ -5,10 +5,14 @@ tags:
   - Economy
   - Planning
 objective: >-
-  Lay out a small skyline of at least 6 STATIC buildings of varied heights
-  (use create_body with static:true, width 1.5-3, height 3-9). Spread them along
-  the ground from about x=-12 to x=12, spaced at least 2 apart, each sitting on
-  the ground so its y = height/2 (e.g. a height-6 building has position y=3).
+  Build a small city block, not just a row of buildings. Place at least 6
+  STATIC buildings of varied heights (create_body, static:true, width 1.5-3,
+  height 3-9, kind one of house/tower/shop), PLUS at least one road (kind:
+  road, wide and flat, e.g. width 10, height 0.3, y~0.15) and one park or
+  plaza (kind: park, e.g. width 3, height 0.2, y~0.1), and 2 or more trees
+  (kind: tree, width ~1, height ~1.8, y~0.9). Spread everything from about
+  x=-12 to x=12, spaced at least 2 apart, each sitting on the ground so its
+  y = height/2 (flat props like road/park sit low, near y=0).
 reward: city_score
 default_world: tiny_city_block
 required_tools:
