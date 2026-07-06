@@ -349,6 +349,18 @@ export interface DesignUpdateEvent {
   by_agent?: Record<string, Partial<DesignSummary>>
 }
 
+export interface DesignSnapshotEvent {
+  type: 'design_snapshot'
+  attempt_index: number
+  agent_id?: string
+  // Index into the attempt's tool_calls, matching one-to-one with ToolCallEvent.
+  step_index: number
+  // Un-simulated, single-frame EpisodeTrace-shaped snapshot of the design as it
+  // stood right after this tool call — lets the Studio replay the CONSTRUCTION
+  // sequence (Build Timeline) with the same renderer used for physics replay.
+  trace: EpisodeTrace
+}
+
 export interface TraceReadyEvent {
   type: 'trace_ready'
   attempt_index: number
@@ -411,6 +423,7 @@ export type RunEvent =
   | RunStartedEvent
   | AttemptStartedEvent
   | ToolCallEvent
+  | DesignSnapshotEvent
   | DesignUpdateEvent
   | TraceReadyEvent
   | ScoreEvent

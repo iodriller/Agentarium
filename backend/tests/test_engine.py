@@ -115,6 +115,22 @@ def test_kind_flows_to_static_prop_and_body_meta():
     assert trace.body_meta["crate1"].kind == "tree"
 
 
+def test_body_spawned_at_ground_default_does_not_tunnel_through():
+    # Regression for E5: a dynamic body created via apply_tool_call with no
+    # explicit position (schema default [0, 0]) must rest near the ground after
+    # simulating, not fall through it forever (previously observed y -> -4412).
+    from agentarium.tools.apply import apply_tool_call
+
+    design = DesignSpec(name="t")
+    apply_tool_call(
+        design, agent_id="a", tool="create_body",
+        args={"id": "b1", "shape": "box"}, enabled_tools=["create_body"],
+    )
+    trace = Pymunk2DEngine().simulate(design, _world(), duration_seconds=5.0)
+    final_y = trace.frames[-1].bodies["b1"].y
+    assert final_y > -1.0  # resting on/near the ground, not tunneled through
+
+
 def test_kind_falls_back_to_shape_when_absent():
     # Bodies without a `kind` keep the old shape-name fallback (backward compat
     # with challenges that don't use the cosmetic kind hint, e.g. bridge/crawl).

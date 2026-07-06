@@ -16,8 +16,9 @@ from agentarium.agents.prompts import (
 from agentarium.core.schemas.challenge import ScenarioPreset
 from agentarium.core.schemas.design import WORLD_AUTHOR, BodySpec, DesignSpec
 from agentarium.core.schemas.score import ScoreCard
-from agentarium.core.schemas.setup import AgentConfig, LaunchConfig, MemoryMode
+from agentarium.core.schemas.setup import AgentConfig, LaunchConfig, MemoryMode, WorldConfig
 from agentarium.core.schemas.toolcall import ToolCallRecord, ToolCallStatus
+from agentarium.engines import get_engine
 from agentarium.services.preset_service import get_scenario_preset, get_world_template
 from agentarium.services.run_service import (
     create_run_from_design,
@@ -155,6 +156,26 @@ class AttemptResult(BaseModel):
     attempt_index: int = 0
     # Structured diff vs. the previous attempt (None for the first attempt).
     diff: dict | None = None
+    # One un-simulated, single-frame EpisodeTrace-shaped snapshot per tool call
+    # (same index as ``tool_calls``), so the Studio's Build Timeline can render
+    # each construction step with the real renderer, without running physics.
+    snapshots: list[dict] = []
+
+
+def _design_snapshot(design: DesignSpec, world: WorldConfig) -> dict:
+    """A single-frame, un-simulated snapshot of ``design`` as it stands right now.
+
+    Reuses the real engine's ``simulate`` with ``duration_seconds=0`` — this
+    takes exactly zero physics steps, so the one frame it produces has every
+    dynamic body at its as-placed position. That gives the Build Timeline the
+    SAME EpisodeTrace shape (world_static/body_meta/frames) the physics replay
+    uses, through the engine-neutral interface, with no new rendering code.
+    """
+    engine = get_engine(world.engine.value)
+    if engine is None:
+        return {}
+    trace = engine.simulate(design, world, duration_seconds=0.0)
+    return trace.model_dump(mode="json")
 
 
 def _attempt_diff(prev: AttemptResult | None, design: DesignSpec, score: ScoreCard) -> dict | None:
@@ -318,6 +339,7 @@ async def run_agent_attempt(
     tool_calls = parse_tool_calls(raw)
 
     records: list[ToolCallRecord] = []
+    snapshots: list[dict] = []
     for call in tool_calls:
         tool = call.get("tool", "")
         args = call.get("args", {}) or {}
@@ -332,6 +354,7 @@ async def run_agent_attempt(
             max_motors=config.constraints.max_motors,
         )
         records.append(result.record)
+        snapshots.append(_design_snapshot(design, config.world))
 
     # Optional conservative repair pass over rejected calls (e.g. duplicate ids).
     if config.constraints.repair_loop_enabled and any(
@@ -385,6 +408,7 @@ async def run_agent_attempt(
         parent_attempt_id=previous.attempt_id if previous is not None else None,
         attempt_index=attempt_index,
         diff=_attempt_diff(previous, design, score),
+        snapshots=snapshots,
     )
 
 
@@ -464,6 +488,7 @@ async def run_cooperative_attempt(
     )
 
     records: list[ToolCallRecord] = []
+    snapshots: list[dict] = []
 
     for turn_index, agent in enumerate(participants):
         provider = get_provider(agent.provider.value)
@@ -508,6 +533,7 @@ async def run_cooperative_attempt(
                 max_motors=config.constraints.max_motors,
             )
             records.append(result.record)
+            snapshots.append(_design_snapshot(design, config.world))
 
     _inject_challenge_goal(config, design)
 
@@ -550,4 +576,5 @@ async def run_cooperative_attempt(
         score=score,
         tool_calls=records,
         attempt_index=attempt_index,
+        snapshots=snapshots,
     )
