@@ -292,3 +292,30 @@ def test_city_score_kind_metrics_ignore_seeded_world_props():
     )
     metrics = compute_metrics(trace, design)
     assert metrics["road_count"] == 0.0  # world-seeded road excluded
+
+
+def test_city_score_penalizes_overlapping_buildings():
+    # Two buildings stacked at the same x-position visually intersect — a bad
+    # city layout — and must score worse than the same buildings well-spaced.
+    trace = _moving_trace(0.0)
+    overlapping = DesignSpec(
+        name="city",
+        bodies=[
+            BodySpec(id="b0", shape=BodyShape.box, position=[0.0, 1.5], size=[3.0, 3.0], static=True),
+            BodySpec(id="b1", shape=BodyShape.box, position=[1.0, 1.5], size=[3.0, 3.0], static=True),
+        ],
+    )
+    spaced = DesignSpec(
+        name="city",
+        bodies=[
+            BodySpec(id="b0", shape=BodyShape.box, position=[0.0, 1.5], size=[3.0, 3.0], static=True),
+            BodySpec(id="b1", shape=BodyShape.box, position=[6.0, 1.5], size=[3.0, 3.0], static=True),
+        ],
+    )
+    overlap_metrics = compute_metrics(trace, overlapping)
+    spaced_metrics = compute_metrics(trace, spaced)
+    assert overlap_metrics["overlap_total"] > 0.0
+    assert spaced_metrics["overlap_total"] == 0.0
+    overlap_score, _, _ = REWARDS["city_score"](overlap_metrics)
+    spaced_score, _, _ = REWARDS["city_score"](spaced_metrics)
+    assert spaced_score > overlap_score

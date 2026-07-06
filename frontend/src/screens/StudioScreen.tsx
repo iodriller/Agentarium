@@ -39,6 +39,14 @@ export function StudioScreen() {
   const [videoExporting, setVideoExporting] = useState(false)
   const [videoMessage, setVideoMessage] = useState<string | null>(null)
 
+  // ── Build Timeline (per-tool-call design snapshots for the CURRENT attempt) ─
+  // Un-simulated, single-frame traces streamed one per tool call so the Studio
+  // can replay the CONSTRUCTION sequence, not just the physics result. Reset
+  // whenever a new attempt starts; empty for historical (non-live) replay.
+  const [buildSnapshots, setBuildSnapshots] = useState<EpisodeTrace[]>([])
+  const [buildStepIndex, setBuildStepIndex] = useState(0)
+  const [viewMode, setViewMode] = useState<'physics' | 'build'>('physics')
+
   // ── Live run state (fed by the WebSocket) ──────────────────────────────────
   const [runStatus, setRunStatus] = useState<
     'connecting' | 'running' | 'finished' | 'disconnected'
@@ -105,6 +113,12 @@ export function StudioScreen() {
 
   const totalFrames = trace?.frames.length ?? 0
 
+  // When viewing the Build Timeline, feed the current step's un-simulated
+  // snapshot into the SAME renderer instead of the physics trace.
+  const clampedBuildStep = Math.min(buildStepIndex, Math.max(0, buildSnapshots.length - 1))
+  const displayedTrace =
+    viewMode === 'build' && buildSnapshots.length > 0 ? buildSnapshots[clampedBuildStep] : trace
+
   // Reverse-lookup the displayed trace's attempt index (for the replay label).
   let currentAttemptLabel: string | undefined
   if (trace?.run_id) {
@@ -127,6 +141,10 @@ export function StudioScreen() {
       setFrameIndex(0)
       setPlaying(true)
       setStatus('ready')
+      // Attempt History replays an OLD attempt — its build snapshots weren't
+      // retained (only the latest live attempt's are), so fall back to physics.
+      setViewMode('physics')
+      setBuildSnapshots([])
     } catch {
       setStatus('error')
     }
@@ -168,6 +186,9 @@ export function StudioScreen() {
         setPlaying(true)
         setStatus('ready')
         setRunStatus('finished')
+        // No live snapshot stream for a historical run — physics replay only.
+        setViewMode('physics')
+        setBuildSnapshots([])
         try {
           const sc = await api.get<ScoreCard>(`/runs/${rid}/score`)
           if (!cancelled) {
@@ -208,6 +229,9 @@ export function StudioScreen() {
           const id = event.agent_id ?? (event.agent_ids ? 'shared' : agentsRef.current[0]?.id ?? 'agent_a')
           setLatestAgentId(id)
           setLatestAttemptIndex(event.attempt_index)
+          // A new attempt starts a fresh build sequence.
+          setBuildSnapshots([])
+          setBuildStepIndex(0)
           break
         }
         case 'attempt_finished':
@@ -215,6 +239,10 @@ export function StudioScreen() {
           break
         case 'tool_call':
           setToolLog((prev) => [...prev, event.record])
+          break
+        case 'design_snapshot':
+          setBuildSnapshots((prev) => [...prev, event.trace])
+          setBuildStepIndex((i) => i + 1)
           break
         case 'design_update': {
           // Cooperative: one shared design (no agent_id) + a by_agent breakdown.
@@ -590,6 +618,69 @@ export function StudioScreen() {
             onFullscreen={handleFullscreen}
           />
 
+          {/* Build Timeline toggle — only shown once at least one step has
+              streamed in for the current attempt (hidden for historical replay,
+              which has no per-step snapshots). */}
+          {buildSnapshots.length > 0 && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: '6px 12px',
+                borderBottom: '1px solid var(--border)',
+                background: 'var(--surface-1)',
+                flexShrink: 0,
+              }}
+            >
+              <div style={{ display: 'flex', gap: 4 }}>
+                {(['build', 'physics'] as const).map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => setViewMode(m)}
+                    style={{
+                      padding: '3px 10px',
+                      borderRadius: 6,
+                      border: '1px solid var(--border)',
+                      background: viewMode === m ? 'var(--accent)' : 'var(--surface-2)',
+                      color: viewMode === m ? 'var(--on-accent)' : 'var(--text-2)',
+                      fontSize: 11,
+                      fontWeight: 600,
+                      textTransform: 'capitalize',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {m === 'build' ? 'Build' : 'Physics'}
+                  </button>
+                ))}
+              </div>
+              {viewMode === 'build' && (
+                <>
+                  <input
+                    type="range"
+                    aria-label="Build step"
+                    min={0}
+                    max={Math.max(0, buildSnapshots.length - 1)}
+                    step={1}
+                    value={clampedBuildStep}
+                    onChange={(e) => setBuildStepIndex(Number(e.target.value))}
+                    style={{ flex: 1, accentColor: 'var(--accent)' }}
+                  />
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color: 'var(--text-2)',
+                      fontVariantNumeric: 'tabular-nums',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    Step {clampedBuildStep + 1} / {buildSnapshots.length}
+                  </span>
+                </>
+              )}
+            </div>
+          )}
+
           {/* Viewport */}
           <div
             ref={viewportRef}
@@ -600,7 +691,7 @@ export function StudioScreen() {
               overflow: 'hidden',
             }}
           >
-            <WorldView ref={worldViewRef} trace={trace} frameIndex={frameIndex} />
+            <WorldView ref={worldViewRef} trace={displayedTrace} frameIndex={viewMode === 'build' ? 0 : frameIndex} />
             <ViewportOverlay
               status={status}
               runStatus={runStatus}

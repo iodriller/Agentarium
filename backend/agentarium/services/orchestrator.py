@@ -302,7 +302,7 @@ class RunManager:
             )
             previous = result
 
-            for record in result.tool_calls:
+            for step_index, record in enumerate(result.tool_calls):
                 self._emit(
                     run_id,
                     {
@@ -312,6 +312,19 @@ class RunManager:
                         "record": record.model_dump(mode="json"),
                     },
                 )
+                # One un-simulated snapshot per tool call, in lockstep, so the
+                # Studio's Build Timeline can scrub the construction sequence.
+                if step_index < len(result.snapshots):
+                    self._emit(
+                        run_id,
+                        {
+                            "type": "design_snapshot",
+                            "attempt_index": attempt_index,
+                            "agent_id": agent.id,
+                            "step_index": step_index,
+                            "trace": result.snapshots[step_index],
+                        },
+                    )
                 if STREAM_DELAY:
                     await asyncio.sleep(STREAM_DELAY)
 
@@ -471,7 +484,7 @@ class RunManager:
             )
 
             # Stream each tool call attributed to its own author.
-            for record in result.tool_calls:
+            for step_index, record in enumerate(result.tool_calls):
                 self._emit(
                     run_id,
                     {
@@ -481,6 +494,17 @@ class RunManager:
                         "record": record.model_dump(mode="json"),
                     },
                 )
+                if step_index < len(result.snapshots):
+                    self._emit(
+                        run_id,
+                        {
+                            "type": "design_snapshot",
+                            "attempt_index": attempt_index,
+                            "agent_id": record.agent_id,
+                            "step_index": step_index,
+                            "trace": result.snapshots[step_index],
+                        },
+                    )
                 if STREAM_DELAY:
                     await asyncio.sleep(STREAM_DELAY)
 

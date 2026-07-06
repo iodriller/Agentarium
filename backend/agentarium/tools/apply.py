@@ -38,6 +38,27 @@ _MATERIAL_FRICTION = {
     "glass": 0.2,
 }
 
+# The engine's ground is a thin static segment at y=0 (see pymunk2d/builder.py's
+# GROUND_ID, radius=0.1). A dynamic body spawned already embedded past it (e.g.
+# a 1x1 box at the schema-default position [0, 0], half-submerged) can tunnel
+# through forever instead of resting on top — pymunk's collision resolution has
+# no clear "outside" direction for a shape that starts surrounding the ground
+# line. Clamp new dynamic bodies to rest AT or ABOVE the surface at creation.
+def _min_dynamic_y(shape: BodyShape, size: list[float]) -> float:
+    """Half-extent (metres) a dynamic body of this shape/size needs above y=0."""
+    if shape == BodyShape.circle:
+        return size[0] if size else 0.5
+    if shape in (BodyShape.box, BodyShape.polygon):
+        return size[1] / 2.0 if len(size) > 1 else (size[0] / 2.0 if size else 0.25)
+    return 0.0  # segments are typically static scaffolding; no safe-height concept
+
+
+def _clamp_to_ground(position: list[float], shape: BodyShape, size: list[float]) -> list[float]:
+    min_y = _min_dynamic_y(shape, size)
+    if len(position) > 1 and position[1] < min_y:
+        position = [position[0], min_y, *position[2:]]
+    return position
+
 
 class ToolCallResult(BaseModel):
     record: ToolCallRecord
@@ -147,13 +168,17 @@ def _mutate(design: DesignSpec, agent_id: str, tool: str, args: dict) -> bool:
         else:
             length = float(args.get("length", 1.0))
             size = [length, length]
+        static = bool(args.get("static", False))
+        position = [float(v) for v in args.get("position", [0.0, 0.0])]
+        if not static:
+            position = _clamp_to_ground(position, shape, size)
         design.bodies.append(
             BodySpec(
                 id=bid,
                 shape=shape,
-                position=[float(v) for v in args.get("position", [0.0, 0.0])],
+                position=position,
                 size=size,
-                static=bool(args.get("static", False)),
+                static=static,
                 mass=float(args.get("mass", 1.0)),
                 material=args.get("material", "metal"),
                 friction=float(args.get("friction", 0.6)),
@@ -258,12 +283,15 @@ def _mutate(design: DesignSpec, agent_id: str, tool: str, args: dict) -> bool:
         bid = args["id"]
         if bid in _body_ids(design):
             raise ValueError(f"body '{bid}' already exists")
+        ball_size = [float(args.get("radius", 0.5))]
         design.bodies.append(
             BodySpec(
                 id=bid,
                 shape=BodyShape.circle,
-                position=[float(v) for v in args["position"]],
-                size=[float(args.get("radius", 0.5))],
+                position=_clamp_to_ground(
+                    [float(v) for v in args["position"]], BodyShape.circle, ball_size
+                ),
+                size=ball_size,
                 mass=float(args.get("mass", 1.0)),
                 color=args.get("color"),
                 kind=args.get("kind") or "ball",

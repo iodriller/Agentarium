@@ -113,6 +113,7 @@ def compute_metrics(trace: EpisodeTrace, design: DesignSpec) -> dict[str, float]
         "park_count": 0.0,
         "tree_count": 0.0,
         "height_variety": 0.0,
+        "overlap_total": 0.0,
     }
 
     frames = trace.frames
@@ -167,6 +168,29 @@ def compute_metrics(trace: EpisodeTrace, design: DesignSpec) -> dict[str, float]
     ]
     if len(building_heights) >= 2:
         metrics["height_variety"] = max(building_heights) - min(building_heights)
+
+    # --- overlap: agent structures whose horizontal footprints overlap ----------
+    # A side-view scene reads badly when two "buildings" occupy the same x-range
+    # (they visually stack/intersect instead of forming a readable street). Only
+    # the agent's own footprints count (world backdrop is excluded, same as
+    # spread/spacing above).
+    footprints = [
+        (
+            b.position[0] - (b.size[0] / 2.0 if b.size else 0.25),
+            b.position[0] + (b.size[0] / 2.0 if b.size else 0.25),
+        )
+        for b in agent_bodies
+        if len(b.position) >= 1
+    ]
+    overlap_total = 0.0
+    for i in range(len(footprints)):
+        a_lo, a_hi = footprints[i]
+        for j in range(i + 1, len(footprints)):
+            b_lo, b_hi = footprints[j]
+            overlap = min(a_hi, b_hi) - max(a_lo, b_lo)
+            if overlap > 0:
+                overlap_total += overlap
+    metrics["overlap_total"] = overlap_total
 
     # --- bins: containment (bins_in_target) + correct class match (bins_correct) -
     if bins:
@@ -363,24 +387,29 @@ def _reward_city_score(m: dict[str, float]) -> tuple[float, bool, str]:
     park_count = m.get("park_count", 0.0)
     tree_count = m.get("tree_count", 0.0)
     height_variety = m.get("height_variety", 0.0)
+    overlap_total = m.get("overlap_total", 0.0)
     infra_bonus = (
         min(road_count, 2.0) * 6.0
         + min(park_count, 2.0) * 6.0
         + min(tree_count, 4.0) * 2.0
         + min(height_variety, 6.0) * 2.0
     )
+    overlap_penalty = overlap_total * 5.0
     score = (
         parts * 4.0
         + math.sqrt(max(0.0, spread_area)) * 2.0
         + avg_spacing * 4.0  # livability: well-spaced beats clumped
         + stability * 8.0
         + infra_bonus
+        - overlap_penalty
     )
     success = parts >= 4 and min_spacing >= 1.0
     summary = (
         f"City: {int(parts)} structures ({int(road_count)} road, {int(park_count)} "
         f"park, {int(tree_count)} tree), {spread_area:.1f}u² spread, avg spacing "
-        f"{avg_spacing:.2f} (min {min_spacing:.2f})."
+        f"{avg_spacing:.2f} (min {min_spacing:.2f})"
+        + (f", {overlap_total:.1f}u overlap" if overlap_total > 0 else "")
+        + "."
     )
     return score, success, summary
 

@@ -303,3 +303,25 @@ This is intentionally smaller than a 3D rewrite: it uses the existing schemas,
 runner events, attempt diffs, `kind` labels, Playwright screenshots, and browser
 recording path. The larger PyBullet/Three.js work remains a separate product
 decision.
+
+## 11. Build Timeline, ground-tunneling fix, and scoring/test guardrails (2026-07-05)
+
+Closes out §10's "strong plan" items 1–2 (`DesignSnapshot` + Build Timeline), plus
+a real correctness bug found along the way and two lock-in guardrails.
+
+### Fixed 🟢
+
+| Area | Fix |
+|------|-----|
+| **Ground-tunneling bug** | `apply.py::_clamp_to_ground` clamps a new DYNAMIC body's spawn position to rest at/above the ground surface, for `create_body` and `add_ball`. Previously a body spawned embedded in the ground (e.g. the schema-default `position: [0, 0]`) could tunnel through it forever (`y -> -4412` by t=30s) — a real bug that could silently zero-score a genuine LLM agent's attempt with no error surfaced. Static bodies are untouched (terrain is allowed to be embedded on purpose, e.g. a hill segment). |
+| **Challenge-identity guardrail** | `test_runner.py::test_challenge_kinds_do_not_leak_across_scenarios` asserts each challenge's mock-built kind set is *exactly* right and disjoint from every other challenge's (Bridge={beam}, Crawl={leg}, Sorter={bin,ramp}, City={road,park,house,tower,shop,tree}). Locks in the per-scenario mock work from §8/§10 against a future regression where every scenario starts looking the same. |
+| **`city_score` overlap penalty** | Added `overlap_total` (sum of horizontal footprint overlaps between the agent's own bodies) to `compute_metrics`, and `city_score` now subtracts `overlap_total * 5.0`. Two buildings stacked at the same x-position — a bad, unreadable layout — now score worse than the same buildings well-spaced. Closes the last shallow spot in city scoring (L1 in `remaining_gaps.md`). |
+| **`DesignSnapshot` + Build Timeline** (§10 plan items 1–2) | `AttemptResult` gained `snapshots: list[dict]` — one un-simulated, single-frame `EpisodeTrace`-shaped dict per tool call, built by reusing the real engine's `simulate(design, world, duration_seconds=0.0)` (zero physics steps = bodies stay exactly where placed) through the engine-neutral `EngineAdapter` interface. The orchestrator streams a `design_snapshot` WS event in lockstep with each `tool_call` event. Studio has a **Build / Physics** toggle (only shown once snapshots exist) with a step scrubber — switching to Build feeds the current step's snapshot into the SAME `WorldView`/`TraceRenderer` used for physics replay, so no new rendering code was needed. Verified live end-to-end (Playwright against a real launched run): stepping the scrubber visibly adds one building at a time. |
+| **Opt-in visual smoke tests** | `test_visual_smoke.py`: for each of the 4 challenges, runs a real mock attempt, starts the live FastAPI app in-process on an ephemeral port, and confirms the Phaser canvas actually mounts with a non-zero size at `/studio/{run_id}` in a real Chromium browser. Skipped by default (`AGENTARIUM_RUN_UI_SMOKE=1` to run) so `uv run pytest` stays fast/hermetic — this catches "the page crashed / canvas never mounted," not pixel-level regressions (that's what the kind-leak guardrail above is for). |
+
+### Noted, not changed
+
+| Item | Why |
+|------|-----|
+| A repair-pass addition (`config.constraints.repair_loop_enabled`, rare) isn't reflected in the Build Timeline's last step, since repair runs after snapshot capture. The final physics trace and score are unaffected — only the Build Timeline may under-count by the few repaired parts. |
+| `overlap_total` only checks horizontal (x-axis) footprint overlap, matching this being a side-view scene — not a true 2D top-down collision check. Sufficient for "buildings stacked on top of each other," not sub-pixel precision. |

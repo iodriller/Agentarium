@@ -170,3 +170,44 @@ def test_sorter_mock_places_matching_bins_and_ramps():
     assert accepts == {"red", "blue"}
     assert {"bin", "ramp"} <= body_kinds
     assert all(call.status.value == "success" for call in result.tool_calls)
+
+
+def test_attempt_result_carries_per_step_design_snapshots():
+    # Each tool call should produce one un-simulated EpisodeTrace-shaped
+    # snapshot, in step order, so the Studio can replay the CONSTRUCTION
+    # sequence (Build Timeline) — not just the final physics trace.
+    result = asyncio.run(run_single_attempt(_city_config()))
+    assert len(result.snapshots) == len(result.tool_calls)
+    # The last snapshot's dynamic/static prop set reflects the fully-built city
+    # (create_body-only city scene is all static, so it shows up in world_static).
+    last_snapshot = result.snapshots[-1]
+    assert last_snapshot["frames"] == [{"t": 0.0, "bodies": {}, "events": []}]
+    static_ids = {p["id"] for p in last_snapshot["world_static"]}
+    assert {"road1", "house1", "tower1"} <= static_ids
+    # An early snapshot (after the first tool call) has fewer static props than
+    # the last one — the timeline actually progresses step by step.
+    assert len(result.snapshots[0]["world_static"]) < len(last_snapshot["world_static"])
+
+
+def test_challenge_kinds_do_not_leak_across_scenarios():
+    # Guardrail against a regression where every scenario starts looking like
+    # the same generic (or worst, all-city) scene: each challenge's mock-built
+    # kinds must be disjoint from the OTHER challenges' distinctive kinds.
+    def agent_kinds(result: AttemptResult) -> set[str]:
+        return {b.kind for b in result.design.bodies if b.created_by == "a" and b.kind}
+
+    bridge_kinds = agent_kinds(asyncio.run(run_single_attempt(_bridge_config())))
+    crawl_kinds = agent_kinds(asyncio.run(run_single_attempt(_crawl_config())))
+    sorter_kinds = agent_kinds(asyncio.run(run_single_attempt(_sorter_config())))
+    city_kinds = agent_kinds(asyncio.run(run_single_attempt(_city_config())))
+
+    assert bridge_kinds == {"beam"}
+    assert crawl_kinds == {"leg"}
+    assert sorter_kinds == {"bin", "ramp"}
+    assert city_kinds == {"road", "park", "house", "tower", "shop", "tree"}
+
+    # No overlap at all between any two scenarios' kind sets.
+    all_sets = [bridge_kinds, crawl_kinds, sorter_kinds, city_kinds]
+    for i, a in enumerate(all_sets):
+        for b in all_sets[i + 1 :]:
+            assert not (a & b), f"kind overlap between scenarios: {a & b}"

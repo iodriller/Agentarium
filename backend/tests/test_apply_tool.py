@@ -72,6 +72,63 @@ def test_create_body_kind_flows_through():
     assert design.bodies[0].kind == "house"
 
 
+def test_create_body_clamps_embedded_dynamic_position():
+    # A dynamic 1x1 box at the schema-default position [0, 0] is half-submerged
+    # in the ground (y=0 line) and can tunnel through it forever (see E5 in
+    # remaining_gaps.md). It must be clamped to rest at/above the surface.
+    design = DesignSpec()
+    result = apply_tool_call(
+        design,
+        agent_id="a",
+        tool="create_body",
+        args={"id": "b1", "shape": "box"},
+        enabled_tools=["create_body"],
+    )
+    assert result.mutated is True
+    body = design.bodies[0]
+    assert body.position[1] >= 0.25  # half of the default 1x1 box's height
+
+
+def test_create_body_does_not_clamp_static_bodies():
+    # Static terrain (e.g. a hill segment) is allowed to be embedded on purpose.
+    design = DesignSpec()
+    result = apply_tool_call(
+        design,
+        agent_id="a",
+        tool="create_body",
+        args={"id": "hill", "shape": "box", "position": [0.0, 0.0], "static": True},
+        enabled_tools=["create_body"],
+    )
+    assert result.mutated is True
+    assert design.bodies[0].position == [0.0, 0.0]
+
+
+def test_create_body_leaves_already_safe_position_untouched():
+    design = DesignSpec()
+    result = apply_tool_call(
+        design,
+        agent_id="a",
+        tool="create_body",
+        args={"id": "b1", "shape": "box", "position": [2.0, 10.0]},
+        enabled_tools=["create_body"],
+    )
+    assert result.mutated is True
+    assert design.bodies[0].position == [2.0, 10.0]
+
+
+def test_add_ball_clamps_embedded_dynamic_position():
+    design = DesignSpec()
+    result = apply_tool_call(
+        design,
+        agent_id="a",
+        tool="add_ball",
+        args={"id": "ball1", "position": [0.0, 0.0], "radius": 0.5},
+        enabled_tools=["add_ball"],
+    )
+    assert result.mutated is True
+    assert design.bodies[0].position[1] >= 0.5
+
+
 def test_joint_between_two_static_bodies_rejected():
     # A joint between two static bodies is invalid (pymunk needs one dynamic) and
     # would otherwise crash the whole simulation — reject it with feedback.

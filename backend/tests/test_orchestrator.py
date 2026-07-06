@@ -159,6 +159,26 @@ def test_ws_streams_events():
         assert "run_finished" in types
 
 
+def test_design_snapshot_events_stream_in_lockstep_with_tool_calls():
+    # The Build Timeline needs one design_snapshot per tool_call, same attempt,
+    # same agent, in matching order — so the UI can pair them up 1:1.
+    async def scenario() -> None:
+        manager = RunManager()
+        run_id = await _run_to_completion(manager, _config())
+        events = manager.get_events(run_id)
+
+        tool_calls = [e for e in events if e["type"] == "tool_call"]
+        snapshots = [e for e in events if e["type"] == "design_snapshot"]
+        assert len(snapshots) == len(tool_calls)
+        for snap in snapshots:
+            assert "trace" in snap
+            assert "world_static" in snap["trace"]
+            assert "body_meta" in snap["trace"]
+            assert isinstance(snap["step_index"], int)
+
+    asyncio.run(scenario())
+
+
 def test_run_started_reports_effective_caps():
     async def scenario() -> None:
         manager = RunManager()
