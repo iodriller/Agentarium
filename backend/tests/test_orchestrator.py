@@ -175,6 +175,13 @@ def test_design_snapshot_events_stream_in_lockstep_with_tool_calls():
             assert "world_static" in snap["trace"]
             assert "body_meta" in snap["trace"]
             assert isinstance(snap["step_index"], int)
+            assert isinstance(snap["tool"], str)
+            assert snap["status"] in {"success", "repaired", "rejected"}
+            assert isinstance(snap["label"], str)
+            assert isinstance(snap["mutated"], bool)
+            assert isinstance(snap["visual_change"], bool)
+            assert isinstance(snap["new_body_ids"], list)
+            assert isinstance(snap["new_joint_ids"], list)
 
     asyncio.run(scenario())
 

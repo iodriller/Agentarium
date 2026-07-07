@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import pathlib
 import sqlite3
 import threading
@@ -14,6 +15,7 @@ from agentarium.core.schemas.design import (
 )
 from agentarium.core.schemas.score import ScoreCard
 from agentarium.core.schemas.setup import WorldConfig
+from agentarium.core.schemas.toolcall import BuildStepRecord
 from agentarium.core.schemas.trace import EpisodeTrace
 from agentarium.engines import get_engine
 from agentarium.services.scoring_service import score_attempt
@@ -428,3 +430,23 @@ def get_score(run_id: str) -> ScoreCard | None:
 def get_design(run_id: str) -> DesignSpec | None:
     """Return the design that produced ``run_id``'s trace, checking DB if evicted from memory."""
     return DESIGNS.get(run_id) or _db_get_design(run_id)
+
+
+def get_build_snapshots(run_id: str) -> list[BuildStepRecord] | None:
+    """Return persisted Build Timeline steps for ``run_id``.
+
+    ``None`` means the run itself is unknown. An empty list means this is a
+    known, usually older, run whose artifacts predate ``build_snapshots.json``.
+    """
+    if get_trace(run_id) is None:
+        return None
+    path = _RUNS_DIR / run_id / "build_snapshots.json"
+    if not path.exists():
+        return []
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, list):
+            return []
+        return [BuildStepRecord.model_validate(item) for item in raw]
+    except Exception:
+        return []

@@ -82,8 +82,6 @@ const MEMORY_OPTIONS: { value: MemoryMode; label: string }[] = [
 const MULTI_MODES: { value: CollaborationMode; title: string; subtitle: string }[] = [
   { value: 'cooperative', title: 'Cooperative', subtitle: 'Build one shared design' },
   { value: 'competitive', title: 'Competitive', subtitle: 'Each optimizes alone' },
-  { value: 'relay', title: 'Relay', subtitle: 'Hand off & continue' },
-  { value: 'sandbox', title: 'Sandbox', subtitle: 'No objective' },
 ]
 
 const MODEL_HINT: Record<LLMProvider, string> = {

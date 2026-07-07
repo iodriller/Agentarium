@@ -1,5 +1,7 @@
 import asyncio
+import pathlib
 
+from agentarium.agents.base import AgentProvider, ProviderStatus, StructuredOutputResult
 from agentarium.agents.runner import AttemptResult, run_single_attempt
 from agentarium.core.schemas.design import DesignSpec
 from agentarium.core.schemas.score import ScoreCard
@@ -177,7 +179,10 @@ def test_attempt_result_carries_per_step_design_snapshots():
     # snapshot, in step order, so the Studio can replay the CONSTRUCTION
     # sequence (Build Timeline) — not just the final physics trace.
     result = asyncio.run(run_single_attempt(_city_config()))
+    assert len(result.build_steps) == len(result.tool_calls)
     assert len(result.snapshots) == len(result.tool_calls)
+    assert result.build_steps[0].label.startswith("create_body - added")
+    assert result.build_steps[-1].trace_run_id == result.trace_run_id
     # The last snapshot's dynamic/static prop set reflects the fully-built city
     # (create_body-only city scene is all static, so it shows up in world_static).
     last_snapshot = result.snapshots[-1]
@@ -187,6 +192,58 @@ def test_attempt_result_carries_per_step_design_snapshots():
     # An early snapshot (after the first tool call) has fewer static props than
     # the last one — the timeline actually progresses step by step.
     assert len(result.snapshots[0]["world_static"]) < len(last_snapshot["world_static"])
+
+    assert result.trace_run_id is not None
+    path = pathlib.Path("runs") / result.trace_run_id / "build_snapshots.json"
+    assert path.exists()
+
+
+class _DuplicateProvider(AgentProvider):
+    name = "duplicate"
+
+    async def test_connection(
+        self, endpoint_url: str | None, api_key: str | None
+    ) -> ProviderStatus:
+        return ProviderStatus(online=True)
+
+    async def test_structured_output(
+        self, model: str, endpoint_url: str | None, api_key: str | None
+    ) -> StructuredOutputResult:
+        return StructuredOutputResult(ok=True)
+
+    async def complete(
+        self,
+        *,
+        model: str,
+        system: str,
+        user: str,
+        endpoint_url: str | None,
+        api_key: str | None,
+        temperature: float = 0.7,
+    ) -> str:
+        return (
+            '{"tool_calls": ['
+            '{"tool": "create_body", "args": {"id": "dup", "shape": "box", "position": [0, 3]}},'
+            '{"tool": "create_body", "args": {"id": "dup", "shape": "box", "position": [2, 3]}}'
+            "]}"
+        )
+
+
+def test_repair_pass_preserves_rejected_call_and_adds_timeline_step(monkeypatch):
+    import agentarium.agents.runner as runner
+
+    monkeypatch.setattr(runner, "get_provider", lambda _name: _DuplicateProvider())
+    result = asyncio.run(run_single_attempt(_config()))
+
+    statuses = [call.status.value for call in result.tool_calls]
+    assert statuses == ["success", "rejected", "repaired"]
+    assert result.tool_calls[1].tool == "create_body"
+    assert result.tool_calls[1].error and "already exists" in result.tool_calls[1].error
+    assert result.tool_calls[2].tool == "repair_pass"
+    assert result.build_steps[-1].tool == "repair_pass"
+    assert result.build_steps[-1].label == "Auto-repair"
+    assert "dup_r" in result.build_steps[-1].new_body_ids
+    assert "dup_r" in {b.id for b in result.design.bodies}
 
 
 def test_challenge_kinds_do_not_leak_across_scenarios():

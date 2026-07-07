@@ -358,6 +358,11 @@ function ValidationBanner({ result }: { result: ValidationResult | null }) {
       border: 'var(--warn)',
       color: 'var(--warn)',
     },
+    UNSUPPORTED_MODE: {
+      bg: 'color-mix(in srgb, var(--warn) 15%, transparent)',
+      border: 'var(--warn)',
+      color: 'var(--warn)',
+    },
   }
 
   const s = styles[state] ?? styles['MISSING_REQUIRED']
@@ -369,6 +374,7 @@ function ValidationBanner({ result }: { result: ValidationResult | null }) {
     TOOL_CHALLENGE_MISMATCH: 'Tool / challenge mismatch — adjust tools',
     CONSTRAINTS_TOO_LOOSE: 'Constraints too loose — tighten limits',
     UNSUPPORTED_ENGINE: 'Engine not available yet',
+    UNSUPPORTED_MODE: 'Collaboration mode not available yet',
   }
 
   const msg = messages[state] ?? state

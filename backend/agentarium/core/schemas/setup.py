@@ -90,6 +90,7 @@ class LaunchState(StrEnum):
     tool_challenge_mismatch = "TOOL_CHALLENGE_MISMATCH"
     constraints_too_loose = "CONSTRAINTS_TOO_LOOSE"
     unsupported_engine = "UNSUPPORTED_ENGINE"
+    unsupported_mode = "UNSUPPORTED_MODE"
 
 
 class AgentConfig(BaseModel):

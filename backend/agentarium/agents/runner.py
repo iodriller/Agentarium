@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 import pathlib
+import time
 import uuid
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from agentarium.agents import get_provider
 from agentarium.agents.parsing import parse_tool_calls
@@ -17,7 +19,7 @@ from agentarium.core.schemas.challenge import ScenarioPreset
 from agentarium.core.schemas.design import WORLD_AUTHOR, BodySpec, DesignSpec
 from agentarium.core.schemas.score import ScoreCard
 from agentarium.core.schemas.setup import AgentConfig, LaunchConfig, MemoryMode, WorldConfig
-from agentarium.core.schemas.toolcall import ToolCallRecord, ToolCallStatus
+from agentarium.core.schemas.toolcall import BuildStepRecord, ToolCallRecord, ToolCallStatus
 from agentarium.engines import get_engine
 from agentarium.services.preset_service import get_scenario_preset, get_world_template
 from agentarium.services.run_service import (
@@ -156,10 +158,10 @@ class AttemptResult(BaseModel):
     attempt_index: int = 0
     # Structured diff vs. the previous attempt (None for the first attempt).
     diff: dict | None = None
-    # One un-simulated, single-frame EpisodeTrace-shaped snapshot per tool call
-    # (same index as ``tool_calls``), so the Studio's Build Timeline can render
-    # each construction step with the real renderer, without running physics.
-    snapshots: list[dict] = []
+    # Durable, labelled Build Timeline steps. ``snapshots`` remains as a
+    # compatibility convenience for older tests/callers that only need traces.
+    build_steps: list[BuildStepRecord] = Field(default_factory=list)
+    snapshots: list[dict] = Field(default_factory=list)
 
 
 def _design_snapshot(design: DesignSpec, world: WorldConfig) -> dict:
@@ -176,6 +178,79 @@ def _design_snapshot(design: DesignSpec, world: WorldConfig) -> dict:
         return {}
     trace = engine.simulate(design, world, duration_seconds=0.0)
     return trace.model_dump(mode="json")
+
+
+def _step_label(record: ToolCallRecord) -> str:
+    """Short human label for one Build Timeline step."""
+    if record.tool == "repair_pass":
+        return "Auto-repair"
+    if record.status == ToolCallStatus.rejected:
+        detail = f": {record.error}" if record.error else ""
+        return f"{record.tool} - rejected{detail}"
+    added = [*record.new_body_ids, *record.new_joint_ids]
+    if added:
+        return f"{record.tool} - added {', '.join(added)}"
+    if record.mutated:
+        return f"{record.tool} - changed design"
+    return f"{record.tool} - no visible build change"
+
+
+def _build_step(
+    record: ToolCallRecord,
+    trace: dict,
+    *,
+    attempt_index: int,
+    step_index: int,
+    trace_run_id: str | None = None,
+) -> BuildStepRecord:
+    return BuildStepRecord(
+        attempt_index=attempt_index,
+        step_index=step_index,
+        trace_run_id=trace_run_id,
+        agent_id=record.agent_id,
+        tool=record.tool,
+        status=record.status,
+        label=_step_label(record),
+        mutated=record.mutated,
+        visual_change=record.visual_change,
+        new_body_ids=record.new_body_ids,
+        new_joint_ids=record.new_joint_ids,
+        error=record.error,
+        trace=trace,
+    )
+
+
+def _body_ids(design: DesignSpec) -> set[str]:
+    return {b.id for b in design.bodies}
+
+
+def _joint_ids(design: DesignSpec) -> set[str]:
+    return {j.id for j in design.joints}
+
+
+def _persist_attempt_artifacts(
+    out_dir: pathlib.Path,
+    design: DesignSpec,
+    records: list[ToolCallRecord],
+    score: ScoreCard,
+    build_steps: list[BuildStepRecord],
+) -> None:
+    """Persist human-inspectable artifacts for one simulated attempt."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "design.yaml").write_text(
+        yaml.safe_dump(design.model_dump(mode="json"), sort_keys=False),
+        encoding="utf-8",
+    )
+    with (out_dir / "toolcalls.jsonl").open("w", encoding="utf-8") as fh:
+        for record in records:
+            fh.write(record.model_dump_json() + "\n")
+    (out_dir / "score.json").write_text(
+        score.model_dump_json(indent=2), encoding="utf-8"
+    )
+    (out_dir / "build_snapshots.json").write_text(
+        json.dumps([s.model_dump(mode="json") for s in build_steps], indent=2),
+        encoding="utf-8",
+    )
 
 
 def _attempt_diff(prev: AttemptResult | None, design: DesignSpec, score: ScoreCard) -> dict | None:
@@ -233,18 +308,20 @@ def _build_memory(prev: AttemptResult | None) -> str:
 
 def _repair_rejected(
     design: DesignSpec,
-    agent_id: str,
     enabled_names: list[str],
     records: list[ToolCallRecord],
-) -> None:
+) -> ToolCallRecord | None:
     """One conservative repair pass over rejected records (in place).
 
     Handles the most common ``apply_tool_call`` rejection: a duplicate id on a
     body-creating call (``... already exists``). Retries with a ``_r`` suffix and,
-    on success, replaces the rejected record with a ``repaired`` one. Anything
-    that can't be repaired cleanly is left rejected so the design stays valid.
+    on success, returns one synthetic ``repair_pass`` record. The original
+    rejected records are preserved for explainability.
     """
-    for i, record in enumerate(records):
+    before_bodies = _body_ids(design)
+    before_joints = _joint_ids(design)
+    repairs: list[dict[str, str]] = []
+    for record in records:
         if record.status != ToolCallStatus.rejected or not record.error:
             continue
         if "already exists" not in record.error:
@@ -255,14 +332,35 @@ def _repair_rejected(
         repaired_args = {**record.args, "id": new_id}
         result = apply_tool_call(
             design,
-            agent_id=agent_id,
+            agent_id=record.agent_id,
             tool=record.tool,
             args=repaired_args,
             enabled_tools=enabled_names,
         )
         if result.mutated:
-            result.record.status = ToolCallStatus.repaired
-            records[i] = result.record
+            repairs.append(
+                {
+                    "tool": record.tool,
+                    "old_id": str(record.args.get("id", "")),
+                    "new_id": new_id,
+                }
+            )
+    if not repairs:
+        return None
+    new_body_ids = sorted(_body_ids(design) - before_bodies)
+    new_joint_ids = sorted(_joint_ids(design) - before_joints)
+    return ToolCallRecord(
+        ts=time.time(),
+        agent_id="system",
+        tool="repair_pass",
+        args={"repairs": repairs},
+        status=ToolCallStatus.repaired,
+        source="system",
+        mutated=True,
+        visual_change=bool(new_body_ids),
+        new_body_ids=new_body_ids,
+        new_joint_ids=new_joint_ids,
+    )
 
 
 async def run_single_attempt(
@@ -339,7 +437,7 @@ async def run_agent_attempt(
     tool_calls = parse_tool_calls(raw)
 
     records: list[ToolCallRecord] = []
-    snapshots: list[dict] = []
+    build_steps: list[BuildStepRecord] = []
     for call in tool_calls:
         tool = call.get("tool", "")
         args = call.get("args", {}) or {}
@@ -354,13 +452,30 @@ async def run_agent_attempt(
             max_motors=config.constraints.max_motors,
         )
         records.append(result.record)
-        snapshots.append(_design_snapshot(design, config.world))
+        build_steps.append(
+            _build_step(
+                result.record,
+                _design_snapshot(design, config.world),
+                attempt_index=attempt_index,
+                step_index=len(build_steps),
+            )
+        )
 
     # Optional conservative repair pass over rejected calls (e.g. duplicate ids).
     if config.constraints.repair_loop_enabled and any(
         r.status == ToolCallStatus.rejected for r in records
     ):
-        _repair_rejected(design, agent.id, enabled_names, records)
+        repair_record = _repair_rejected(design, enabled_names, records)
+        if repair_record is not None:
+            records.append(repair_record)
+            build_steps.append(
+                _build_step(
+                    repair_record,
+                    _design_snapshot(design, config.world),
+                    attempt_index=attempt_index,
+                    step_index=len(build_steps),
+                )
+            )
 
     _inject_challenge_goal(config, design)
 
@@ -384,20 +499,12 @@ async def run_agent_attempt(
             challenge=config.scenario.preset,
             mode=config.agents.mode.value,
         )
+        for step in build_steps:
+            step.trace_run_id = trace_run_id
 
     # Persist artifacts under runs/{trace_run_id or attempt_id}/.
     out_dir = _RUNS_DIR / (trace_run_id or attempt_id)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "design.yaml").write_text(
-        yaml.safe_dump(design.model_dump(mode="json"), sort_keys=False),
-        encoding="utf-8",
-    )
-    with (out_dir / "toolcalls.jsonl").open("w", encoding="utf-8") as fh:
-        for record in records:
-            fh.write(record.model_dump_json() + "\n")
-    (out_dir / "score.json").write_text(
-        score.model_dump_json(indent=2), encoding="utf-8"
-    )
+    _persist_attempt_artifacts(out_dir, design, records, score, build_steps)
 
     return AttemptResult(
         attempt_id=attempt_id,
@@ -408,7 +515,8 @@ async def run_agent_attempt(
         parent_attempt_id=previous.attempt_id if previous is not None else None,
         attempt_index=attempt_index,
         diff=_attempt_diff(previous, design, score),
-        snapshots=snapshots,
+        build_steps=build_steps,
+        snapshots=[s.trace for s in build_steps],
     )
 
 
@@ -488,7 +596,7 @@ async def run_cooperative_attempt(
     )
 
     records: list[ToolCallRecord] = []
-    snapshots: list[dict] = []
+    build_steps: list[BuildStepRecord] = []
 
     for turn_index, agent in enumerate(participants):
         provider = get_provider(agent.provider.value)
@@ -533,7 +641,29 @@ async def run_cooperative_attempt(
                 max_motors=config.constraints.max_motors,
             )
             records.append(result.record)
-            snapshots.append(_design_snapshot(design, config.world))
+            build_steps.append(
+                _build_step(
+                    result.record,
+                    _design_snapshot(design, config.world),
+                    attempt_index=attempt_index,
+                    step_index=len(build_steps),
+                )
+            )
+
+    if config.constraints.repair_loop_enabled and any(
+        r.status == ToolCallStatus.rejected for r in records
+    ):
+        repair_record = _repair_rejected(design, enabled_names, records)
+        if repair_record is not None:
+            records.append(repair_record)
+            build_steps.append(
+                _build_step(
+                    repair_record,
+                    _design_snapshot(design, config.world),
+                    attempt_index=attempt_index,
+                    step_index=len(build_steps),
+                )
+            )
 
     _inject_challenge_goal(config, design)
 
@@ -555,19 +685,11 @@ async def run_cooperative_attempt(
             challenge=config.scenario.preset,
             mode=config.agents.mode.value,
         )
+        for step in build_steps:
+            step.trace_run_id = trace_run_id
 
     out_dir = _RUNS_DIR / (trace_run_id or attempt_id)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "design.yaml").write_text(
-        yaml.safe_dump(design.model_dump(mode="json"), sort_keys=False),
-        encoding="utf-8",
-    )
-    with (out_dir / "toolcalls.jsonl").open("w", encoding="utf-8") as fh:
-        for record in records:
-            fh.write(record.model_dump_json() + "\n")
-    (out_dir / "score.json").write_text(
-        score.model_dump_json(indent=2), encoding="utf-8"
-    )
+    _persist_attempt_artifacts(out_dir, design, records, score, build_steps)
 
     return AttemptResult(
         attempt_id=attempt_id,
@@ -576,5 +698,6 @@ async def run_cooperative_attempt(
         score=score,
         tool_calls=records,
         attempt_index=attempt_index,
-        snapshots=snapshots,
+        build_steps=build_steps,
+        snapshots=[s.trace for s in build_steps],
     )

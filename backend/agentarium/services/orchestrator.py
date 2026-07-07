@@ -312,17 +312,27 @@ class RunManager:
                         "record": record.model_dump(mode="json"),
                     },
                 )
-                # One un-simulated snapshot per tool call, in lockstep, so the
-                # Studio's Build Timeline can scrub the construction sequence.
-                if step_index < len(result.snapshots):
+                # One durable build step per tool call, in lockstep, so the
+                # Studio can scrub construction and label no-op/rejected steps.
+                if step_index < len(result.build_steps):
+                    step = result.build_steps[step_index]
                     self._emit(
                         run_id,
                         {
                             "type": "design_snapshot",
                             "attempt_index": attempt_index,
                             "agent_id": agent.id,
-                            "step_index": step_index,
-                            "trace": result.snapshots[step_index],
+                            "step_index": step.step_index,
+                            "trace_run_id": step.trace_run_id,
+                            "tool": step.tool,
+                            "status": step.status.value,
+                            "label": step.label,
+                            "mutated": step.mutated,
+                            "visual_change": step.visual_change,
+                            "new_body_ids": step.new_body_ids,
+                            "new_joint_ids": step.new_joint_ids,
+                            "error": step.error,
+                            "trace": step.trace,
                         },
                     )
                 if STREAM_DELAY:
@@ -494,15 +504,25 @@ class RunManager:
                         "record": record.model_dump(mode="json"),
                     },
                 )
-                if step_index < len(result.snapshots):
+                if step_index < len(result.build_steps):
+                    step = result.build_steps[step_index]
                     self._emit(
                         run_id,
                         {
                             "type": "design_snapshot",
                             "attempt_index": attempt_index,
                             "agent_id": record.agent_id,
-                            "step_index": step_index,
-                            "trace": result.snapshots[step_index],
+                            "step_index": step.step_index,
+                            "trace_run_id": step.trace_run_id,
+                            "tool": step.tool,
+                            "status": step.status.value,
+                            "label": step.label,
+                            "mutated": step.mutated,
+                            "visual_change": step.visual_change,
+                            "new_body_ids": step.new_body_ids,
+                            "new_joint_ids": step.new_joint_ids,
+                            "error": step.error,
+                            "trace": step.trace,
                         },
                     )
                 if STREAM_DELAY:
