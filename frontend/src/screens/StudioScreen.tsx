@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { TopBar } from '../components/shared/TopBar'
 import { WorldView, type WorldViewHandle } from '../components/studio/WorldView'
@@ -16,6 +16,7 @@ import { api, downloadUrl, wsUrl } from '../api/client'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import type {
   AttemptDiff,
+  BuildStepRecord,
   ConstraintsConfig,
   CreateRunResponse,
   DesignSummary,
@@ -39,11 +40,10 @@ export function StudioScreen() {
   const [videoExporting, setVideoExporting] = useState(false)
   const [videoMessage, setVideoMessage] = useState<string | null>(null)
 
-  // ── Build Timeline (per-tool-call design snapshots for the CURRENT attempt) ─
-  // Un-simulated, single-frame traces streamed one per tool call so the Studio
-  // can replay the CONSTRUCTION sequence, not just the physics result. Reset
-  // whenever a new attempt starts; empty for historical (non-live) replay.
-  const [buildSnapshots, setBuildSnapshots] = useState<EpisodeTrace[]>([])
+  // ── Build Timeline (labelled per-tool-call design snapshots) ───────────────
+  // Stored per trace run id on the backend, and streamed live as each attempt
+  // finishes, so historical replay can show construction as well as physics.
+  const [buildSteps, setBuildSteps] = useState<BuildStepRecord[]>([])
   const [buildStepIndex, setBuildStepIndex] = useState(0)
   const [viewMode, setViewMode] = useState<'physics' | 'build'>('physics')
 
@@ -115,9 +115,10 @@ export function StudioScreen() {
 
   // When viewing the Build Timeline, feed the current step's un-simulated
   // snapshot into the SAME renderer instead of the physics trace.
-  const clampedBuildStep = Math.min(buildStepIndex, Math.max(0, buildSnapshots.length - 1))
+  const clampedBuildStep = Math.min(buildStepIndex, Math.max(0, buildSteps.length - 1))
+  const currentBuildStep = buildSteps[clampedBuildStep]
   const displayedTrace =
-    viewMode === 'build' && buildSnapshots.length > 0 ? buildSnapshots[clampedBuildStep] : trace
+    viewMode === 'build' && currentBuildStep ? currentBuildStep.trace : trace
 
   // Reverse-lookup the displayed trace's attempt index (for the replay label).
   let currentAttemptLabel: string | undefined
@@ -133,6 +134,24 @@ export function StudioScreen() {
     }
   }
 
+  const loadBuildStepsForTrace = useCallback(async (
+    traceRunId: string,
+    isStale: () => boolean = () => false,
+  ) => {
+    try {
+      const steps = await api.get<BuildStepRecord[]>(`/runs/${traceRunId}/snapshots`)
+      if (isStale()) return
+      setBuildSteps(steps)
+      setBuildStepIndex(Math.max(0, steps.length - 1))
+      if (steps.length === 0) setViewMode('physics')
+    } catch {
+      if (isStale()) return
+      setBuildSteps([])
+      setBuildStepIndex(0)
+      setViewMode('physics')
+    }
+  }, [])
+
   // Load + replay a specific attempt's trace by run id (Attempt History clicks).
   const replayTraceRunId = async (traceRunId: string) => {
     try {
@@ -141,10 +160,8 @@ export function StudioScreen() {
       setFrameIndex(0)
       setPlaying(true)
       setStatus('ready')
-      // Attempt History replays an OLD attempt — its build snapshots weren't
-      // retained (only the latest live attempt's are), so fall back to physics.
       setViewMode('physics')
-      setBuildSnapshots([])
+      void loadBuildStepsForTrace(traceRunId)
     } catch {
       setStatus('error')
     }
@@ -169,6 +186,7 @@ export function StudioScreen() {
         setFrameIndex(0)
         setPlaying(true)
         setStatus('ready')
+        void loadBuildStepsForTrace(traceRunId, () => cancelled)
       } catch {
         if (!cancelled) setStatus('error')
       }
@@ -186,9 +204,8 @@ export function StudioScreen() {
         setPlaying(true)
         setStatus('ready')
         setRunStatus('finished')
-        // No live snapshot stream for a historical run — physics replay only.
         setViewMode('physics')
-        setBuildSnapshots([])
+        void loadBuildStepsForTrace(rid, () => cancelled)
         try {
           const sc = await api.get<ScoreCard>(`/runs/${rid}/score`)
           if (!cancelled) {
@@ -230,7 +247,7 @@ export function StudioScreen() {
           setLatestAgentId(id)
           setLatestAttemptIndex(event.attempt_index)
           // A new attempt starts a fresh build sequence.
-          setBuildSnapshots([])
+          setBuildSteps([])
           setBuildStepIndex(0)
           break
         }
@@ -241,7 +258,24 @@ export function StudioScreen() {
           setToolLog((prev) => [...prev, event.record])
           break
         case 'design_snapshot':
-          setBuildSnapshots((prev) => [...prev, event.trace])
+          setBuildSteps((prev) => [
+            ...prev,
+            {
+              attempt_index: event.attempt_index,
+              step_index: event.step_index,
+              trace_run_id: event.trace_run_id,
+              agent_id: event.agent_id ?? 'unknown',
+              tool: event.tool,
+              status: event.status,
+              label: event.label,
+              mutated: event.mutated,
+              visual_change: event.visual_change,
+              new_body_ids: event.new_body_ids,
+              new_joint_ids: event.new_joint_ids,
+              error: event.error,
+              trace: event.trace,
+            },
+          ])
           setBuildStepIndex((i) => i + 1)
           break
         case 'design_update': {
@@ -352,7 +386,7 @@ export function StudioScreen() {
         /* already closed */
       }
     }
-  }, [runId])
+  }, [runId, loadBuildStepsForTrace])
 
   // ── Dev fallback: no runId → spin up a demo run so the world still moves. ───
   useEffect(() => {
@@ -618,10 +652,9 @@ export function StudioScreen() {
             onFullscreen={handleFullscreen}
           />
 
-          {/* Build Timeline toggle — only shown once at least one step has
-              streamed in for the current attempt (hidden for historical replay,
-              which has no per-step snapshots). */}
-          {buildSnapshots.length > 0 && (
+          {/* Build Timeline toggle — shown for live and historical traces that
+              have persisted per-step snapshots. */}
+          {buildSteps.length > 0 && (
             <div
               style={{
                 display: 'flex',
@@ -660,7 +693,7 @@ export function StudioScreen() {
                     type="range"
                     aria-label="Build step"
                     min={0}
-                    max={Math.max(0, buildSnapshots.length - 1)}
+                    max={Math.max(0, buildSteps.length - 1)}
                     step={1}
                     value={clampedBuildStep}
                     onChange={(e) => setBuildStepIndex(Number(e.target.value))}
@@ -674,7 +707,26 @@ export function StudioScreen() {
                       whiteSpace: 'nowrap',
                     }}
                   >
-                    Step {clampedBuildStep + 1} / {buildSnapshots.length}
+                    Step {clampedBuildStep + 1} / {buildSteps.length}
+                  </span>
+                  <span
+                    title={currentBuildStep?.label}
+                    style={{
+                      minWidth: 0,
+                      maxWidth: 300,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      fontSize: 11,
+                      color:
+                        currentBuildStep?.status === 'rejected'
+                          ? 'var(--danger)'
+                          : currentBuildStep?.visual_change
+                            ? 'var(--text-1)'
+                            : 'var(--text-2)',
+                    }}
+                  >
+                    {currentBuildStep?.label}
                   </span>
                 </>
               )}

@@ -126,11 +126,14 @@ def test_repair_dedup():
         bodies=[BodySpec(id="b1", shape=BodyShape.box, position=[0.0, 0.0])],
     )
     records = [_dup_record("b1")]
-    _repair_rejected(design, "a", ["create_body"], records)
+    repair_record = _repair_rejected(design, ["create_body"], records)
 
-    # Repair pass succeeded: record is now repaired and a deduped body exists.
-    assert records[0].status == ToolCallStatus.repaired
-    assert records[0].args["id"] == "b1_r"
+    # Repair pass succeeded without hiding the original rejection.
+    assert records[0].status == ToolCallStatus.rejected
+    assert repair_record is not None
+    assert repair_record.status == ToolCallStatus.repaired
+    assert repair_record.tool == "repair_pass"
+    assert repair_record.new_body_ids == ["b1_r"]
     assert {b.id for b in design.bodies} == {"b1", "b1_r"}
 
 

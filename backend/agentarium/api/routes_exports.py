@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, Response
 
 from agentarium.services.export_service import (
     export_design,
+    export_package,
     export_report,
     export_scorecard,
     export_trace,
@@ -15,6 +16,14 @@ router = APIRouter(prefix="/api/exports", tags=["exports"])
 
 def _attachment(content: str, media_type: str, filename: str) -> PlainTextResponse:
     return PlainTextResponse(
+        content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _binary_attachment(content: bytes, media_type: str, filename: str) -> Response:
+    return Response(
         content,
         media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
@@ -57,3 +66,11 @@ async def get_report_export(run_id: str) -> PlainTextResponse:
     if content is None:
         raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
     return _attachment(content, "text/markdown", f"report_{run_id}.md")
+
+
+@router.get("/{run_id}/package")
+async def get_package_export(run_id: str) -> Response:
+    content = export_package(run_id)
+    if content is None:
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    return _binary_attachment(content, "application/zip", f"agentarium_{run_id}.zip")

@@ -5,6 +5,8 @@ Each export derives from the in-memory run stores, so we first create a run
 """
 
 import json
+import zipfile
+from io import BytesIO
 
 from fastapi.testclient import TestClient
 
@@ -76,7 +78,25 @@ def test_export_report_markdown():
     assert run_id in body
 
 
+def test_export_package_zip():
+    run_id = _make_run()
+    r = client.get(f"/api/exports/{run_id}/package")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/zip"
+    with zipfile.ZipFile(BytesIO(r.content)) as zf:
+        names = set(zf.namelist())
+        assert {
+            "report.md",
+            "design.yaml",
+            "trace.json",
+            "trace.jsonl",
+            "score.json",
+            "build_snapshots.json",
+        } <= names
+        assert json.loads(zf.read("build_snapshots.json").decode("utf-8")) == []
+
+
 def test_export_unknown_run_404():
-    for path in ("design", "trace", "scorecard", "report"):
+    for path in ("design", "trace", "scorecard", "report", "package"):
         r = client.get(f"/api/exports/does-not-exist/{path}")
         assert r.status_code == 404

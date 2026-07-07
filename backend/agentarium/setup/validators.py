@@ -45,11 +45,22 @@ async def validate_launch_config(config: LaunchConfig) -> ValidationResult:
     if missing:
         return ValidationResult(state=LaunchState.missing_required, missing=missing)
 
-    # --- 2. UNSUPPORTED_ENGINE ---
+    # --- 2. UNSUPPORTED_MODE ---
+    if config.agents.mode in (CollaborationMode.relay, CollaborationMode.sandbox):
+        return ValidationResult(
+            state=LaunchState.unsupported_mode,
+            missing=[
+                f"Collaboration mode '{config.agents.mode.value}' is planned but not live yet. "
+                "Use single, competitive, or cooperative."
+            ],
+            warnings=warnings,
+        )
+
+    # --- 3. UNSUPPORTED_ENGINE ---
     if config.world.engine == PhysicsEngine.pybullet3d:
         return ValidationResult(state=LaunchState.unsupported_engine, missing=missing, warnings=warnings)
 
-    # --- 3. TOOL_CHALLENGE_MISMATCH ---
+    # --- 4. TOOL_CHALLENGE_MISMATCH ---
     if not config.tools.enabled:
         warnings.append("No tools enabled — agent will not be able to build anything.")
 
@@ -68,7 +79,7 @@ async def validate_launch_config(config: LaunchConfig) -> ValidationResult:
                 warnings=warnings,
             )
 
-    # --- 4. LLM_OFFLINE check ---
+    # --- 5. LLM_OFFLINE check ---
     providers_to_probe = {LLMProvider.localdeploy, LLMProvider.openai_compatible}
     # Determine which endpoint(s) to probe based on participant providers
     endpoints_to_check: set[str] = set()
@@ -127,14 +138,14 @@ async def validate_launch_config(config: LaunchConfig) -> ValidationResult:
                 state=LaunchState.llm_offline, missing=missing, warnings=warnings
             )
 
-    # --- 5. CONSTRAINTS_TOO_LOOSE (warning only) ---
+    # --- 6. CONSTRAINTS_TOO_LOOSE (warning only) ---
     if config.constraints.max_parts > 1000:
         warnings.append("max_parts > 1000 may cause slow simulations.")
 
     if config.constraints.max_attempts > 500:
         warnings.append("max_attempts > 500 may take a very long time.")
 
-    # --- 6. READY ---
+    # --- 7. READY ---
     return ValidationResult(
         state=LaunchState.ready,
         missing=missing,

@@ -12,12 +12,17 @@ the metric breakdown and the design part counts so a reader needs no other file.
 from __future__ import annotations
 
 import json
+import pathlib
+import zipfile
+from io import BytesIO
 
 import yaml
 
 from agentarium.core.schemas.design import DesignSpec
 from agentarium.core.schemas.score import ScoreCard
 from agentarium.services.run_service import get_design, get_score, get_trace
+
+_RUNS_DIR = pathlib.Path("runs")
 
 
 def export_design(run_id: str, fmt: str = "yaml") -> str | None:
@@ -127,3 +132,40 @@ def export_report(run_id: str) -> str | None:
             lines.append(f"- `{json.dumps(event)}`")
         lines.append("")
     return "\n".join(lines)
+
+
+def export_package(run_id: str) -> bytes | None:
+    """Build a zip of backend-persisted artifacts for a run."""
+    if get_trace(run_id) is None:
+        return None
+
+    package = BytesIO()
+    run_dir = _RUNS_DIR / run_id
+    with zipfile.ZipFile(package, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        report = export_report(run_id)
+        if report is not None:
+            zf.writestr("report.md", report)
+        design = export_design(run_id, "yaml")
+        if design is not None:
+            zf.writestr("design.yaml", design)
+        trace_json = export_trace(run_id, "json")
+        if trace_json is not None:
+            zf.writestr("trace.json", trace_json)
+        trace_jsonl = export_trace(run_id, "jsonl")
+        if trace_jsonl is not None:
+            zf.writestr("trace.jsonl", trace_jsonl)
+        score = export_scorecard(run_id)
+        if score is not None:
+            zf.writestr("score.json", score)
+
+        snapshots_path = run_dir / "build_snapshots.json"
+        if snapshots_path.exists():
+            zf.write(snapshots_path, "build_snapshots.json")
+        else:
+            zf.writestr("build_snapshots.json", "[]\n")
+
+        toolcalls_path = run_dir / "toolcalls.jsonl"
+        if toolcalls_path.exists():
+            zf.write(toolcalls_path, "toolcalls.jsonl")
+
+    return package.getvalue()

@@ -69,7 +69,7 @@ Two screens, one loop:
    agents may use, constraints, and outputs. Live validation tells you exactly
    what's missing before you can launch.
 2. **Simulation Studio** — launch, then watch agents call tools and build in an
-   isometric world, run physics, and replay each scored attempt — with a live
+   side-view world, run physics, and replay each scored attempt — with a live
    tool-call log, design summary, scorecards, and telemetry.
 
 A run is real and visible end to end: **Launch → agent builds via validated tool
@@ -97,6 +97,9 @@ spread, and nearest-neighbour spacing (livability).
   goes through one validated chokepoint — agents can't crash the engine.
 - **Engine-neutral traces.** The renderer consumes only an `EpisodeTrace`, so the
   physics engine is swappable (Pymunk2D now, PyBullet3D later).
+- **Durable build timelines.** Each agent attempt persists labelled construction
+  snapshots beside the physics trace, so historical Studio replay can show both
+  what the agent built step by step and what happened in simulation.
 - **Explainable scoring.** Named, pluggable reward functions turn trace metrics
   into a scorecard with a summary and a concrete improvement hint.
 - **Multi-agent.** `single`, `competitive`, and `cooperative` modes, with every
@@ -144,7 +147,7 @@ AGENTARIUM_LIVE_OPENAI_TESTS=1 uv run pytest backend/tests/test_openai_live_smok
 
 CI runs lint + tests + the frontend build on every push and PR. Backend changes
 must keep all three gates green and ship with tests (use the `mock` provider so
-tests need no network). Playwright lets you smoke-test the isometric renderer,
+tests need no network). Playwright lets you smoke-test the side-view renderer,
 tool-call log, and scorecard against a live local server — UI tests skip cleanly
 if its browser isn't installed. Conventions and architecture invariants live in
 [`CLAUDE.md`](CLAUDE.md).

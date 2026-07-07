@@ -48,7 +48,7 @@ flowchart TD
 | Agents | `backend/agentarium/agents` | Providers (mock / localdeploy / OpenAI-compatible / manual), prompts, and the attempt runner. |
 | Services | `backend/agentarium/services` | `RunManager` orchestrator, scoring, presets, run store, exports. |
 | API | `backend/agentarium/api` | Routers: setup, tools, presets, runs, exports, WebSocket. |
-| Renderer | `frontend/src/phaser` | Isometric Phaser scene that consumes **only** `EpisodeTrace`. |
+| Renderer | `frontend/src/phaser` | Side-view Phaser scene that consumes **only** `EpisodeTrace`. |
 | Screens | `frontend/src/screens` | Setup (config) and Studio (live run + replay). |
 
 ## Invariants (do not violate)
@@ -129,14 +129,19 @@ Set via `LaunchConfig.agents.mode`. Each tool call carries its author's
 | `single` | ✅ live | One agent iterates over capped attempts. |
 | `competitive` | ✅ live | Each participant runs its own attempts; highest score wins (A = violet, B = sky). |
 | `cooperative` | ✅ live | All participants build **one shared design**, scored once; parts attributed per agent. |
-| `relay`, `sandbox` | 🔜 planned | Currently run via the single-agent path. |
+| `relay`, `sandbox` | 🔜 planned | Hidden in Setup and rejected by validation until they are meaningfully different. |
 
 ## Persistence
 
 Run artifacts are written to `runs/{run_id}/` (`design.yaml`, `trace.json`,
-`toolcalls.jsonl`, `score.json`) and kept in bounded in-memory stores
+`toolcalls.jsonl`, `score.json`, `build_snapshots.json`) and kept in bounded in-memory stores
 (`RUNS` / `SCORES` / `DESIGNS`, oldest evicted past a cap; the orchestrator evicts
 oldest *finished* runs).
+
+`build_snapshots.json` stores labelled `BuildStepRecord` rows: accepted,
+rejected, no-op, and synthetic repair-pass steps each carry mutation metadata and
+an un-simulated one-frame trace. `GET /api/runs/{run_id}/snapshots` returns those
+steps for historical Studio replay; older runs without the file return `[]`.
 
 **SQLite** (`runs/agentarium.db`) write-throughs the trace, score, and design for
 every run plus a queryable `run_meta` row (challenge, mode, reward, score, success,

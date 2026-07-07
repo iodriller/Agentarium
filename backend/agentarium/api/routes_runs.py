@@ -6,9 +6,11 @@ from pydantic import BaseModel
 from agentarium.core.schemas.design import DesignSpec
 from agentarium.core.schemas.score import ScoreCard
 from agentarium.core.schemas.setup import WorldConfig
+from agentarium.core.schemas.toolcall import BuildStepRecord
 from agentarium.core.schemas.trace import EpisodeTrace
 from agentarium.services.run_service import (
     create_run_from_design,
+    get_build_snapshots,
     get_score,
     get_trace,
     hardcoded_demo_design,
@@ -85,3 +87,11 @@ async def get_run_score(run_id: str) -> ScoreCard:
     if score is None:
         raise HTTPException(status_code=404, detail=f"Score not found: {run_id}")
     return score
+
+
+@router.get("/{run_id}/snapshots", response_model=list[BuildStepRecord])
+async def get_run_snapshots(run_id: str) -> list[BuildStepRecord]:
+    snapshots = get_build_snapshots(run_id)
+    if snapshots is None:
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    return snapshots

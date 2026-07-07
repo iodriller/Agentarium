@@ -404,6 +404,8 @@ def apply_tool_call(
     unlimited, so existing callers and tests are unaffected.
     """
     args = args or {}
+    before_body_ids = _body_ids(design)
+    before_joint_ids = _joint_ids(design)
 
     def _reject(error: str) -> ToolCallResult:
         return ToolCallResult(
@@ -414,6 +416,8 @@ def apply_tool_call(
                 args=args,
                 status=ToolCallStatus.rejected,
                 error=error,
+                mutated=False,
+                visual_change=False,
             ),
             mutated=False,
         )
@@ -455,6 +459,10 @@ def apply_tool_call(
     except Exception as exc:  # noqa: BLE001 - any failure becomes a reject
         return _reject(str(exc))
 
+    new_body_ids = sorted(_body_ids(working) - before_body_ids)
+    new_joint_ids = sorted(_joint_ids(working) - before_joint_ids)
+    visual_change = bool(new_body_ids)
+
     if mutated:
         design.bodies = working.bodies
         design.joints = working.joints
@@ -469,6 +477,10 @@ def apply_tool_call(
             args=args,
             status=ToolCallStatus.success,
             error=None,
+            mutated=mutated,
+            visual_change=visual_change,
+            new_body_ids=new_body_ids,
+            new_joint_ids=new_joint_ids,
         ),
         mutated=mutated,
     )

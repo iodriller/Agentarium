@@ -33,7 +33,7 @@ the gap analysis or post-MVP backlog. Status legend: 🟢 **Fixed** · 🟡 **De
 |----|------|-------|--------|
 | E1 | Engines | **PyBullet3D adapter** — `EngineAdapter` base is designed for it; Pymunk2D is the only live implementation. Big physics upgrade. | 🟡 Deferred (separate epic) |
 | E2 | `LaunchConfig` constraints | `max_parts` / `max_joints` enforced at the apply chokepoint (over-budget body/joint calls rejected). `energy_budget` (post-sim metric) and `world.seed` (no stochastic element yet — pymunk is already deterministic) still advisory. | 🟢 Partly fixed: parts/joints enforced; energy_budget + seed remain advisory |
-| E3 | `runner` | `simulation_duration_seconds` (user-set, default 180) was silently hard-capped to 5s. | 🟢 Fixed: named `_MAX_SIM_DURATION_SECONDS = 30`; durations honored up to the cap |
+| E3 | `runner` | `simulation_duration_seconds` (user-set, default 180) was silently hard-capped to 5s. | 🟢 Fixed: named `_MAX_SIM_DURATION_SECONDS = 60`; durations honored up to the cap |
 | E4 | `runner` | `_parse_tool_calls` was duplicated in `runner.py` and `openai_compatible.py` with slightly different logic. | 🟢 Fixed: consolidated into `agents/parsing.py::parse_tool_calls`, used by both |
 | E5 | `tools/apply` | A body spawned deeply embedded in the ground (e.g. `create_body` with the schema-default `position: [0, 0]` on a 1×1 box, which engulfs the paper-thin `radius=0.1` ground segment) could tunnel through it forever instead of resting on top — observed `y -> -4412` by t=30s. Found via `mock_provider`'s own placeholder body (`IMPROVEMENTS.md` §8), and any agent (real LLM included) placing a body at/below ground level hit the same tunneling, silently scoring 0 with no error. | 🟢 Fixed (`IMPROVEMENTS.md` §9): `apply.py::_clamp_to_ground` clamps a new DYNAMIC body's spawn y to rest at/above the surface (`create_body`, `add_ball`); static bodies are untouched (terrain is allowed to be embedded on purpose) |
 
@@ -43,7 +43,7 @@ the gap analysis or post-MVP backlog. Status legend: 🟢 **Fixed** · 🟡 **De
 
 | ID | Area | Issue | Status |
 |----|------|-------|--------|
-| MA1 | Orchestrator | `relay` and `sandbox` modes currently alias to the single-agent path. | 🟡 Deferred |
+| MA1 | Orchestrator / Setup | `relay` and `sandbox` modes should not pretend to be live. | 🟢 Fixed for honesty: hidden in Setup and rejected by validation with `UNSUPPORTED_MODE`; implementation remains future work |
 | MA2 | Studio UI | Competitive mode "winner" star uses a global attempt index → wrong agent highlighted when per-agent indices diverge past attempt 1. | 🟢 Already fixed in Steps 21-25 |
 
 ---
@@ -55,7 +55,7 @@ the gap analysis or post-MVP backlog. Status legend: 🟢 **Fixed** · 🟡 **De
 | L1 | `scoring_service` | `sorting_accuracy` / `city_score` rewards are rough proxies; real scoring would use actual physics outcomes. | 🟡 Deferred — `city_score` gained an infra-variety bonus (road/park/tree counts, height variety, §8) and an overlapping-footprint penalty (§9), still a metrics proxy, not a visual-correctness check |
 | L6 | Studio UI | `IsometricWorldView` component name + `PlaybackToolbar`'s "CAMERA: Isometric" label both claim isometric, but `TraceRenderer` is a straight side view (x-right, y-up). Noticed while visually verifying the 2026-07-05 city renderer pass. | 🟢 Fixed: component renamed to `WorldView`, label now "Side View", dead `phaser/iso.ts` (never imported) deleted |
 | L2 | `run_service` | `create_run_from_design` always scores with `"default"` baseline; the runner re-scores with the named reward. Every attempt scores twice. | 🟡 Deferred: skip baseline score on the runner path |
-| L3 | `run_service` | `_design_summary` reports beams/ramps/sensors as 0 even though beams/ramps exist as `segment` bodies → UI part breakdown undercounts. | 🟡 Deferred |
+| L3 | `orchestrator` | `_design_summary` reports beams/ramps/sensors as 0 even though beams/ramps exist as `segment` bodies → UI part breakdown undercounts. | 🟢 Fixed: beams/ramps derive from `by_kind`; sensors remain 0 because sensors are not implemented |
 | L4 | `builder` | `SlideJoint`/`Spring` use hardcoded geometry; pivot ignores `anchor_b`. | 🟡 Deferred: derive from body distance / two-anchor pivot |
 | L5 | `validators` | LLM_OFFLINE probe in `validators.py` is a separate, simpler reimplementation of `OpenAICompatibleProvider.test_connection()`; should delegate to the provider. | 🟡 Deferred: consolidate after provider registry is accessible from validators |
 
@@ -68,5 +68,5 @@ the gap analysis or post-MVP backlog. Status legend: 🟢 **Fixed** · 🟡 **De
 | `subscribe()` on a run that errors before `run_finished` — hang regression guard | Medium |
 | `manual` provider launch path (now validated away; test the rejection) | Small (added with P2 fix) |
 | `openai_compatible.complete()` timeout handling with real timeout | Needs mock HTTP server |
-| `relay`/`sandbox` mode routing | Deferred with MA1 |
+| `relay`/`sandbox` mode routing | Covered by MA1 honesty guard; implement later when behavior differs |
 | SQLite DB fallback for evicted runs | Added with P1 fix |

@@ -78,7 +78,7 @@ drive every panel → trace fetched & replayed → exports**. No crash-class bug
 | R4 | Low | **Stale-closure on `agents`** in `StudioScreen`'s WS effect — handlers read `agents[0]?.id` from the array captured when the effect ran (deps `[runId]`), which is the initial `[]`. | Harmless today: every relevant event (`tool_call`/`design_update`/`score`/`trace_ready`) carries its own `agent_id`, so the fallback is never reached. Fragile if an event ever omits `agent_id` — prefer a ref or include `agents` in deps. |
 | R5 | Low | **`_default_world()` uses `template="flat_ground"`**, which isn't a real template id (valid: `flat_arena`, `hill_path`, `island_cliff_small`, …). | Harmless — the template string is a label; the engine uses `world.gravity`/`map_size` which default correctly. Only on the demo `POST /api/runs` path. Tidy the label. |
 | R6 | Low | **WS breaks on `error` before delivering the following `run_finished`** (`routes_ws.py` breaks on the `error` event). | Known (gap `L6`); the frontend `onclose` handler already leaves the "Building…" state, so the UI doesn't hang. |
-| R7 | Low | **`_design_summary` reports beams/ramps/sensors as 0** though beams/ramps exist as `segment` bodies; `total_parts` is still correct. | Known (gap `L3`). UI category breakdown undercounts; totals are right. |
+| R7 | Low | **`_design_summary` reports beams/ramps/sensors as 0** though beams/ramps exist as `segment` bodies; `total_parts` is still correct. | Fixed later: beams/ramps derive from `by_kind`; sensors remain 0 until sensors exist. |
 | R8 | Low | **`sorting_accuracy` denominator** (`parts_used − bins_count`) counts static non-bin bodies (e.g. ramps) as "items to sort". | Reward is a documented proxy; fine for the Sorter demo. Refine when real per-object classification lands. |
 
 ---
@@ -88,8 +88,8 @@ drive every panel → trace fetched & replayed → exports**. No crash-class bug
 - **Skip double-scoring** (gap `L2`): `create_run_from_design` always computes a
   `default` score, then the runner re-scores with the named reward. Pass the reward
   through (or skip the baseline on the runner path).
-- **`relay` / `sandbox` modes**: currently alias the single-agent path; implement or
-  hide in the UI until built.
+- **`relay` / `sandbox` modes**: hidden in Setup and rejected by validation until
+  they are implemented as distinct modes.
 - **Real-LLM integration test**: a test against a mock HTTP server exercising
   `OpenAICompatibleProvider.complete()` timeouts/error wrapping (no live key needed).
 - **Bundle size**: the JS bundle is ~1.6 MB (442 KB gzipped). Code-split Phaser to
@@ -150,8 +150,8 @@ typed but unused; frontend `ToolDefinition` omits `compatible_challenges`/`input
   and shows a "What Changed" panel in Studio. Cooperative attempts don't thread
   lineage, so their diff stays empty.
 - **Visible caps (#5).** `run_started` now reports requested vs. effective attempt
-  caps and the 30s sim cap; ChallengeBriefing shows "Attempts: 3 max (you set 50)"
-  and "Sim cap: 30s" only when the cap bites.
+  caps and the 60s sim cap; ChallengeBriefing shows "Attempts: 3 max (you set 50)"
+  and "Sim cap: 60s" only when the cap bites.
 - **Run history + leaderboard (#6).** A `run_meta` SQLite table (challenge, mode,
   reward, score, success, artifact dir, timestamp) + `GET /api/runs/history` and
   `GET /api/runs/leaderboard?challenge=…`. Survives restart. **Still open:** a
@@ -316,12 +316,12 @@ a real correctness bug found along the way and two lock-in guardrails.
 | **Ground-tunneling bug** | `apply.py::_clamp_to_ground` clamps a new DYNAMIC body's spawn position to rest at/above the ground surface, for `create_body` and `add_ball`. Previously a body spawned embedded in the ground (e.g. the schema-default `position: [0, 0]`) could tunnel through it forever (`y -> -4412` by t=30s) — a real bug that could silently zero-score a genuine LLM agent's attempt with no error surfaced. Static bodies are untouched (terrain is allowed to be embedded on purpose, e.g. a hill segment). |
 | **Challenge-identity guardrail** | `test_runner.py::test_challenge_kinds_do_not_leak_across_scenarios` asserts each challenge's mock-built kind set is *exactly* right and disjoint from every other challenge's (Bridge={beam}, Crawl={leg}, Sorter={bin,ramp}, City={road,park,house,tower,shop,tree}). Locks in the per-scenario mock work from §8/§10 against a future regression where every scenario starts looking the same. |
 | **`city_score` overlap penalty** | Added `overlap_total` (sum of horizontal footprint overlaps between the agent's own bodies) to `compute_metrics`, and `city_score` now subtracts `overlap_total * 5.0`. Two buildings stacked at the same x-position — a bad, unreadable layout — now score worse than the same buildings well-spaced. Closes the last shallow spot in city scoring (L1 in `remaining_gaps.md`). |
-| **`DesignSnapshot` + Build Timeline** (§10 plan items 1–2) | `AttemptResult` gained `snapshots: list[dict]` — one un-simulated, single-frame `EpisodeTrace`-shaped dict per tool call, built by reusing the real engine's `simulate(design, world, duration_seconds=0.0)` (zero physics steps = bodies stay exactly where placed) through the engine-neutral `EngineAdapter` interface. The orchestrator streams a `design_snapshot` WS event in lockstep with each `tool_call` event. Studio has a **Build / Physics** toggle (only shown once snapshots exist) with a step scrubber — switching to Build feeds the current step's snapshot into the SAME `WorldView`/`TraceRenderer` used for physics replay, so no new rendering code was needed. Verified live end-to-end (Playwright against a real launched run): stepping the scrubber visibly adds one building at a time. |
+| **`DesignSnapshot` + Build Timeline** (§10 plan items 1–2) | `AttemptResult` gained durable `BuildStepRecord` rows plus compatibility `snapshots`: one un-simulated, single-frame `EpisodeTrace`-shaped trace per tool call, built by reusing the real engine's `simulate(design, world, duration_seconds=0.0)` (zero physics steps = bodies stay exactly where placed). The orchestrator streams labelled `design_snapshot` events with tool/status/mutation metadata, and the runner persists `runs/{trace_run_id}/build_snapshots.json`. Studio has a **Build / Physics** toggle for live and historical traces and labels no-op/rejected/repair steps. |
 | **Opt-in visual smoke tests** | `test_visual_smoke.py`: for each of the 4 challenges, runs a real mock attempt, starts the live FastAPI app in-process on an ephemeral port, and confirms the Phaser canvas actually mounts with a non-zero size at `/studio/{run_id}` in a real Chromium browser. Skipped by default (`AGENTARIUM_RUN_UI_SMOKE=1` to run) so `uv run pytest` stays fast/hermetic — this catches "the page crashed / canvas never mounted," not pixel-level regressions (that's what the kind-leak guardrail above is for). |
 
 ### Noted, not changed
 
 | Item | Why |
 |------|-----|
-| A repair-pass addition (`config.constraints.repair_loop_enabled`, rare) isn't reflected in the Build Timeline's last step, since repair runs after snapshot capture. The final physics trace and score are unaffected — only the Build Timeline may under-count by the few repaired parts. |
+| Repair-pass additions now append a synthetic `repair_pass` / "Auto-repair" Build Timeline step when they mutate the design. The original rejected call stays visible. |
 | `overlap_total` only checks horizontal (x-axis) footprint overlap, matching this being a side-view scene — not a true 2D top-down collision check. Sufficient for "buildings stacked on top of each other," not sub-pixel precision. |

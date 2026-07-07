@@ -48,6 +48,7 @@ export type LaunchState =
   | 'TOOL_CHALLENGE_MISMATCH'
   | 'CONSTRAINTS_TOO_LOOSE'
   | 'UNSUPPORTED_ENGINE'
+  | 'UNSUPPORTED_MODE'
 
 export interface AgentConfig {
   id: string
@@ -263,6 +264,27 @@ export interface ToolCallRecord {
   args: Record<string, unknown>
   status: ToolCallStatus
   error?: string | null
+  source?: string
+  mutated?: boolean
+  visual_change?: boolean
+  new_body_ids?: string[]
+  new_joint_ids?: string[]
+}
+
+export interface BuildStepRecord {
+  attempt_index: number
+  step_index: number
+  trace_run_id?: string | null
+  agent_id: string
+  tool: string
+  status: ToolCallStatus
+  label: string
+  mutated: boolean
+  visual_change: boolean
+  new_body_ids: string[]
+  new_joint_ids: string[]
+  error?: string | null
+  trace: EpisodeTrace
 }
 
 export interface ScoreCard {
@@ -355,6 +377,15 @@ export interface DesignSnapshotEvent {
   agent_id?: string
   // Index into the attempt's tool_calls, matching one-to-one with ToolCallEvent.
   step_index: number
+  trace_run_id?: string | null
+  tool: string
+  status: ToolCallStatus
+  label: string
+  mutated: boolean
+  visual_change: boolean
+  new_body_ids: string[]
+  new_joint_ids: string[]
+  error?: string | null
   // Un-simulated, single-frame EpisodeTrace-shaped snapshot of the design as it
   // stood right after this tool call — lets the Studio replay the CONSTRUCTION
   // sequence (Build Timeline) with the same renderer used for physics replay.
