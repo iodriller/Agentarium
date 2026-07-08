@@ -117,7 +117,7 @@ _SORTER_TOOL_CALLS = [
 _CITY_TOOL_CALLS = [
     {"tool": "create_body", "args": {
         "id": "road1", "shape": "box", "kind": "road",
-        "position": [0.0, 0.15], "width": 20.0, "height": 0.3, "static": True,
+        "position": [0.0, 0.15], "width": 26.0, "height": 0.3, "static": True,
     }},
     {"tool": "create_body", "args": {
         "id": "park1", "shape": "box", "kind": "park",
@@ -150,6 +150,10 @@ _CITY_TOOL_CALLS = [
     {"tool": "create_body", "args": {
         "id": "tree2", "shape": "box", "kind": "tree",
         "position": [9.5, 0.9], "width": 1.0, "height": 1.8, "static": True,
+    }},
+    {"tool": "create_body", "args": {
+        "id": "shop2", "shape": "box", "kind": "shop",
+        "position": [12.0, 2.5], "width": 2.0, "height": 5.0, "static": True,
     }},
     {"tool": "run_simulation", "args": {}},
 ]

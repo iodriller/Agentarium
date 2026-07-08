@@ -112,6 +112,7 @@ def compute_metrics(trace: EpisodeTrace, design: DesignSpec) -> dict[str, float]
         "road_count": 0.0,
         "park_count": 0.0,
         "tree_count": 0.0,
+        "building_count": 0.0,
         "height_variety": 0.0,
         "overlap_total": 0.0,
     }
@@ -161,26 +162,29 @@ def compute_metrics(trace: EpisodeTrace, design: DesignSpec) -> dict[str, float]
     metrics["road_count"] = float(kind_counts.get("road", 0))
     metrics["park_count"] = float(kind_counts.get("park", 0) + kind_counts.get("plaza", 0))
     metrics["tree_count"] = float(kind_counts.get("tree", 0))
-    building_heights = [
-        b.size[1]
+    buildings = [
+        b
         for b in agent_bodies
         if b.static and len(b.size) >= 2 and b.kind in (None, "house", "tower", "shop")
     ]
+    metrics["building_count"] = float(len(buildings))
+    building_heights = [b.size[1] for b in buildings]
     if len(building_heights) >= 2:
         metrics["height_variety"] = max(building_heights) - min(building_heights)
 
-    # --- overlap: agent structures whose horizontal footprints overlap ----------
+    # --- overlap: BUILDING footprints that overlap each other --------------------
     # A side-view scene reads badly when two "buildings" occupy the same x-range
     # (they visually stack/intersect instead of forming a readable street). Only
-    # the agent's own footprints count (world backdrop is excluded, same as
-    # spread/spacing above).
+    # buildings are checked — a road/park/tree is *supposed* to run along the
+    # whole block underneath/beside building frontages, so counting those would
+    # penalize a normal, correct city layout instead of a bad one.
     footprints = [
         (
             b.position[0] - (b.size[0] / 2.0 if b.size else 0.25),
             b.position[0] + (b.size[0] / 2.0 if b.size else 0.25),
         )
         for b in agent_bodies
-        if len(b.position) >= 1
+        if len(b.position) >= 1 and b.kind in (None, "house", "tower", "shop")
     ]
     overlap_total = 0.0
     for i in range(len(footprints)):
@@ -397,6 +401,7 @@ def _reward_city_score(m: dict[str, float]) -> tuple[float, bool, str]:
     """Tiny City: more structures, well spread/spaced (livable), stable, and a
     real mix of city infrastructure — not just a row of identical buildings."""
     parts = m.get("parts_used", 0.0)
+    building_count = m.get("building_count", 0.0)
     spread_area = m.get("spread_area", 0.0)
     avg_spacing = m.get("avg_spacing", 0.0)
     min_spacing = m.get("min_spacing", 0.0)
@@ -413,18 +418,30 @@ def _reward_city_score(m: dict[str, float]) -> tuple[float, bool, str]:
         + min(height_variety, 6.0) * 2.0
     )
     overlap_penalty = overlap_total * 5.0
+    # Cap the raw part-count term — a pile of identical boxes shouldn't be able
+    # to out-score a smaller, well-composed mix of road/park/trees/buildings.
     score = (
-        parts * 4.0
+        min(parts, 12.0) * 4.0
         + math.sqrt(max(0.0, spread_area)) * 2.0
         + avg_spacing * 4.0  # livability: well-spaced beats clumped
         + stability * 8.0
         + infra_bonus
         - overlap_penalty
     )
-    success = parts >= 4 and min_spacing >= 1.0
+    # Success requires the actual mix the objective asks for (road + park +
+    # trees + several buildings), not just "4+ things placed with some gap" —
+    # a pile of boxes with no infrastructure used to pass this bar easily.
+    success = (
+        building_count >= 6
+        and road_count >= 1
+        and park_count >= 1
+        and tree_count >= 2
+        and min_spacing >= 1.0
+    )
     summary = (
-        f"City: {int(parts)} structures ({int(road_count)} road, {int(park_count)} "
-        f"park, {int(tree_count)} tree), {spread_area:.1f}u² spread, avg spacing "
+        f"City: {int(building_count)} buildings, {int(road_count)} road, "
+        f"{int(park_count)} park, {int(tree_count)} tree "
+        f"({int(parts)} parts total), {spread_area:.1f}u² spread, avg spacing "
         f"{avg_spacing:.2f} (min {min_spacing:.2f})"
         + (f", {overlap_total:.1f}u overlap" if overlap_total > 0 else "")
         + "."

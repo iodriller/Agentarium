@@ -138,6 +138,34 @@ def crawl_challenge_golden() -> tuple[DesignSpec, WorldConfig]:
     return design, world
 
 
+def tiny_city_golden() -> tuple[DesignSpec, WorldConfig]:
+    """A 6-building block with a road, a park, and two trees — the actual mix
+    city_score's success now requires (see
+    test_scoring.py::test_city_score_success_requires_the_real_mix), matching
+    the mock provider's build."""
+    design, world = _seeded("tiny_city_preview", "tiny_city_block", "city_score")
+    layout = [
+        ("road1", "road", [0.0, 0.15], [26.0, 0.3]),
+        ("park1", "park", [-9.0, 0.1], [3.0, 0.2]),
+        ("house1", "house", [-6.0, 1.5], [2.0, 3.0]),
+        ("tower1", "tower", [-2.5, 4.0], [2.5, 8.0]),
+        ("shop1", "shop", [1.0, 2.0], [2.0, 4.0]),
+        ("house2", "house", [4.0, 1.5], [2.0, 3.0]),
+        ("tower2", "tower", [7.5, 3.0], [2.0, 6.0]),
+        ("tree1", "tree", [-4.0, 0.9], [1.0, 1.8]),
+        ("tree2", "tree", [9.5, 0.9], [1.0, 1.8]),
+        ("shop2", "shop", [12.0, 2.5], [2.0, 5.0]),
+    ]
+    for body_id, kind, position, size in layout:
+        design.bodies.append(
+            BodySpec(
+                id=body_id, shape=BodyShape.box, position=position, size=size,
+                static=True, kind=kind, created_by="golden",
+            )
+        )
+    return design, world
+
+
 def sorter_golden() -> tuple[DesignSpec, WorldConfig]:
     """Two chutes feeding two color-matched open bins. Verified: both balls
     land in their matching bin (100% sorting_accuracy, see

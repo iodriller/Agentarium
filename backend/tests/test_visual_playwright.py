@@ -17,7 +17,12 @@ import urllib.request
 import pytest
 from playwright.sync_api import Page, expect, sync_playwright
 
-from tests.goldens import bridge_builder_golden, crawl_challenge_golden, sorter_golden
+from tests.goldens import (
+    bridge_builder_golden,
+    crawl_challenge_golden,
+    sorter_golden,
+    tiny_city_golden,
+)
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("AGENTARIUM_VISUAL_TESTS") != "1",
@@ -181,6 +186,7 @@ GOLDEN_DESIGNS = {
     "bridge-builder": bridge_builder_golden,
     "sorter": sorter_golden,
     "crawl-challenge": crawl_challenge_golden,
+    "tiny-city-preview": tiny_city_golden,
 }
 
 
