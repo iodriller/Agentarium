@@ -302,21 +302,65 @@ def _mutate(design: DesignSpec, agent_id: str, tool: str, args: dict) -> bool:
 
     if tool == "add_bin":
         bid = args["id"]
-        if bid in _body_ids(design):
-            raise ValueError(f"body '{bid}' already exists")
+        existing_ids = _body_ids(design)
+        sub_ids = [bid, f"{bid}_floor", f"{bid}_wall_l", f"{bid}_wall_r"]
+        clash = next((sid for sid in sub_ids if sid in existing_ids), None)
+        if clash is not None:
+            raise ValueError(f"body '{clash}' already exists")
         width = float(args.get("width", 2.0))
         height = float(args.get("height", 2.0))
         pos = [float(v) for v in args["position"]]
-        design.bodies.append(
-            BodySpec(
-                id=bid,
-                shape=BodyShape.box,
-                position=pos,
-                size=[width, height],
-                static=True,
-                kind=args.get("kind") or "bin",
-                created_by=agent_id,
-            )
+        color = args.get("color")
+        kind = args.get("kind") or "bin"
+        # A bin must physically be an open-top container, not a solid box — a
+        # ball aimed at one has to be able to fall IN and rest there for
+        # containment scoring to ever be reachable by real physics. Build a
+        # floor + two side walls (thin, non-sensor) that catch the ball, and a
+        # full-size sensor prop on top purely for the recognizable open-top
+        # visual (drawn last so it paints over the plain wall/floor rects).
+        wall_w = min(0.18, width * 0.15) or 0.1
+        floor_h = min(0.2, height * 0.15) or 0.1
+        design.bodies.extend(
+            [
+                BodySpec(
+                    id=f"{bid}_floor",
+                    shape=BodyShape.box,
+                    position=[pos[0], pos[1] - height / 2.0 + floor_h / 2.0],
+                    size=[width, floor_h],
+                    static=True,
+                    color=color,
+                    created_by=agent_id,
+                ),
+                BodySpec(
+                    id=f"{bid}_wall_l",
+                    shape=BodyShape.box,
+                    position=[pos[0] - width / 2.0 + wall_w / 2.0, pos[1]],
+                    size=[wall_w, height],
+                    static=True,
+                    color=color,
+                    created_by=agent_id,
+                ),
+                BodySpec(
+                    id=f"{bid}_wall_r",
+                    shape=BodyShape.box,
+                    position=[pos[0] + width / 2.0 - wall_w / 2.0, pos[1]],
+                    size=[wall_w, height],
+                    static=True,
+                    color=color,
+                    created_by=agent_id,
+                ),
+                BodySpec(
+                    id=bid,
+                    shape=BodyShape.box,
+                    position=pos,
+                    size=[width, height],
+                    static=True,
+                    sensor=True,
+                    kind=kind,
+                    color=color,
+                    created_by=agent_id,
+                ),
+            ]
         )
         # Record bin geometry (+ accepted class) in metadata so scoring can check
         # both containment and correct object-class-to-bin matching.

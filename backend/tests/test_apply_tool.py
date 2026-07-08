@@ -172,6 +172,51 @@ def test_add_ramp_keeps_slope_angle():
     assert ramp.angle < 0.0
 
 
+def test_add_bin_builds_open_container_not_a_solid_box():
+    # A bin must be an open-top container a ball can physically fall into, not
+    # one solid box — a solid box would stop the ball's center from ever
+    # entering the bin's bounding region, so containment scoring could never
+    # trigger from real physics (only from a scripted/direct position).
+    design = DesignSpec()
+    result = apply_tool_call(
+        design, agent_id="a", tool="add_bin",
+        args={"id": "b1", "position": [0.0, 2.0], "width": 2.0, "height": 4.0, "accepts": "red"},
+        enabled_tools=["add_bin"],
+    )
+    assert result.mutated is True
+    ids = {b.id for b in design.bodies}
+    assert {"b1", "b1_floor", "b1_wall_l", "b1_wall_r"} <= ids
+    floor = next(b for b in design.bodies if b.id == "b1_floor")
+    wall_l = next(b for b in design.bodies if b.id == "b1_wall_l")
+    wall_r = next(b for b in design.bodies if b.id == "b1_wall_r")
+    sensor_body = next(b for b in design.bodies if b.id == "b1")
+    # Floor/walls are real (non-sensor) colliders that physically catch a ball;
+    # only the full-size visual prop is a sensor (announces "this is the bin"
+    # without blocking anything).
+    assert floor.sensor is False and wall_l.sensor is False and wall_r.sensor is False
+    assert sensor_body.sensor is True
+    assert sensor_body.kind == "bin"
+    # The walls must be narrower than the bin so there's an open interior gap
+    # between them for something to fall through.
+    assert wall_l.position[0] + wall_l.size[0] < wall_r.position[0] - wall_r.size[0]
+    assert design.metadata["bins"] == [
+        {"id": "b1", "x": 0.0, "y": 2.0, "width": 2.0, "height": 4.0, "accepts": "red"}
+    ]
+
+
+def test_add_bin_rejects_duplicate_id_including_sub_parts():
+    design = DesignSpec(
+        bodies=[BodySpec(id="b1_floor", shape=BodyShape.box, static=True)],
+    )
+    result = apply_tool_call(
+        design, agent_id="a", tool="add_bin",
+        args={"id": "b1", "position": [0.0, 2.0], "width": 2.0, "height": 4.0},
+        enabled_tools=["add_bin"],
+    )
+    assert result.mutated is False
+    assert result.record.status == ToolCallStatus.rejected
+
+
 def test_disabled_tool_rejected():
     design = DesignSpec()
     result = apply_tool_call(

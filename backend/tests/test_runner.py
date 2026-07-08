@@ -197,6 +197,18 @@ def test_sorter_mock_places_matching_bins_and_ramps():
     assert all(call.status.value == "success" for call in result.tool_calls)
 
 
+def test_sorter_with_real_physics_balls_land_in_matching_bins():
+    # End-to-end with the real engine: a bin used to be a solid box a ball
+    # could never fall into (containment was only reachable by scripting a
+    # ball's position directly, never by real physics). add_bin now builds an
+    # open floor+walls container, so this must actually succeed.
+    result = asyncio.run(run_single_attempt(_sorter_config()))
+    assert result.score.reward == "sorting_accuracy"
+    assert result.score.metrics["bins_in_target"] == 2.0
+    assert result.score.metrics["bins_correct"] == 2.0
+    assert result.score.success is True
+
+
 def test_attempt_result_carries_per_step_design_snapshots():
     # Each tool call should produce one un-simulated EpisodeTrace-shaped
     # snapshot, in step order, so the Studio can replay the CONSTRUCTION

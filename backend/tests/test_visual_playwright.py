@@ -17,7 +17,7 @@ import urllib.request
 import pytest
 from playwright.sync_api import Page, expect, sync_playwright
 
-from tests.goldens import bridge_builder_golden
+from tests.goldens import bridge_builder_golden, sorter_golden
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("AGENTARIUM_VISUAL_TESTS") != "1",
@@ -179,6 +179,7 @@ def test_studio_replay_has_visual_artifact(
 
 GOLDEN_DESIGNS = {
     "bridge-builder": bridge_builder_golden,
+    "sorter": sorter_golden,
 }
 
 
