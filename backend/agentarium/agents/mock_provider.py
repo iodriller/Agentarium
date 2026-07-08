@@ -26,53 +26,19 @@ _SAMPLE_TOOL_CALLS = [
 
 
 _BRIDGE_TOOL_CALLS = [
+    # A single continuous, gently downhill deck from the slope's end
+    # (~-4.4, 2.05) to the goal cliff top (x=2.5, y=1.55) — verified against
+    # the real physics (island_cliff_small's ground_spans gap) to actually
+    # carry the crate to the goal. One clean deck reads as a bridge; extra
+    # "support" beams would just be decorative clutter (add_beam bodies are
+    # always static/rigid, so nothing here can physically collapse).
     {
         "tool": "add_beam",
         "args": {
-            "id": "bridge_left",
-            "start": [-8.5, 2.35],
-            "end": [-4.0, 2.15],
+            "id": "bridge_deck",
+            "start": [-4.4, 2.05],
+            "end": [2.5, 1.55],
             "width": 0.22,
-            "kind": "beam",
-        },
-    },
-    {
-        "tool": "add_beam",
-        "args": {
-            "id": "bridge_span",
-            "start": [-4.0, 2.15],
-            "end": [2.4, 2.15],
-            "width": 0.22,
-            "kind": "beam",
-        },
-    },
-    {
-        "tool": "add_beam",
-        "args": {
-            "id": "bridge_right",
-            "start": [2.4, 2.15],
-            "end": [8.3, 2.25],
-            "width": 0.22,
-            "kind": "beam",
-        },
-    },
-    {
-        "tool": "add_beam",
-        "args": {
-            "id": "underbrace_a",
-            "start": [-3.8, 1.15],
-            "end": [-0.5, 2.05],
-            "width": 0.16,
-            "kind": "beam",
-        },
-    },
-    {
-        "tool": "add_beam",
-        "args": {
-            "id": "underbrace_b",
-            "start": [2.2, 1.15],
-            "end": [-0.5, 2.05],
-            "width": 0.16,
             "kind": "beam",
         },
     },

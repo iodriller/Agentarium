@@ -4,7 +4,14 @@ tagline: Transport the crate to the goal.
 tags:
   - Construction
   - Transport
-objective: The round crate starts high on the left slope and rolls down on its own. Build a bridge across the gap (roughly x=-4 to x=2) so the crate carries across to the goal platform on the right at x=8. Do NOT build on top of or beside the crate's start — leave its slope clear.
+objective: >-
+  The round crate starts high on the left slope and rolls down on its own,
+  off the end of the slope at roughly x=-4. From there it is over open air —
+  there is NO floor between x=-10.5 and x=2, a real ravine — so an unaided
+  crate falls straight through and the attempt fails. Build a bridge across
+  the gap (add_beam + add_joint) so the crate is carried to the goal platform
+  on the right cliff at x=8. Do NOT build on top of or beside the crate's
+  start — leave its slope clear.
 reward: bridge_transport
 default_world: island_cliff_small
 required_tools:
@@ -33,7 +40,8 @@ scaffold:
   - id: goal_marker
     shape: box
     kind: goal
-    position: [8.0, 2.1]
-    size: [0.4, 1.2]
+    position: [8.0, 2.3]
+    size: [0.6, 1.6]
     static: true
+    sensor: true  # a flag, not a wall — must not block the crate reaching it
     color: "#22c55e"

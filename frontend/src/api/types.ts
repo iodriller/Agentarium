@@ -199,6 +199,9 @@ export interface StaticProp {
   size?: number[]
   angle?: number // orientation in radians (sloped ramps/beams)
   color?: string | null
+  // Actual geometry (box/circle/segment), independent of `kind` — a
+  // beam/ramp/wall is semantically e.g. "beam" but geometrically a segment.
+  shape?: string
 }
 
 export interface FrameBody {

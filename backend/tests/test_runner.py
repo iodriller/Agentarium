@@ -43,7 +43,7 @@ def test_mock_attempt_completes():
 
 def _bridge_config() -> LaunchConfig:
     return LaunchConfig(
-        scenario=ScenarioConfig(preset="bridge_builder"),
+        scenario=ScenarioConfig(preset="bridge_builder", reward="bridge_transport"),
         world=WorldConfig(template="island_cliff_small"),
         agents=AgentsConfig(
             participants=[
@@ -80,7 +80,7 @@ def test_challenge_scaffold_and_world_geometry_are_seeded_and_simulate():
 
 def _city_config() -> LaunchConfig:
     return LaunchConfig(
-        scenario=ScenarioConfig(preset="tiny_city_preview"),
+        scenario=ScenarioConfig(preset="tiny_city_preview", reward="city_score"),
         world=WorldConfig(template="tiny_city_block"),
         agents=AgentsConfig(
             participants=[
@@ -121,7 +121,7 @@ def test_city_prompt_does_not_require_movable_body():
 
 def _crawl_config() -> LaunchConfig:
     return LaunchConfig(
-        scenario=ScenarioConfig(preset="crawl_challenge"),
+        scenario=ScenarioConfig(preset="crawl_challenge", reward="crawl_locomotion"),
         world=WorldConfig(template="hill_path"),
         agents=AgentsConfig(
             participants=[
@@ -134,7 +134,7 @@ def _crawl_config() -> LaunchConfig:
 
 def _sorter_config() -> LaunchConfig:
     return LaunchConfig(
-        scenario=ScenarioConfig(preset="sorter"),
+        scenario=ScenarioConfig(preset="sorter", reward="sorting_accuracy"),
         world=WorldConfig(template="sorting_table"),
         agents=AgentsConfig(
             participants=[
@@ -149,9 +149,32 @@ def test_bridge_mock_builds_bridge_parts_not_generic_scene():
     result = asyncio.run(run_single_attempt(_bridge_config()))
     agent_bodies = [b for b in result.design.bodies if b.created_by == "a"]
     ids = {b.id for b in agent_bodies}
-    assert {"bridge_left", "bridge_span", "bridge_right"} <= ids
+    assert {"bridge_deck"} <= ids
     assert all(b.kind == "beam" for b in agent_bodies)
     assert all(call.status.value == "success" for call in result.tool_calls)
+
+
+def test_bridge_with_real_gap_crate_reaches_goal_via_bridge():
+    # End-to-end: island_cliff_small now has a real gap (ground_spans/kill_y —
+    # no floor between the slope and the goal cliff). The mock's bridge must
+    # actually carry the crate across it under bridge_transport scoring, not
+    # rely on a phantom floor underneath.
+    result = asyncio.run(run_single_attempt(_bridge_config()))
+    assert result.score.reward == "bridge_transport"
+    assert result.score.metrics["reached_goal"] == 1.0
+    assert result.score.metrics["falls"] == 0.0
+    assert result.score.success is True
+
+
+def test_bridge_without_a_bridge_crate_falls_into_the_ravine():
+    # Without any agent-built beams, the crate rolls off the slope into the gap
+    # and must fall through — the world must not have a phantom floor catching it.
+    config = _bridge_config()
+    config.tools.enabled = ["run_simulation"]  # no building tools -> no bridge
+    result = asyncio.run(run_single_attempt(config))
+    assert result.score.metrics["falls"] >= 1.0
+    assert result.score.metrics["reached_goal"] == 0.0
+    assert result.score.success is False
 
 
 def test_crawl_mock_builds_driven_creature_parts():

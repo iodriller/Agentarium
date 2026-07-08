@@ -220,9 +220,19 @@ def compute_metrics(trace: EpisodeTrace, design: DesignSpec) -> dict[str, float]
     final_x = None
     if start is not None:
         start_x = start.x
-        xs = [
-            f.bodies[primary].x for f in frames if primary in f.bodies
-        ]
+        xs: list[float] = []
+        for f in frames:
+            body = f.bodies.get(primary)
+            if body is None:
+                continue
+            xs.append(body.x)
+            # A world with a real ground gap (kill_y set) has no floor to land
+            # on below it — once the body passes kill_y it is in unbounded free
+            # fall and can drift arbitrarily far in x. Stop crediting position
+            # there, or a fall would read as "reached the goal"/"crossed the
+            # threshold" purely from horizontal drift while plummeting.
+            if trace.kill_y is not None and body.y < trace.kill_y:
+                break
         if xs:
             final_x = xs[-1]
             metrics["distance_m"] = abs(xs[-1] - start_x)
@@ -242,13 +252,18 @@ def compute_metrics(trace: EpisodeTrace, design: DesignSpec) -> dict[str, float]
             metrics["crossed_threshold"] = 1.0 if final_x >= threshold_x else 0.0
 
     # --- falls (count fall events, i.e. transitions below threshold) -------------
+    # A world with a real ground gap (Bridge's ravine) carries kill_y — the y
+    # below which a body in the gap has fallen in, which is the physically
+    # meaningful threshold there. Worlds without a gap fall back to the generic
+    # "below ground" threshold.
+    fall_threshold = trace.kill_y if trace.kill_y is not None else _FALL_Y_THRESHOLD
     falls = 0
     was_fallen = False
     for f in frames:
         body = f.bodies.get(primary)
         if body is None:
             continue
-        fallen = body.y < _FALL_Y_THRESHOLD
+        fallen = body.y < fall_threshold
         if fallen and not was_fallen:
             falls += 1
         was_fallen = fallen
@@ -303,7 +318,8 @@ def _reward_bridge_transport(m: dict[str, float]) -> tuple[float, bool, str]:
     """Bridge: carry the crate to the goal zone, stay standing, stay lean.
 
     Rewards goal progress and reaching the goal, plus stability; penalizes
-    collapses and excessive parts (a bridge should be efficient).
+    falling into the ravine (a real gap in the ground — see the world's
+    ground_spans/kill_y) and excessive parts (a bridge should be efficient).
     """
     progress = m.get("goal_progress", 0.0)
     reached = m.get("reached_goal", 0.0)
@@ -315,7 +331,9 @@ def _reward_bridge_transport(m: dict[str, float]) -> tuple[float, bool, str]:
     success = reached >= 1.0 and falls == 0
     summary = (
         f"{'Reached goal' if reached else f'{progress:.0%} to goal'}; "
-        f"stability {stability:.2f}, {int(falls)} fall(s), {int(parts)} parts."
+        f"stability {stability:.2f}, "
+        f"{f'fell into the ravine {int(falls)}x' if falls else 'no falls'}, "
+        f"{int(parts)} parts."
     )
     return score, success, summary
 

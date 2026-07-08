@@ -45,6 +45,7 @@ def _make_shape(body: pymunk.Body, spec: BodySpec) -> pymunk.Shape:
         shape = pymunk.Poly.create_box(body, (w, h))
     shape.friction = spec.friction
     shape.elasticity = spec.elasticity
+    shape.sensor = spec.sensor
     return shape
 
 

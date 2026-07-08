@@ -196,6 +196,38 @@ def test_kill_y_defaults_to_none():
     assert trace.kill_y is None
 
 
+def test_sensor_body_does_not_block_movement():
+    # A "goal" marker announces "reached here" and must not itself be a solid
+    # wall standing in the way of whatever is meant to reach it (regression for
+    # the Bridge Builder crate getting physically stuck against its own goal
+    # marker instead of ever registering as having arrived).
+    def rolls_past(sensor: bool) -> float:
+        design = DesignSpec(
+            name="t",
+            bodies=[
+                BodySpec(
+                    id="ramp", shape=BodyShape.segment, position=[0.0, 1.0],
+                    size=[6.0], angle=-0.2, static=True,
+                ),
+                BodySpec(
+                    id="wall", shape=BodyShape.box, position=[3.0, 0.5],
+                    size=[0.5, 1.0], static=True, sensor=sensor,
+                ),
+                BodySpec(
+                    id="ball", shape=BodyShape.circle, position=[-2.5, 1.6],
+                    size=[0.3], mass=1.0,
+                ),
+            ],
+        )
+        trace = Pymunk2DEngine().simulate(design, _world(), duration_seconds=3.0)
+        return trace.frames[-1].bodies["ball"].x
+
+    blocked_x = rolls_past(sensor=False)
+    passthrough_x = rolls_past(sensor=True)
+    assert blocked_x < 3.0  # stopped before reaching the wall's center
+    assert passthrough_x > 3.0  # sensor let it roll straight through
+
+
 def test_kind_falls_back_to_shape_when_absent():
     # Bodies without a `kind` keep the old shape-name fallback (backward compat
     # with challenges that don't use the cosmetic kind hint, e.g. bridge/crawl).
@@ -208,3 +240,29 @@ def test_kind_falls_back_to_shape_when_absent():
     trace = Pymunk2DEngine().simulate(design, _world(), duration_seconds=0.2)
     beam_prop = next(p for p in trace.world_static if p.id == "beam1")
     assert beam_prop.kind == "segment"
+
+
+def test_static_prop_carries_real_shape_alongside_semantic_kind():
+    # A beam/ramp/wall is semantically "beam" (kind) but geometrically a thin
+    # segment — the renderer needs the real shape too, or it draws a segment's
+    # length as both width AND height (a fat square instead of a thin plank).
+    design = DesignSpec(
+        name="scene",
+        bodies=[
+            BodySpec(
+                id="deck", shape=BodyShape.segment, position=[0.0, 1.0],
+                size=[6.9], static=True, kind="beam",
+            ),
+            BodySpec(
+                id="house1", shape=BodyShape.box, position=[5.0, 1.5],
+                size=[2.0, 3.0], static=True, kind="house",
+            ),
+        ],
+    )
+    trace = Pymunk2DEngine().simulate(design, _world(), duration_seconds=0.2)
+    deck_prop = next(p for p in trace.world_static if p.id == "deck")
+    house_prop = next(p for p in trace.world_static if p.id == "house1")
+    assert deck_prop.kind == "beam"
+    assert deck_prop.shape == "segment"
+    assert house_prop.kind == "house"
+    assert house_prop.shape == "box"

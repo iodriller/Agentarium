@@ -4,6 +4,10 @@ Captured after Step 27 (all planned MVP steps complete). Items below are deferre
 the gap analysis or post-MVP backlog. Status legend: 🟢 **Fixed** · 🟡 **Deferred**
 · 🔵 **Product decision needed**.
 
+The challenge-quality overhaul (do the four challenges look like and score what they
+claim?) is tracked in `docs/CHALLENGE_OVERHAUL_PLAN.md` — read that for the full plan;
+this file gets the per-item status rows as pieces land.
+
 ---
 
 ## High value — shorter effort
@@ -14,6 +18,7 @@ the gap analysis or post-MVP backlog. Status legend: 🟢 **Fixed** · 🟡 **De
 | P2 | `setup/validators` | **`manual` provider launches with a 500** — `ManualProvider.complete()` raises `NotImplementedError`. Nothing stops a user from configuring `provider: "manual"` and clicking Launch. | 🟢 Fixed: validator rejects `manual` provider with a clear message before the run starts. |
 | P3 | `setup/validators` + `openai_compatible` | **Real LLM hardening** — single 3s `_TIMEOUT` covers both the `/models` probe and generation calls (real LLM calls can take 30–120s and will `ReadTimeout`); LLM probe in validators sends no auth header and string-concats the URL (double-slash if trailing slash). | 🟢 Fixed: separate `_PROBE_TIMEOUT = 5s` / `_GENERATION_TIMEOUT = 120s`; probe uses auth headers; URL trailing slash stripped. |
 | P4 | Frontend (Setup) | **Auto-seed required tools on preset select** — picking Sorter doesn't enable `add_bin` automatically, so `Launch` stays disabled until the user manually finds and enables it. | 🟢 Fixed: `handleSelectPreset` seeds `tools.enabled` from `preset.required_tools`. |
+| P5 | `openai_compatible` | **Model dropdown lists non-chat models** — `test_connection` returned every id from `/v1/models` verbatim, so embeddings/tts/whisper/dall-e/moderation models showed up as pickable agent models alongside real chat models. | 🟢 Fixed: `_is_chat_model` denylist filters known non-chat families before the list reaches the Setup dropdown; unknown ids are kept (never hides a real local/custom chat model). |
 
 ---
 
@@ -36,6 +41,9 @@ the gap analysis or post-MVP backlog. Status legend: 🟢 **Fixed** · 🟡 **De
 | E3 | `runner` | `simulation_duration_seconds` (user-set, default 180) was silently hard-capped to 5s. | 🟢 Fixed: named `_MAX_SIM_DURATION_SECONDS = 60`; durations honored up to the cap |
 | E4 | `runner` | `_parse_tool_calls` was duplicated in `runner.py` and `openai_compatible.py` with slightly different logic. | 🟢 Fixed: consolidated into `agents/parsing.py::parse_tool_calls`, used by both |
 | E5 | `tools/apply` | A body spawned deeply embedded in the ground (e.g. `create_body` with the schema-default `position: [0, 0]` on a 1×1 box, which engulfs the paper-thin `radius=0.1` ground segment) could tunnel through it forever instead of resting on top — observed `y -> -4412` by t=30s. Found via `mock_provider`'s own placeholder body (`IMPROVEMENTS.md` §8), and any agent (real LLM included) placing a body at/below ground level hit the same tunneling, silently scoring 0 with no error. | 🟢 Fixed (`IMPROVEMENTS.md` §9): `apply.py::_clamp_to_ground` clamps a new DYNAMIC body's spawn y to rest at/above the surface (`create_body`, `add_ball`); static bodies are untouched (terrain is allowed to be embedded on purpose) |
+| E6 | `engines/pymunk2d`, `worlds` | **Every world had one continuous, invisible floor spanning the whole map** — `build_space` always added a single full-width static ground segment, so no challenge could ever have a real gap/pit. Bridge Builder's "gap" was empty air over a solid floor: a crate rolling off the slope just landed on the hidden floor and got stuck against the goal cliff's wall, never needing (or able to use) a bridge. | 🟢 Fixed: `WorldTemplate.ground_spans`/`kill_y` (optional, default = one full-width span, fully backward compatible) let a world carve a real gap; `builder.build_space` emits one ground segment per span; `EpisodeTrace.kill_y` carries it to the renderer, which draws a water/hazard band in the gap instead of continuous ground. `scoring_service.compute_metrics` uses `kill_y` (falling back to the old generic threshold when unset) both to count falls and to stop crediting position once a body is in an unbounded free-fall — see CHALLENGE_OVERHAUL_PLAN.md Phase 1. |
+| E7 | `core/schemas/design`, `engines/pymunk2d/builder` | **A solid "goal" marker physically blocks whatever is meant to reach it** — Bridge Builder's goal marker was a normal collidable static box; the crate got stuck against its face and could never register `reached_goal`, no matter how good the bridge was. | 🟢 Fixed: `BodySpec.sensor` (default `False`) — a sensor shape detects overlap without blocking movement; the pymunk shape's `.sensor` flag is set from it. Bridge's and Crawl's `goal_marker` scaffolds are now `sensor: true`. |
+| E8 | `core/schemas/trace`, `phaser/TraceRenderer` | **Static "beam"/"ramp"/"wall" props rendered as fat squares, not thin planks** — `StaticProp` never carried the body's real shape, only its semantic `kind` (e.g. "beam"); the renderer's semantic-prop path hardcoded `shape: 'box'`, so a segment's `size=[length]` got read as both width AND height, squaring it. This is a big reason a hand-built bridge deck looked like a boulder instead of a plank. | 🟢 Fixed: `StaticProp.shape` (mirrors `BodyMeta.shape`) carries the real geometry; the renderer's semantic-prop path uses it instead of a hardcoded box, so segment-shaped props size as a thin plank via the existing `sizePx` segment branch. |
 
 ---
 

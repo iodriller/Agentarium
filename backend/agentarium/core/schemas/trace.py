@@ -10,6 +10,11 @@ class StaticProp(BaseModel):
     size: list[float] = []
     angle: float = 0.0  # orientation in radians (sloped ramps/beams)
     color: str | None = None
+    # The body's actual geometry (box/circle/segment), independent of `kind`
+    # (a beam/ramp/wall is semantically a "beam" etc. but geometrically a thin
+    # segment) — the renderer needs this to size a segment as a thin plank
+    # instead of a square built from its length alone.
+    shape: str = "box"
 
 
 class BodyMeta(BaseModel):

@@ -68,6 +68,27 @@ def test_crossed_threshold_metric():
     assert compute_metrics(_trace_to(3.0), d)["crossed_threshold"] == 0.0
 
 
+def test_falls_uses_kill_y_when_world_has_a_real_gap():
+    # A world with a real ravine (kill_y set) should flag a fall once the body
+    # passes the world's own chasm floor, not the generic default-world depth.
+    d = _design({})
+    trace = EpisodeTrace(
+        run_id="r",
+        dt=0.5,
+        kill_y=-2.0,
+        frames=[
+            Frame(t=0.0, bodies={"crate": FrameBody(x=0.0, y=1.0, angle=0.0)}),
+            Frame(t=0.5, bodies={"crate": FrameBody(x=0.0, y=-1.0, angle=0.0)}),
+        ],
+    )
+    # -1.0 is above kill_y=-2.0 — still mid-fall through the gap, not "fallen" yet.
+    assert compute_metrics(trace, d)["falls"] == 0.0
+
+    trace_deep = trace.model_copy(deep=True)
+    trace_deep.frames[1].bodies["crate"].y = -3.0
+    assert compute_metrics(trace_deep, d)["falls"] == 1.0
+
+
 # ── Rewards are distinct and goal-driven ────────────────────────────────────
 
 

@@ -125,6 +125,7 @@ class Pymunk2DEngine(EngineAdapter):
                         size=list(spec.size),
                         angle=spec.angle,
                         color=spec.color,
+                        shape=shape_name,
                     )
                 )
         return props

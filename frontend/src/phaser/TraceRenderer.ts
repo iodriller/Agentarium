@@ -342,7 +342,9 @@ export class TraceRenderer extends Phaser.Scene {
 
     // Semantic kind (house/wall/bin/…) → a recognizable procedural prop.
     if (isSemanticKind(prop.kind)) {
-      const meta = { shape: 'box', size: prop.size, color: prop.color, kind: prop.kind } as BodyMeta
+      // The real geometry (box/circle/segment) — a beam/ramp/wall is a thin
+      // segment sized by length alone, not a square built from that length.
+      const meta = { shape: prop.shape ?? 'box', size: prop.size, color: prop.color, kind: prop.kind } as BodyMeta
       const { w, h } = sizePx(meta, SCALE)
       const { sx, sy } = TraceRenderer.px(px, py)
       g.save()
