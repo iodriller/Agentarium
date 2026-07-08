@@ -108,9 +108,13 @@ def _add_joint(
             a, b, anchor_a, anchor_b, rest_length=1.0, stiffness=100.0, damping=5.0
         )
     else:  # pivot (default)
-        # Pivot at body_a's world anchor point.
-        pivot_point = a.local_to_world(anchor_a)
-        constraint = pymunk.PivotJoint(a, b, pivot_point)
+        # Two-anchor form: pins anchor_a (local to a) to anchor_b (local to b),
+        # like PinJoint/SlideJoint above. The single-world-point form used here
+        # previously ignored anchor_b entirely — if the bodies weren't already
+        # positioned exactly at that point, pymunk had to snap them together
+        # every step, which reads as an explosive "pop" on anything not
+        # perfectly pre-aligned (e.g. a hinged creature's limbs).
+        constraint = pymunk.PivotJoint(a, b, anchor_a, anchor_b)
     space.add(constraint)
 
     if joint.motor_rate is not None:

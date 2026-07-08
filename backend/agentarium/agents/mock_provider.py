@@ -47,34 +47,31 @@ _BRIDGE_TOOL_CALLS = [
 
 
 _CRAWL_TOOL_CALLS = [
-    _body(
-        "front_leg",
-        "segment",
-        [-4.35, 0.85],
-        "leg",
-        length=1.25,
-        mass=0.35,
-        friction=0.95,
-    ),
-    _body(
-        "rear_leg",
-        "segment",
-        [-5.65, 0.85],
-        "leg",
-        length=1.25,
-        mass=0.35,
-        friction=0.95,
-    ),
+    # Legs spawn just below+forward/behind the torso (which sits at [-5, 1.5] —
+    # see crawl_challenge.yaml's scaffold); hip joints anchor at the torso's
+    # underside (not its center) and the leg's own end (not its middle) — a
+    # center-to-center pivot snaps the whole leg to the torso with a violent
+    # jolt instead of a hinge. Motor rate/force validated against the real
+    # engine: this bounds/hops forward and crosses threshold_x=6 with 0 falls
+    # (see test_runner.py::test_crawl_with_real_physics_crosses_threshold).
+    _body("front_leg", "segment", [-4.35, 1.1], "leg", length=1.0, mass=0.35, friction=0.95),
+    _body("rear_leg", "segment", [-5.65, 1.1], "leg", length=1.0, mass=0.35, friction=0.95),
     {
         "tool": "add_joint",
-        "args": {"id": "front_hip", "body_a": "torso", "body_b": "front_leg", "type": "pivot"},
+        "args": {
+            "id": "front_hip", "body_a": "torso", "body_b": "front_leg", "type": "pivot",
+            "anchor_a": [0.5, -0.3], "anchor_b": [-0.5, 0.0],
+        },
     },
     {
         "tool": "add_joint",
-        "args": {"id": "rear_hip", "body_a": "torso", "body_b": "rear_leg", "type": "pivot"},
+        "args": {
+            "id": "rear_hip", "body_a": "torso", "body_b": "rear_leg", "type": "pivot",
+            "anchor_a": [-0.5, -0.3], "anchor_b": [-0.5, 0.0],
+        },
     },
-    {"tool": "add_motor", "args": {"id": "front_drive", "joint_id": "front_hip", "rate": 4.0}},
-    {"tool": "add_motor", "args": {"id": "rear_drive", "joint_id": "rear_hip", "rate": -4.0}},
+    {"tool": "add_motor", "args": {"id": "front_drive", "joint_id": "front_hip", "rate": 1.2, "max_force": 3000.0}},
+    {"tool": "add_motor", "args": {"id": "rear_drive", "joint_id": "rear_hip", "rate": -1.2, "max_force": 3000.0}},
     {"tool": "run_simulation", "args": {}},
 ]
 

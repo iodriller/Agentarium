@@ -14,6 +14,7 @@ from agentarium.core.schemas.setup import (
     ToolsConfig,
     WorldConfig,
 )
+from agentarium.services.run_service import get_trace
 
 
 def _config() -> LaunchConfig:
@@ -185,6 +186,22 @@ def test_crawl_mock_builds_driven_creature_parts():
     assert {"front_hip", "rear_hip"} <= joint_ids
     assert any(j.motor_rate is not None for j in result.design.joints)
     assert all(call.status.value == "success" for call in result.tool_calls)
+
+
+def test_crawl_with_real_physics_crosses_threshold():
+    # End-to-end with the real engine: the creature's hip joints used to pivot
+    # both legs to the torso's CENTER (anchor_b was silently ignored — see
+    # test_engine.py::test_pivot_joint_honors_both_anchors), which snapped the
+    # whole rig apart on the very first step — the torso ended up thousands of
+    # metres away and thousands of metres underground. With real per-body hip
+    # anchors the creature must move forward and cross threshold_x=6 while
+    # staying on/near the world (not falling through it).
+    result = asyncio.run(run_single_attempt(_crawl_config()))
+    assert result.score.reward == "crawl_locomotion"
+    assert result.score.metrics["crossed_threshold"] == 1.0
+    assert result.score.success is True
+    trace = get_trace(result.trace_run_id)
+    assert trace.frames[-1].bodies["torso"].y > -5.0  # not the old runaway-fall failure mode
 
 
 def test_sorter_mock_places_matching_bins_and_ramps():

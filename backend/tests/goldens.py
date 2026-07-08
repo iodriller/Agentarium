@@ -10,7 +10,7 @@ from __future__ import annotations
 import math
 
 from agentarium.agents.runner import _inject_challenge_goal, _seed_scaffold, _seed_world
-from agentarium.core.schemas.design import BodyShape, BodySpec, DesignSpec
+from agentarium.core.schemas.design import BodyShape, BodySpec, DesignSpec, JointSpec, JointType
 from agentarium.core.schemas.setup import LaunchConfig, ScenarioConfig, WorldConfig
 from agentarium.services.preset_service import get_scenario_preset, get_world_template
 
@@ -97,6 +97,44 @@ def bridge_builder_golden() -> tuple[DesignSpec, WorldConfig]:
     the mock provider's equivalent build; same coordinates)."""
     design, world = _seeded("bridge_builder", "island_cliff_small", "bridge_transport")
     design.bodies.append(_beam("bridge_deck", [-4.4, 2.05], [2.5, 1.55]))
+    return design, world
+
+
+def crawl_challenge_golden() -> tuple[DesignSpec, WorldConfig]:
+    """A two-legged hinge creature that bounds forward past threshold_x=6.
+    Verified: 0 falls, crosses the line, stays on the world (see
+    test_runner.py::test_crawl_with_real_physics_crosses_threshold for the
+    mock's equivalent build, same coordinates). Hip anchors attach at the
+    torso's underside and each leg's own end — a center-to-center pivot (the
+    default with no anchors) snaps the whole rig apart on the first step."""
+    design, world = _seeded("crawl_challenge", "hill_path", "crawl_locomotion")
+    tx, ty = -5.0, 1.5
+    design.bodies.extend(
+        [
+            BodySpec(
+                id="front_leg", shape=BodyShape.segment, position=[tx + 0.65, ty - 0.4],
+                size=[1.0], mass=0.35, friction=0.95, kind="leg", created_by="golden",
+            ),
+            BodySpec(
+                id="rear_leg", shape=BodyShape.segment, position=[tx - 0.65, ty - 0.4],
+                size=[1.0], mass=0.35, friction=0.95, kind="leg", created_by="golden",
+            ),
+        ]
+    )
+    design.joints.extend(
+        [
+            JointSpec(
+                id="front_hip", body_a="torso", body_b="front_leg", type=JointType.pivot,
+                anchor_a=[0.5, -0.3], anchor_b=[-0.5, 0.0],
+                motor_rate=1.2, motor_max_force=3000.0, created_by="golden",
+            ),
+            JointSpec(
+                id="rear_hip", body_a="torso", body_b="rear_leg", type=JointType.pivot,
+                anchor_a=[-0.5, -0.3], anchor_b=[-0.5, 0.0],
+                motor_rate=-1.2, motor_max_force=3000.0, created_by="golden",
+            ),
+        ]
+    )
     return design, world
 
 

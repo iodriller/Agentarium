@@ -17,7 +17,7 @@ import urllib.request
 import pytest
 from playwright.sync_api import Page, expect, sync_playwright
 
-from tests.goldens import bridge_builder_golden, sorter_golden
+from tests.goldens import bridge_builder_golden, crawl_challenge_golden, sorter_golden
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("AGENTARIUM_VISUAL_TESTS") != "1",
@@ -180,6 +180,7 @@ def test_studio_replay_has_visual_artifact(
 GOLDEN_DESIGNS = {
     "bridge-builder": bridge_builder_golden,
     "sorter": sorter_golden,
+    "crawl-challenge": crawl_challenge_golden,
 }
 
 
@@ -207,7 +208,9 @@ def test_golden_design_before_after_screenshots(
     artifact_dir: pathlib.Path,
 ) -> None:
     design, world = GOLDEN_DESIGNS[challenge_id]()
-    run_id = _create_run(live_server, design, world, duration_seconds=20.0)
+    # 60s covers every golden's settle time (crawl's bounding gait needs the
+    # most; bridge/sorter finish well before this and are unaffected).
+    run_id = _create_run(live_server, design, world, duration_seconds=60.0)
 
     page.goto(f"{live_server}/studio/{run_id}", wait_until="networkidle")
     canvas = page.locator("canvas").first

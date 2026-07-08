@@ -80,6 +80,31 @@ _TOOLS: list[ToolDefinition] = [
                     "enum": ["pivot", "pin", "slide", "spring"],
                     "description": "Joint type",
                 },
+                "anchor_a": {
+                    "type": "array",
+                    "items": {"type": "number"},
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "description": (
+                        "Attachment point [x, y] in body_a's own local space, relative to "
+                        "its center (default [0, 0] = body_a's center). For a hinge, use "
+                        "the point where body_b actually touches body_a (e.g. a leg "
+                        "attaching to a torso's edge), not the center — anchoring both "
+                        "bodies at their centers snaps them together with a hard jolt."
+                    ),
+                },
+                "anchor_b": {
+                    "type": "array",
+                    "items": {"type": "number"},
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "description": (
+                        "Attachment point [x, y] in body_b's own local space, relative to "
+                        "its center (default [0, 0]). For a segment body_b (a leg/beam), "
+                        "the ends are at [-length/2, 0] and [length/2, 0] before rotation — "
+                        "use one of those as the hinge point, not the segment's middle."
+                    ),
+                },
             },
         },
     ),

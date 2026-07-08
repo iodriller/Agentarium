@@ -1,4 +1,6 @@
-from agentarium.core.schemas.design import BodyShape, BodySpec, DesignSpec
+import math
+
+from agentarium.core.schemas.design import BodyShape, BodySpec, DesignSpec, JointSpec, JointType
 from agentarium.core.schemas.setup import WorldConfig
 from agentarium.engines import get_engine
 from agentarium.engines.pymunk2d.engine import Pymunk2DEngine
@@ -194,6 +196,42 @@ def test_kill_y_flows_from_metadata_to_trace():
 def test_kill_y_defaults_to_none():
     trace = Pymunk2DEngine().simulate(DesignSpec(name="plain"), _world(), duration_seconds=0.1)
     assert trace.kill_y is None
+
+
+def test_pivot_joint_honors_both_anchors():
+    # A pivot must pin anchor_a (local to body_a) to anchor_b (local to
+    # body_b), not just treat anchor_a as a single world point (which silently
+    # ignored anchor_b entirely). Two falling boxes pinned at an off-center
+    # point on each must keep those two points coincident in world space —
+    # the defining behavior of a hinge, and what a hinged creature's limb
+    # joints depend on to not "pop" at simulation start.
+    design = DesignSpec(
+        name="t",
+        bodies=[
+            BodySpec(id="a", shape=BodyShape.box, position=[0.0, 5.0], size=[1.0, 1.0], mass=1.0),
+            BodySpec(id="b", shape=BodyShape.box, position=[2.0, 5.0], size=[1.0, 1.0], mass=1.0),
+        ],
+        joints=[
+            JointSpec(
+                id="j", body_a="a", body_b="b", type=JointType.pivot,
+                anchor_a=[0.5, 0.0], anchor_b=[-0.5, 0.0],
+            )
+        ],
+    )
+    trace = Pymunk2DEngine().simulate(design, _world(), duration_seconds=3.0)
+    last = trace.frames[-1].bodies
+    a, b = last["a"], last["b"]
+
+    def local_to_world(body, anchor: tuple[float, float]) -> tuple[float, float]:
+        cos_a, sin_a = math.cos(body.angle), math.sin(body.angle)
+        return (
+            body.x + anchor[0] * cos_a - anchor[1] * sin_a,
+            body.y + anchor[0] * sin_a + anchor[1] * cos_a,
+        )
+
+    world_a = local_to_world(a, (0.5, 0.0))
+    world_b = local_to_world(b, (-0.5, 0.0))
+    assert math.dist(world_a, world_b) < 0.05
 
 
 def test_sensor_body_does_not_block_movement():
