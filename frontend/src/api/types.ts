@@ -199,6 +199,9 @@ export interface StaticProp {
   size?: number[]
   angle?: number // orientation in radians (sloped ramps/beams)
   color?: string | null
+  // Actual geometry (box/circle/segment), independent of `kind` — a
+  // beam/ramp/wall is semantically e.g. "beam" but geometrically a segment.
+  shape?: string
 }
 
 export interface FrameBody {
@@ -228,6 +231,9 @@ export interface EpisodeTrace {
   camera: string
   terrain?: string
   dt: number
+  // World-y below which a body in a ground gap has fallen into the chasm. Null
+  // when this world has no gap (ground_spans not set).
+  kill_y?: number | null
   world_static: StaticProp[]
   body_meta?: Record<string, BodyMeta>
   frames: Frame[]

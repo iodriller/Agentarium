@@ -63,7 +63,9 @@ def test_seeded_world_parts_excluded_and_city_layout_scored():
     assert metrics["spread_area"] > 0.0
     assert metrics["min_spacing"] >= 1.0
     score, success, _ = REWARDS["city_score"](metrics)
-    assert success is True  # >= 4 structures, min_spacing >= 1.0
+    # A pile of plain (unkinded) boxes is well-spread and spaced, but is not a
+    # city — no road/park/trees and fewer than 6 buildings, so it must not pass.
+    assert success is False
 
 
 def test_metrics_from_trace():
@@ -237,8 +239,22 @@ def test_city_score_spread_bodies():
     card = score_attempt(trace, design, "city_score")
     assert card.reward == "city_score"
     assert card.metrics["spread_area"] > 0
-    assert card.success is True
+    # Four plain (unkinded) boxes are spread out but aren't a city — no
+    # road/park/trees and fewer than 6 buildings, so this must not succeed.
+    assert card.success is False
     assert card.score_total > 0
+
+
+def test_city_score_success_requires_the_real_mix():
+    # The bar a real Tiny City attempt must clear: 6+ buildings plus at least
+    # one road, one park, and two trees — not just "4 things, spaced out".
+    trace = _moving_trace(0.0)
+    design = _city_design_with_kinds(
+        ["road", "park", "tree", "tree", "house", "tower", "shop", "house", "tower", "shop"]
+    )
+    card = score_attempt(trace, design, "city_score")
+    assert card.metrics["building_count"] == 6.0
+    assert card.success is True
 
 
 def test_city_score_single_body_not_success():

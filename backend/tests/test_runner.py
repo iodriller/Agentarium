@@ -2,7 +2,7 @@ import asyncio
 import pathlib
 
 from agentarium.agents.base import AgentProvider, ProviderStatus, StructuredOutputResult
-from agentarium.agents.runner import AttemptResult, run_single_attempt
+from agentarium.agents.runner import AttemptResult, _seed_world, run_single_attempt
 from agentarium.core.schemas.design import DesignSpec
 from agentarium.core.schemas.score import ScoreCard
 from agentarium.core.schemas.setup import (
@@ -14,6 +14,7 @@ from agentarium.core.schemas.setup import (
     ToolsConfig,
     WorldConfig,
 )
+from agentarium.services.run_service import get_trace
 
 
 def _config() -> LaunchConfig:
@@ -43,7 +44,7 @@ def test_mock_attempt_completes():
 
 def _bridge_config() -> LaunchConfig:
     return LaunchConfig(
-        scenario=ScenarioConfig(preset="bridge_builder"),
+        scenario=ScenarioConfig(preset="bridge_builder", reward="bridge_transport"),
         world=WorldConfig(template="island_cliff_small"),
         agents=AgentsConfig(
             participants=[
@@ -80,7 +81,7 @@ def test_challenge_scaffold_and_world_geometry_are_seeded_and_simulate():
 
 def _city_config() -> LaunchConfig:
     return LaunchConfig(
-        scenario=ScenarioConfig(preset="tiny_city_preview"),
+        scenario=ScenarioConfig(preset="tiny_city_preview", reward="city_score"),
         world=WorldConfig(template="tiny_city_block"),
         agents=AgentsConfig(
             participants=[
@@ -121,7 +122,7 @@ def test_city_prompt_does_not_require_movable_body():
 
 def _crawl_config() -> LaunchConfig:
     return LaunchConfig(
-        scenario=ScenarioConfig(preset="crawl_challenge"),
+        scenario=ScenarioConfig(preset="crawl_challenge", reward="crawl_locomotion"),
         world=WorldConfig(template="hill_path"),
         agents=AgentsConfig(
             participants=[
@@ -134,7 +135,7 @@ def _crawl_config() -> LaunchConfig:
 
 def _sorter_config() -> LaunchConfig:
     return LaunchConfig(
-        scenario=ScenarioConfig(preset="sorter"),
+        scenario=ScenarioConfig(preset="sorter", reward="sorting_accuracy"),
         world=WorldConfig(template="sorting_table"),
         agents=AgentsConfig(
             participants=[
@@ -149,9 +150,32 @@ def test_bridge_mock_builds_bridge_parts_not_generic_scene():
     result = asyncio.run(run_single_attempt(_bridge_config()))
     agent_bodies = [b for b in result.design.bodies if b.created_by == "a"]
     ids = {b.id for b in agent_bodies}
-    assert {"bridge_left", "bridge_span", "bridge_right"} <= ids
+    assert {"bridge_deck"} <= ids
     assert all(b.kind == "beam" for b in agent_bodies)
     assert all(call.status.value == "success" for call in result.tool_calls)
+
+
+def test_bridge_with_real_gap_crate_reaches_goal_via_bridge():
+    # End-to-end: island_cliff_small now has a real gap (ground_spans/kill_y —
+    # no floor between the slope and the goal cliff). The mock's bridge must
+    # actually carry the crate across it under bridge_transport scoring, not
+    # rely on a phantom floor underneath.
+    result = asyncio.run(run_single_attempt(_bridge_config()))
+    assert result.score.reward == "bridge_transport"
+    assert result.score.metrics["reached_goal"] == 1.0
+    assert result.score.metrics["falls"] == 0.0
+    assert result.score.success is True
+
+
+def test_bridge_without_a_bridge_crate_falls_into_the_ravine():
+    # Without any agent-built beams, the crate rolls off the slope into the gap
+    # and must fall through — the world must not have a phantom floor catching it.
+    config = _bridge_config()
+    config.tools.enabled = ["run_simulation"]  # no building tools -> no bridge
+    result = asyncio.run(run_single_attempt(config))
+    assert result.score.metrics["falls"] >= 1.0
+    assert result.score.metrics["reached_goal"] == 0.0
+    assert result.score.success is False
 
 
 def test_crawl_mock_builds_driven_creature_parts():
@@ -164,6 +188,22 @@ def test_crawl_mock_builds_driven_creature_parts():
     assert all(call.status.value == "success" for call in result.tool_calls)
 
 
+def test_crawl_with_real_physics_crosses_threshold():
+    # End-to-end with the real engine: the creature's hip joints used to pivot
+    # both legs to the torso's CENTER (anchor_b was silently ignored — see
+    # test_engine.py::test_pivot_joint_honors_both_anchors), which snapped the
+    # whole rig apart on the very first step — the torso ended up thousands of
+    # metres away and thousands of metres underground. With real per-body hip
+    # anchors the creature must move forward and cross threshold_x=6 while
+    # staying on/near the world (not falling through it).
+    result = asyncio.run(run_single_attempt(_crawl_config()))
+    assert result.score.reward == "crawl_locomotion"
+    assert result.score.metrics["crossed_threshold"] == 1.0
+    assert result.score.success is True
+    trace = get_trace(result.trace_run_id)
+    assert trace.frames[-1].bodies["torso"].y > -5.0  # not the old runaway-fall failure mode
+
+
 def test_sorter_mock_places_matching_bins_and_ramps():
     result = asyncio.run(run_single_attempt(_sorter_config()))
     bins = result.design.metadata.get("bins", [])
@@ -172,6 +212,18 @@ def test_sorter_mock_places_matching_bins_and_ramps():
     assert accepts == {"red", "blue"}
     assert {"bin", "ramp"} <= body_kinds
     assert all(call.status.value == "success" for call in result.tool_calls)
+
+
+def test_sorter_with_real_physics_balls_land_in_matching_bins():
+    # End-to-end with the real engine: a bin used to be a solid box a ball
+    # could never fall into (containment was only reachable by scripting a
+    # ball's position directly, never by real physics). add_bin now builds an
+    # open floor+walls container, so this must actually succeed.
+    result = asyncio.run(run_single_attempt(_sorter_config()))
+    assert result.score.reward == "sorting_accuracy"
+    assert result.score.metrics["bins_in_target"] == 2.0
+    assert result.score.metrics["bins_correct"] == 2.0
+    assert result.score.success is True
 
 
 def test_attempt_result_carries_per_step_design_snapshots():
@@ -244,6 +296,45 @@ def test_repair_pass_preserves_rejected_call_and_adds_timeline_step(monkeypatch)
     assert result.build_steps[-1].label == "Auto-repair"
     assert "dup_r" in result.build_steps[-1].new_body_ids
     assert "dup_r" in {b.id for b in result.design.bodies}
+
+
+def test_seed_world_propagates_ground_spans_and_kill_y(monkeypatch):
+    # A world template's ground_spans/kill_y (a real gap/chasm) must reach the
+    # design metadata so the engine can build the physics floor from it and the
+    # trace can carry kill_y to the renderer.
+    import agentarium.agents.runner as runner_module
+    from agentarium.core.schemas.challenge import WorldTemplate
+
+    template = WorldTemplate(
+        id="gappy",
+        name="Gappy",
+        terrain="grassland",
+        map_size=[32, 32],
+        ground_spans=[[-12.0, -4.0], [4.0, 12.0]],
+        kill_y=-3.0,
+    )
+    monkeypatch.setattr(runner_module, "get_world_template", lambda _tid: template)
+
+    design = DesignSpec(name="t")
+    config = _bridge_config()
+    _seed_world(design, config)
+
+    assert design.metadata["ground_spans"] == [[-12.0, -4.0], [4.0, 12.0]]
+    assert design.metadata["kill_y"] == -3.0
+
+
+def test_seed_world_omits_ground_spans_when_template_has_none(monkeypatch):
+    import agentarium.agents.runner as runner_module
+    from agentarium.core.schemas.challenge import WorldTemplate
+
+    template = WorldTemplate(id="flat", name="Flat", terrain="grassland", map_size=[32, 32])
+    monkeypatch.setattr(runner_module, "get_world_template", lambda _tid: template)
+
+    design = DesignSpec(name="t")
+    _seed_world(design, _bridge_config())
+
+    assert "ground_spans" not in design.metadata
+    assert "kill_y" not in design.metadata
 
 
 def test_challenge_kinds_do_not_leak_across_scenarios():
