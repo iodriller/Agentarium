@@ -16,6 +16,7 @@ from agentarium.core.schemas.setup import (
     CollaborationMode,
     LaunchConfig,
 )
+from agentarium.services.preset_service import get_scenario_preset
 
 # Delay between streamed tool_call events so the UI sees them arrive one at a
 # time. Tests set this to 0.0 to keep runs fast.
@@ -214,6 +215,14 @@ class RunManager:
 
     async def _run_inner(self, run_id: str, config: LaunchConfig) -> None:
         objective = config.scenario.objective or config.scenario.preset
+        preset = get_scenario_preset(config.scenario.preset)
+        project_name = config.project_name
+        if preset is not None and project_name in (
+            "",
+            "Agentarium Run",
+            "Bridge Builder Lab",
+        ):
+            project_name = preset.name
 
         participants = list(config.agents.participants)
         if not participants:
@@ -231,7 +240,7 @@ class RunManager:
             {
                 "type": "run_started",
                 "run_id": run_id,
-                "project_name": config.project_name,
+                "project_name": project_name,
                 "mode": config.agents.mode.value,
                 "objective": objective,
                 "reward": config.scenario.reward,

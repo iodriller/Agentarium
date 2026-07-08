@@ -904,7 +904,7 @@ function ViewportOverlay({
       detail = `Building the design — ${toolCallCount} tool call${toolCallCount === 1 ? '' : 's'} so far. The world will appear once it simulates.`
     } else {
       title = `${who}${of}`
-      detail = 'Thinking — calling the model. Local models can take a while on the first build.'
+      detail = 'Thinking — calling the selected model. First responses can take a while.'
     }
   }
 

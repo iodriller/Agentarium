@@ -370,11 +370,17 @@ function ValidationBanner({ result }: { result: ValidationResult | null }) {
   const messages: Record<LaunchState, string> = {
     READY: '✓ Ready to Launch — Your setup is valid.',
     MISSING_REQUIRED: `Missing required fields: ${(missing ?? []).join(', ')}`,
-    LLM_OFFLINE: 'LLM endpoint offline — check connection',
-    TOOL_CHALLENGE_MISMATCH: 'Tool / challenge mismatch — adjust tools',
+    LLM_OFFLINE: (missing ?? []).length
+      ? (missing ?? []).join(' · ')
+      : 'LLM endpoint offline — check connection',
+    TOOL_CHALLENGE_MISMATCH: (missing ?? []).length
+      ? (missing ?? []).join(' · ')
+      : 'Tool / challenge mismatch — adjust tools',
     CONSTRAINTS_TOO_LOOSE: 'Constraints too loose — tighten limits',
     UNSUPPORTED_ENGINE: 'Engine not available yet',
-    UNSUPPORTED_MODE: 'Collaboration mode not available yet',
+    UNSUPPORTED_MODE: (missing ?? []).length
+      ? (missing ?? []).join(' · ')
+      : 'Collaboration mode not available yet',
   }
 
   const msg = messages[state] ?? state
@@ -829,7 +835,7 @@ export function ToolsLaunchColumn({
       >
         <SummaryRow
           label="Challenge"
-          value={config.scenario?.preset ?? '—'}
+          value={config.project_name || config.scenario?.preset || '—'}
         />
         <SummaryRow
           label="World"

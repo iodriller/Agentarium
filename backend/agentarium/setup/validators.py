@@ -36,6 +36,9 @@ async def validate_launch_config(config: LaunchConfig) -> ValidationResult:
             missing.append(f"agents.participants[{i}].id")
         if not participant.name:
             missing.append(f"agents.participants[{i}].name")
+        if participant.provider in (LLMProvider.localdeploy, LLMProvider.openai_compatible):
+            if not participant.model:
+                missing.append(f"agents.participants[{i}].model")
         if participant.provider == LLMProvider.manual:
             missing.append(
                 f"agents.participants[{i}]: 'manual' provider is not yet supported "
@@ -115,7 +118,7 @@ async def validate_launch_config(config: LaunchConfig) -> ValidationResult:
             api_key = openai_env_key()
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            async with httpx.AsyncClient(timeout=3.0) as client:
                 response = await client.get(f"{base}/models", headers=headers)
             if response.status_code != 200:
                 # Distinguish an auth problem (reachable but rejected) from an
@@ -132,6 +135,38 @@ async def validate_launch_config(config: LaunchConfig) -> ValidationResult:
                 return ValidationResult(
                     state=LaunchState.llm_offline, missing=missing, warnings=warnings
                 )
+            available_models: set[str] = set()
+            try:
+                data = response.json()
+                entries = data.get("data") if isinstance(data, dict) else None
+                if isinstance(entries, list):
+                    available_models = {
+                        str(item["id"])
+                        for item in entries
+                        if isinstance(item, dict) and "id" in item
+                    }
+            except Exception:
+                available_models = set()
+            if available_models:
+                unavailable = [
+                    p.model
+                    for p in participants
+                    if p.provider in providers_to_probe
+                    and (p.endpoint_url or config.llm_connection.endpoint_url) == endpoint_url
+                    and p.model
+                    and p.model not in available_models
+                ]
+                if unavailable:
+                    shown = ", ".join(sorted(set(unavailable)))
+                    missing.append(
+                        f"Model not available from {endpoint_url}: {shown}. "
+                        "Pick one of the detected /models entries."
+                    )
+                    return ValidationResult(
+                        state=LaunchState.llm_offline,
+                        missing=missing,
+                        warnings=warnings,
+                    )
         except Exception:
             missing.append(f"LLM endpoint unreachable: {endpoint_url}")
             return ValidationResult(

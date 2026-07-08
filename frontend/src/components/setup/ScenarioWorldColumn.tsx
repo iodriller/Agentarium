@@ -259,6 +259,19 @@ export function ScenarioWorldColumn({ config, onConfigChange }: ScenarioWorldCol
 
   const selectedPresetId = scenario?.preset ?? ''
   const selectedWorldId = world?.template ?? ''
+  const projectName = config.project_name ?? ''
+
+  useEffect(() => {
+    const selected = presets.find((preset) => preset.id === selectedPresetId)
+    if (!selected) return
+    if (
+      !projectName ||
+      projectName === 'Agentarium Run' ||
+      projectName === 'Bridge Builder Lab'
+    ) {
+      onConfigChange({ project_name: selected.name } as Partial<LaunchConfig>)
+    }
+  }, [onConfigChange, presets, projectName, selectedPresetId])
 
   // All cards: API presets + custom card
   const allCards: ScenarioPreset[] = [...presets, CUSTOM_PRESET]
@@ -284,6 +297,7 @@ export function ScenarioWorldColumn({ config, onConfigChange }: ScenarioWorldCol
       new Set([...(config.tools?.enabled ?? []), ...preset.required_tools]),
     )
     onConfigChange({
+      project_name: preset.name,
       scenario: {
         preset: preset.id,
         objective: preset.objective,

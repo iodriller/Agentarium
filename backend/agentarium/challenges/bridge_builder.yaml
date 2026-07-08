@@ -32,11 +32,33 @@ goal:
 # world always simulates even before the agent adds anything.
 scaffold:
   - id: crate
+    kind: crate
     shape: circle
     position: [-12.0, 7.5]
     size: [0.6]
     mass: 2.0
     color: "#d2691e"
+  - id: gap_water
+    shape: box
+    kind: water
+    position: [-1.0, 0.12]
+    size: [7.0, 0.24]
+    static: true
+    color: "#2563eb"
+  - id: left_bridge_anchor
+    shape: box
+    kind: wall
+    position: [-4.4, 1.35]
+    size: [0.35, 1.1]
+    static: true
+    color: "#737373"
+  - id: right_bridge_anchor
+    shape: box
+    kind: wall
+    position: [2.7, 1.35]
+    size: [0.35, 1.1]
+    static: true
+    color: "#737373"
   - id: goal_marker
     shape: box
     kind: goal

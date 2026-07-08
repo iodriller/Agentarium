@@ -15,9 +15,11 @@ const AGENT_B = 0x38bdf8
 // Palette per semantic kind (used when the body has no explicit color).
 const KIND_COLOR: Record<string, number> = {
   house: 0xd9a066,
+  shop: 0x60a5fa,
   tower: 0x9b8ab0,
   tree: 0x4a8c4a,
   road: 0x55606e,
+  park: 0x4f8a4a,
   plaza: 0x6b7280,
   wall: 0x8a8f98,
   beam: 0x9aa4b2,
@@ -96,6 +98,8 @@ export function drawProp(g: G, kind: string | null | undefined, w: number, h: nu
   switch (kind) {
     case 'house':
       return drawHouse(g, w, h, color)
+    case 'shop':
+      return drawShop(g, w, h, color)
     case 'tower':
       return drawTower(g, w, h, color)
     case 'tree':
@@ -103,6 +107,8 @@ export function drawProp(g: G, kind: string | null | undefined, w: number, h: nu
     case 'road':
     case 'plaza':
       return drawRoad(g, w, h, color)
+    case 'park':
+      return drawPark(g, w, h, color)
     case 'crate':
       return drawCrate(g, w, h, color)
     case 'ball':
@@ -140,6 +146,27 @@ function drawHouse(g: G, w: number, h: number, color: number): void {
   g.strokeRect(-w / 2, wallTop, w, bodyH)
 }
 
+function drawShop(g: G, w: number, h: number, color: number): void {
+  const top = -h / 2
+  const awningH = h * 0.18
+  g.fillStyle(color, 1)
+  g.fillRect(-w / 2, top + awningH, w, h - awningH)
+  g.fillStyle(shade(color, 0.68), 1)
+  g.fillRect(-w / 2, top, w, awningH)
+  g.fillStyle(0xffffff, 0.85)
+  const stripeW = Math.max(4, w / 6)
+  for (let x = -w / 2; x < w / 2; x += stripeW * 2) {
+    g.fillRect(x, top, stripeW, awningH)
+  }
+  g.fillStyle(0x88d8ff, 0.75)
+  g.fillRect(-w * 0.36, top + h * 0.35, w * 0.28, h * 0.22)
+  g.fillRect(w * 0.08, top + h * 0.35, w * 0.28, h * 0.22)
+  g.fillStyle(shade(color, 0.48), 1)
+  g.fillRect(-w * 0.1, top + h * 0.58, w * 0.2, h * 0.36)
+  g.lineStyle(1, 0x000000, 0.25)
+  g.strokeRect(-w / 2, top + awningH, w, h - awningH)
+}
+
 function drawTower(g: G, w: number, h: number, color: number): void {
   g.fillStyle(color, 1)
   g.fillRect(-w / 2, -h / 2, w, h)
@@ -175,6 +202,19 @@ function drawRoad(g: G, w: number, h: number, color: number): void {
     const x = -w / 2 + (i + 0.3) * (w / dashes)
     g.fillRect(x, -h * 0.08, (w / dashes) * 0.4, Math.max(h * 0.16, 1.5))
   }
+}
+
+function drawPark(g: G, w: number, h: number, color: number): void {
+  g.fillStyle(color, 1)
+  g.fillRect(-w / 2, -h / 2, w, h)
+  g.fillStyle(0x9bd86f, 0.95)
+  const mounds = Math.max(3, Math.floor(w / 18))
+  for (let i = 0; i < mounds; i++) {
+    const x = -w / 2 + (i + 0.5) * (w / mounds)
+    g.fillCircle(x, -h * 0.18, Math.max(h * 0.35, 3))
+  }
+  g.lineStyle(1, 0x0b3d1f, 0.35)
+  g.strokeRect(-w / 2, -h / 2, w, h)
 }
 
 function drawCrate(g: G, w: number, h: number, color: number): void {

@@ -40,6 +40,7 @@ _BRIDGE_TOOL_CALLS = [
             "end": [2.5, 1.55],
             "width": 0.22,
             "kind": "beam",
+            "color": "#8b5a2b",
         },
     },
     {"tool": "run_simulation", "args": {}},
@@ -86,6 +87,7 @@ _SORTER_TOOL_CALLS = [
             "height": 4.0,
             "accepts": "red",
             "kind": "bin",
+            "color": "red",
         },
     },
     {
@@ -97,15 +99,28 @@ _SORTER_TOOL_CALLS = [
             "height": 4.0,
             "accepts": "blue",
             "kind": "bin",
+            "color": "blue",
         },
     },
     {
         "tool": "add_ramp",
-        "args": {"id": "red_chute", "start": [-3.7, 3.2], "end": [-3.0, 2.3], "kind": "ramp"},
+        "args": {
+            "id": "red_chute",
+            "start": [-3.7, 3.2],
+            "end": [-3.0, 2.3],
+            "kind": "ramp",
+            "color": "red",
+        },
     },
     {
         "tool": "add_ramp",
-        "args": {"id": "blue_chute", "start": [-0.3, 3.2], "end": [-1.0, 2.3], "kind": "ramp"},
+        "args": {
+            "id": "blue_chute",
+            "start": [-0.3, 3.2],
+            "end": [-1.0, 2.3],
+            "kind": "ramp",
+            "color": "blue",
+        },
     },
     {"tool": "run_simulation", "args": {}},
 ]
@@ -117,39 +132,48 @@ _SORTER_TOOL_CALLS = [
 _CITY_TOOL_CALLS = [
     {"tool": "create_body", "args": {
         "id": "road1", "shape": "box", "kind": "road",
-        "position": [0.0, 0.15], "width": 26.0, "height": 0.3, "static": True,
+        "position": [0.0, 0.15], "width": 20.0, "height": 0.3, "static": True,
+        "color": "#4b5563",
     }},
     {"tool": "create_body", "args": {
         "id": "park1", "shape": "box", "kind": "park",
         "position": [-9.0, 0.1], "width": 3.0, "height": 0.2, "static": True,
+        "color": "#4ade80",
     }},
     {"tool": "create_body", "args": {
         "id": "house1", "shape": "box", "kind": "house",
         "position": [-6.0, 1.5], "width": 2.0, "height": 3.0, "static": True,
+        "color": "#d9a066",
     }},
     {"tool": "create_body", "args": {
         "id": "tower1", "shape": "box", "kind": "tower",
         "position": [-2.5, 4.0], "width": 2.5, "height": 8.0, "static": True,
+        "color": "#a78bfa",
     }},
     {"tool": "create_body", "args": {
         "id": "shop1", "shape": "box", "kind": "shop",
         "position": [1.0, 2.0], "width": 2.0, "height": 4.0, "static": True,
+        "color": "#38bdf8",
     }},
     {"tool": "create_body", "args": {
         "id": "house2", "shape": "box", "kind": "house",
         "position": [4.0, 1.5], "width": 2.0, "height": 3.0, "static": True,
+        "color": "#f59e0b",
     }},
     {"tool": "create_body", "args": {
         "id": "tower2", "shape": "box", "kind": "tower",
         "position": [7.5, 3.0], "width": 2.0, "height": 6.0, "static": True,
+        "color": "#818cf8",
     }},
     {"tool": "create_body", "args": {
         "id": "tree1", "shape": "box", "kind": "tree",
         "position": [-4.0, 0.9], "width": 1.0, "height": 1.8, "static": True,
+        "color": "#22c55e",
     }},
     {"tool": "create_body", "args": {
         "id": "tree2", "shape": "box", "kind": "tree",
         "position": [9.5, 0.9], "width": 1.0, "height": 1.8, "static": True,
+        "color": "#22c55e",
     }},
     {"tool": "create_body", "args": {
         "id": "shop2", "shape": "box", "kind": "shop",
