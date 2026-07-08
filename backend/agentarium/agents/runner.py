@@ -72,8 +72,17 @@ def _seed_bodies(design: DesignSpec, raw_bodies: list[dict], force_static: bool)
 def _seed_world(design: DesignSpec, config: LaunchConfig) -> None:
     """Seed the chosen world template's fixed terrain (cliffs, ledges, hills)."""
     template = get_world_template(config.world.template)
-    if template is not None and template.static_bodies:
+    if template is None:
+        return
+    if template.static_bodies:
         _seed_bodies(design, template.static_bodies, force_static=True)
+    # Ground spans/kill_y carve a real gap into the physics floor (see
+    # builder.build_space); recorded on the design like the challenge goal so the
+    # engine and scoring can read them without threading a new parameter through.
+    if template.ground_spans:
+        design.metadata["ground_spans"] = template.ground_spans
+    if template.kill_y is not None:
+        design.metadata["kill_y"] = template.kill_y
 
 
 def _seed_scaffold(design: DesignSpec, preset: ScenarioPreset | None) -> None:

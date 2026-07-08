@@ -164,7 +164,7 @@ export class TraceRenderer extends Phaser.Scene {
     this.cameras.main.setBackgroundColor(pal.sky)
 
     if ((trace.terrain ?? 'grassland') === 'city') this.drawCitySkyline(bounds)
-    this.drawGround(bounds, pal)
+    this.drawGround(bounds, trace, pal)
     this.drawGrid(bounds)
     for (const prop of trace.world_static ?? []) {
       if (prop.kind === 'ground') continue // we draw a richer ground band below
@@ -227,16 +227,67 @@ export class TraceRenderer extends Phaser.Scene {
     cam.centerOn((a.sx + c.sx) / 2, (a.sy + c.sy) / 2)
   }
 
-  private drawGround(b: Bounds, pal: { ground: number; groundEdge: number }): void {
+  /** Ground is drawn per span (from `world_static` "ground" props), not as one
+   * continuous band, so a world with a real gap (a bridge's ravine) shows sky/
+   * chasm between cliffs instead of hiding it under a solid floor. */
+  private drawGround(b: Bounds, trace: EpisodeTrace, pal: { ground: number; groundEdge: number }): void {
     const g = this.staticLayer
-    const left = b.minX * SCALE - 200
-    const right = b.maxX * SCALE + 200
     const top = 0 // y=0 in screen px
     const bottom = -b.minY * SCALE + Math.abs(b.maxY - b.minY) * SCALE + 400
-    g.fillStyle(pal.ground, 1)
-    g.fillRect(left, top, right - left, bottom - top)
-    g.lineStyle(3, pal.groundEdge, 1)
-    g.lineBetween(left, top, right, top) // horizon line at y=0
+
+    const spans = (trace.world_static ?? [])
+      .filter((p) => p.kind === 'ground' && p.position && p.position.length >= 2)
+      .map((p) => {
+        const half = (p.size?.[0] ?? 1) / 2
+        return { lo: p.position[0] - half, hi: p.position[0] + half }
+      })
+      .sort((x, y) => x.lo - y.lo)
+
+    if (spans.length === 0) {
+      // No ground info (shouldn't happen) — fall back to a full-bleed band so
+      // the scene never renders as blank sky.
+      const left = b.minX * SCALE - 200
+      const right = b.maxX * SCALE + 200
+      g.fillStyle(pal.ground, 1)
+      g.fillRect(left, top, right - left, bottom - top)
+      g.lineStyle(3, pal.groundEdge, 1)
+      g.lineBetween(left, top, right, top)
+      return
+    }
+
+    for (const span of spans) {
+      const left = span.lo * SCALE - 4
+      const right = span.hi * SCALE + 4
+      g.fillStyle(pal.ground, 1)
+      g.fillRect(left, top, right - left, bottom - top)
+      g.lineStyle(3, pal.groundEdge, 1)
+      g.lineBetween(left, top, right, top)
+    }
+
+    // Ravine: a hazard/water band filling the horizontal gap between
+    // consecutive spans, from the horizon down to kill_y (or a sensible
+    // default depth when the world didn't declare one).
+    const chasmFloorY = trace.kill_y ?? Math.min(b.minY - 2, -4)
+    for (let i = 0; i < spans.length - 1; i++) {
+      const gapLo = spans[i].hi
+      const gapHi = spans[i + 1].lo
+      if (gapHi <= gapLo) continue
+      this.drawChasm(gapLo * SCALE, gapHi * SCALE, top, -chasmFloorY * SCALE)
+    }
+  }
+
+  /** Hazard band for a ground gap: dark water fill + a warning-colored top edge
+   * so the ravine reads as "do not fall here", not empty background. */
+  private drawChasm(leftPx: number, rightPx: number, topPx: number, bottomPx: number): void {
+    const g = this.staticLayer
+    g.fillStyle(0x0c2333, 1)
+    g.fillRect(leftPx, topPx, rightPx - leftPx, bottomPx - topPx)
+    g.fillStyle(0x1c5a7a, 0.5)
+    for (let x = leftPx; x < rightPx; x += 14) {
+      g.fillRect(x, topPx + 6, 8, 3)
+    }
+    g.lineStyle(2, 0xf59e0b, 0.9)
+    g.lineBetween(leftPx, topPx, rightPx, topPx)
   }
 
   private drawGrid(b: Bounds): void {
@@ -291,7 +342,9 @@ export class TraceRenderer extends Phaser.Scene {
 
     // Semantic kind (house/wall/bin/…) → a recognizable procedural prop.
     if (isSemanticKind(prop.kind)) {
-      const meta = { shape: 'box', size: prop.size, color: prop.color, kind: prop.kind } as BodyMeta
+      // The real geometry (box/circle/segment) — a beam/ramp/wall is a thin
+      // segment sized by length alone, not a square built from that length.
+      const meta = { shape: prop.shape ?? 'box', size: prop.size, color: prop.color, kind: prop.kind } as BodyMeta
       const { w, h } = sizePx(meta, SCALE)
       const { sx, sy } = TraceRenderer.px(px, py)
       g.save()

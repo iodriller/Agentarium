@@ -41,6 +41,36 @@ def _backoff_base() -> float:
         return 0.5
 
 
+# Substrings that mark a model id as non-chat (embeddings, audio, image, moderation,
+# rerank, etc.) — these show up in real OpenAI-compatible /models responses alongside
+# chat models but can never serve a tool-calling agent, so the Setup dropdown must not
+# offer them. Conservative: only known-non-chat families are dropped; anything
+# unrecognized (a user's local/custom chat model) is kept.
+_NON_CHAT_MARKERS = (
+    "embedding",
+    "whisper",
+    "tts",
+    "audio",
+    "dall-e",
+    "dalle",
+    "image",
+    "moderation",
+    "realtime",
+    "rerank",
+    "similarity",
+    "edit",
+    "davinci-002",
+    "babbage-002",
+    "clip",
+)
+
+
+def _is_chat_model(model_id: str) -> bool:
+    """True unless ``model_id`` matches a known non-chat model family."""
+    lowered = model_id.lower()
+    return not any(marker in lowered for marker in _NON_CHAT_MARKERS)
+
+
 _STRUCTURED_PROMPT = (
     "Respond ONLY with a JSON object of the form "
     '{"tool_calls": [{"tool": "create_body", "args": {}}]}. '
@@ -179,6 +209,7 @@ class OpenAICompatibleProvider(AgentProvider):
                 ]
         except Exception:  # noqa: BLE001 - models list is best-effort
             models = []
+        models = [m for m in models if _is_chat_model(m)]
 
         return ProviderStatus(online=True, detail="Reachable", models=models)
 

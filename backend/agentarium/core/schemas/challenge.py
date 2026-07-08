@@ -35,3 +35,11 @@ class WorldTemplate(BaseModel):
     # entry is a static BodySpec mapping. Seeded into the design like challenge
     # scaffold so worlds physically differ and render distinctly.
     static_bodies: list[dict] = []
+    # Ground floor spans, in world metres, as [x0, x1] pairs. A body positioned
+    # between spans has no floor beneath it and falls through — a real gap/chasm
+    # instead of the universal invisible floor. Empty means "one span across the
+    # whole map" (today's behavior; fully backward compatible).
+    ground_spans: list[list[float]] = []
+    # World-y below which a body in a gap is considered to have fallen into the
+    # chasm (used by scoring, not physics). Only meaningful when ground_spans is set.
+    kill_y: float | None = None

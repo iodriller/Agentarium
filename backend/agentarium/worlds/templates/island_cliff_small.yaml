@@ -6,7 +6,14 @@ map_size:
   - 32
 gravity: -9.81
 active_physics_zones: 3
-description: A high sloped ledge on the left and a lower goal cliff on the right, split by a gap to bridge.
+description: A high sloped ledge on the left and a lower goal cliff on the right, split by a real gap to bridge.
+# The floor is real ground only under the two cliffs — nothing supports a body
+# between x=-10.5 and x=2 (the ravine the slope ends over). Without an
+# agent-built bridge, anything that ends up over that stretch keeps falling.
+ground_spans:
+  - [-16.0, -10.5]
+  - [2.0, 16.0]
+kill_y: -4.0
 static_bodies:
   # A downhill ramp on the left: the crate rolls down it toward the gap.
   - id: left_slope
@@ -28,5 +35,14 @@ static_bodies:
     shape: box
     position: [8.0, 0.75]
     size: [12.0, 1.5]
+    static: true
+    color: "#6b7280"
+  # A low guard ridge at the cliff's far right edge: without it a low-friction
+  # rolling ball that clears the gap never stops and rolls clean off the far
+  # side of the cliff into the void, which reads as a bug, not a win.
+  - id: cliff_end_ridge
+    shape: box
+    position: [13.5, 2.0]
+    size: [0.4, 1.0]
     static: true
     color: "#6b7280"

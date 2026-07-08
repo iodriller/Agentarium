@@ -32,6 +32,10 @@ class BodySpec(BaseModel):
     # renderer can draw a recognizable prop instead of a generic shape.
     kind: str | None = None
     created_by: str | None = None  # agent id
+    # A sensor detects overlap without physically blocking anything — for a
+    # goal/finish marker, which announces "reached here" and must not itself be
+    # a solid obstacle standing in the way of whatever is meant to reach it.
+    sensor: bool = False
 
 
 class JointType(StrEnum):

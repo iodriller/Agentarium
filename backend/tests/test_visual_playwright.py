@@ -17,6 +17,13 @@ import urllib.request
 import pytest
 from playwright.sync_api import Page, expect, sync_playwright
 
+from tests.goldens import (
+    bridge_builder_golden,
+    crawl_challenge_golden,
+    sorter_golden,
+    tiny_city_golden,
+)
+
 pytestmark = pytest.mark.skipif(
     os.environ.get("AGENTARIUM_VISUAL_TESTS") != "1",
     reason="set AGENTARIUM_VISUAL_TESTS=1 to run browser visual checks",
@@ -94,10 +101,22 @@ def live_server() -> str:
         proc.wait(timeout=5)
 
 
+_PREINSTALLED_CHROMIUM = "/opt/pw-browsers/chromium"
+
+
+def _launch_chromium(p):
+    # Prefer the environment's preinstalled Chromium (avoids a network fetch
+    # when the pinned playwright version's expected revision isn't the one
+    # baked into the image); fall back to playwright's own if absent.
+    if pathlib.Path(_PREINSTALLED_CHROMIUM).exists():
+        return p.chromium.launch(executable_path=_PREINSTALLED_CHROMIUM)
+    return p.chromium.launch()
+
+
 @pytest.fixture()
 def page(live_server: str) -> Page:
     with sync_playwright() as p:
-        browser = p.chromium.launch()
+        browser = _launch_chromium(p)
         page = browser.new_page(viewport={"width": 1440, "height": 1000})
         page.set_default_timeout(15_000)
         yield page
@@ -154,3 +173,73 @@ def test_studio_replay_has_visual_artifact(
     studio_path = artifact_dir / "studio-replay.png"
     page.screenshot(path=str(studio_path), full_page=True)
     _assert_png(studio_path)
+
+
+# ── Self-eval: golden (known-good) designs, before/after screenshots ───────────
+#
+# These drive a verified solution to a challenge to its final frame and
+# screenshot the canvas — the images a reviewer (human or an agent with vision)
+# reads to judge "does this actually look like a bridge/city/sorted balls?"
+# rather than trusting the score alone. See docs/CHALLENGE_OVERHAUL_PLAN.md.
+
+GOLDEN_DESIGNS = {
+    "bridge-builder": bridge_builder_golden,
+    "sorter": sorter_golden,
+    "crawl-challenge": crawl_challenge_golden,
+    "tiny-city-preview": tiny_city_golden,
+}
+
+
+def _create_run(live_server: str, design, world, duration_seconds: float) -> str:
+    payload = {
+        "design": design.model_dump(mode="json"),
+        "world": world.model_dump(mode="json"),
+        "duration_seconds": duration_seconds,
+    }
+    request = urllib.request.Request(
+        f"{live_server}/api/runs",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=10) as resp:
+        return json.loads(resp.read().decode("utf-8"))["run_id"]
+
+
+@pytest.mark.parametrize("challenge_id", sorted(GOLDEN_DESIGNS))
+def test_golden_design_before_after_screenshots(
+    challenge_id: str,
+    page: Page,
+    live_server: str,
+    artifact_dir: pathlib.Path,
+) -> None:
+    design, world = GOLDEN_DESIGNS[challenge_id]()
+    # 60s covers every golden's settle time (crawl's bounding gait needs the
+    # most; bridge/sorter finish well before this and are unaffected).
+    run_id = _create_run(live_server, design, world, duration_seconds=60.0)
+
+    page.goto(f"{live_server}/studio/{run_id}", wait_until="networkidle")
+    canvas = page.locator("canvas").first
+    expect(canvas).to_be_visible()
+    page.wait_for_timeout(500)
+
+    before_path = artifact_dir / f"{challenge_id}-golden-before.png"
+    canvas.screenshot(path=str(before_path))
+    _assert_png(before_path)
+
+    # Autoplay starts on load; pause it before seeking, or the play loop's own
+    # frame-advance races the manual seek and the click gets overwritten.
+    pause_button = page.get_by_role("button", name="Pause", exact=False)
+    if pause_button.count() > 0:
+        pause_button.first.click()
+        page.wait_for_timeout(200)
+
+    # Seek to the last replay tick (closest to the end of the trace).
+    seek_buttons = page.locator('button[title^="Seek to"]')
+    expect(seek_buttons.last).to_be_visible()
+    seek_buttons.last.click()
+    page.wait_for_timeout(500)
+
+    after_path = artifact_dir / f"{challenge_id}-golden-after.png"
+    canvas.screenshot(path=str(after_path))
+    _assert_png(after_path)

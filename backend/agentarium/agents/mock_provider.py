@@ -26,53 +26,19 @@ _SAMPLE_TOOL_CALLS = [
 
 
 _BRIDGE_TOOL_CALLS = [
+    # A single continuous, gently downhill deck from the slope's end
+    # (~-4.4, 2.05) to the goal cliff top (x=2.5, y=1.55) — verified against
+    # the real physics (island_cliff_small's ground_spans gap) to actually
+    # carry the crate to the goal. One clean deck reads as a bridge; extra
+    # "support" beams would just be decorative clutter (add_beam bodies are
+    # always static/rigid, so nothing here can physically collapse).
     {
         "tool": "add_beam",
         "args": {
-            "id": "bridge_left",
-            "start": [-8.5, 2.35],
-            "end": [-4.0, 2.15],
+            "id": "bridge_deck",
+            "start": [-4.4, 2.05],
+            "end": [2.5, 1.55],
             "width": 0.22,
-            "kind": "beam",
-        },
-    },
-    {
-        "tool": "add_beam",
-        "args": {
-            "id": "bridge_span",
-            "start": [-4.0, 2.15],
-            "end": [2.4, 2.15],
-            "width": 0.22,
-            "kind": "beam",
-        },
-    },
-    {
-        "tool": "add_beam",
-        "args": {
-            "id": "bridge_right",
-            "start": [2.4, 2.15],
-            "end": [8.3, 2.25],
-            "width": 0.22,
-            "kind": "beam",
-        },
-    },
-    {
-        "tool": "add_beam",
-        "args": {
-            "id": "underbrace_a",
-            "start": [-3.8, 1.15],
-            "end": [-0.5, 2.05],
-            "width": 0.16,
-            "kind": "beam",
-        },
-    },
-    {
-        "tool": "add_beam",
-        "args": {
-            "id": "underbrace_b",
-            "start": [2.2, 1.15],
-            "end": [-0.5, 2.05],
-            "width": 0.16,
             "kind": "beam",
         },
     },
@@ -81,34 +47,31 @@ _BRIDGE_TOOL_CALLS = [
 
 
 _CRAWL_TOOL_CALLS = [
-    _body(
-        "front_leg",
-        "segment",
-        [-4.35, 0.85],
-        "leg",
-        length=1.25,
-        mass=0.35,
-        friction=0.95,
-    ),
-    _body(
-        "rear_leg",
-        "segment",
-        [-5.65, 0.85],
-        "leg",
-        length=1.25,
-        mass=0.35,
-        friction=0.95,
-    ),
+    # Legs spawn just below+forward/behind the torso (which sits at [-5, 1.5] —
+    # see crawl_challenge.yaml's scaffold); hip joints anchor at the torso's
+    # underside (not its center) and the leg's own end (not its middle) — a
+    # center-to-center pivot snaps the whole leg to the torso with a violent
+    # jolt instead of a hinge. Motor rate/force validated against the real
+    # engine: this bounds/hops forward and crosses threshold_x=6 with 0 falls
+    # (see test_runner.py::test_crawl_with_real_physics_crosses_threshold).
+    _body("front_leg", "segment", [-4.35, 1.1], "leg", length=1.0, mass=0.35, friction=0.95),
+    _body("rear_leg", "segment", [-5.65, 1.1], "leg", length=1.0, mass=0.35, friction=0.95),
     {
         "tool": "add_joint",
-        "args": {"id": "front_hip", "body_a": "torso", "body_b": "front_leg", "type": "pivot"},
+        "args": {
+            "id": "front_hip", "body_a": "torso", "body_b": "front_leg", "type": "pivot",
+            "anchor_a": [0.5, -0.3], "anchor_b": [-0.5, 0.0],
+        },
     },
     {
         "tool": "add_joint",
-        "args": {"id": "rear_hip", "body_a": "torso", "body_b": "rear_leg", "type": "pivot"},
+        "args": {
+            "id": "rear_hip", "body_a": "torso", "body_b": "rear_leg", "type": "pivot",
+            "anchor_a": [-0.5, -0.3], "anchor_b": [-0.5, 0.0],
+        },
     },
-    {"tool": "add_motor", "args": {"id": "front_drive", "joint_id": "front_hip", "rate": 4.0}},
-    {"tool": "add_motor", "args": {"id": "rear_drive", "joint_id": "rear_hip", "rate": -4.0}},
+    {"tool": "add_motor", "args": {"id": "front_drive", "joint_id": "front_hip", "rate": 1.2, "max_force": 3000.0}},
+    {"tool": "add_motor", "args": {"id": "rear_drive", "joint_id": "rear_hip", "rate": -1.2, "max_force": 3000.0}},
     {"tool": "run_simulation", "args": {}},
 ]
 
@@ -154,7 +117,7 @@ _SORTER_TOOL_CALLS = [
 _CITY_TOOL_CALLS = [
     {"tool": "create_body", "args": {
         "id": "road1", "shape": "box", "kind": "road",
-        "position": [0.0, 0.15], "width": 20.0, "height": 0.3, "static": True,
+        "position": [0.0, 0.15], "width": 26.0, "height": 0.3, "static": True,
     }},
     {"tool": "create_body", "args": {
         "id": "park1", "shape": "box", "kind": "park",
@@ -187,6 +150,10 @@ _CITY_TOOL_CALLS = [
     {"tool": "create_body", "args": {
         "id": "tree2", "shape": "box", "kind": "tree",
         "position": [9.5, 0.9], "width": 1.0, "height": 1.8, "static": True,
+    }},
+    {"tool": "create_body", "args": {
+        "id": "shop2", "shape": "box", "kind": "shop",
+        "position": [12.0, 2.5], "width": 2.0, "height": 5.0, "static": True,
     }},
     {"tool": "run_simulation", "args": {}},
 ]
