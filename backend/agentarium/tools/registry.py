@@ -245,8 +245,16 @@ _TOOLS: list[ToolDefinition] = [
                     "maxItems": 2,
                     "description": "Center [x, y] position",
                 },
-                "width": {"type": "number", "description": "Width of the bin opening"},
-                "height": {"type": "number", "description": "Height of the bin walls"},
+                "width": {
+                    "type": "number",
+                    "minimum": 0.4,
+                    "description": "Width of the bin opening",
+                },
+                "height": {
+                    "type": "number",
+                    "minimum": 0.4,
+                    "description": "Height of the bin walls",
+                },
                 "accepts": {
                     "type": "string",
                     "description": "Ball class/color this bin accepts (sorting challenges)",

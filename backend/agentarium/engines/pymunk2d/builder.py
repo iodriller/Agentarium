@@ -19,6 +19,28 @@ _MIN_MASS = 1e-3
 _MIN_DIM = 1e-2
 
 
+def valid_ground_spans(design: DesignSpec, map_width: float) -> list[tuple[float, float]]:
+    """The design's ``ground_spans`` metadata, validated and defaulted.
+
+    Shared by the physics floor (``build_space``) and the trace's visual
+    ground props (``Pymunk2DEngine._build_static``) so they can never disagree
+    about where the floor actually is. Malformed entries (wrong shape, or a
+    reversed/zero-width span) are dropped rather than raising, since
+    ``ground_spans`` ultimately comes from world-template YAML. Empty/absent
+    metadata defaults to one span across the whole map (pre-gap behavior).
+    """
+    raw = design.metadata.get("ground_spans") or [[-map_width, map_width]]
+    spans: list[tuple[float, float]] = []
+    for span in raw:
+        if not isinstance(span, (list, tuple)) or len(span) < 2:
+            continue
+        x0, x1 = float(span[0]), float(span[1])
+        if x1 <= x0:
+            continue
+        spans.append((x0, x1))
+    return spans
+
+
 def _make_shape(body: pymunk.Body, spec: BodySpec) -> pymunk.Shape:
     """Create the pymunk shape matching a BodySpec, attached to ``body``."""
     size = spec.size or [0.5, 0.5]
@@ -145,15 +167,9 @@ def build_space(
     # metadata (seeded from the world template) lets a world carve a real
     # gap/chasm; a body positioned between spans has no floor beneath it.
     # Default (no spans recorded) is the original single full-width floor.
-    map_width = world.map_size[0] if world.map_size else 32
+    map_width = float(world.map_size[0]) if world.map_size else 32.0
     ground = space.static_body
-    spans = design.metadata.get("ground_spans") or [[-float(map_width), float(map_width)]]
-    for span in spans:
-        if not isinstance(span, (list, tuple)) or len(span) < 2:
-            continue
-        x0, x1 = float(span[0]), float(span[1])
-        if x1 <= x0:
-            continue
+    for x0, x1 in valid_ground_spans(design, map_width):
         ground_segment = pymunk.Segment(ground, (x0, 0.0), (x1, 0.0), radius=0.1)
         ground_segment.friction = 0.9
         ground_segment.elasticity = 0.1

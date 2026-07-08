@@ -217,6 +217,20 @@ def test_add_bin_rejects_duplicate_id_including_sub_parts():
     assert result.record.status == ToolCallStatus.rejected
 
 
+def test_add_bin_rejects_degenerate_width():
+    # A tiny/negative width would produce a degenerate (or, pre-validation,
+    # negative-position) floor/wall geometry — reject before it reaches physics.
+    design = DesignSpec()
+    result = apply_tool_call(
+        design, agent_id="a", tool="add_bin",
+        args={"id": "b1", "position": [0.0, 2.0], "width": -1.0, "height": 4.0},
+        enabled_tools=["add_bin"],
+    )
+    assert result.mutated is False
+    assert result.record.status == ToolCallStatus.rejected
+    assert len(design.bodies) == 0
+
+
 def test_disabled_tool_rejected():
     design = DesignSpec()
     result = apply_tool_call(

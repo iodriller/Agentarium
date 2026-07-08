@@ -3,6 +3,7 @@ import math
 from agentarium.core.schemas.design import BodyShape, BodySpec, DesignSpec, JointSpec, JointType
 from agentarium.core.schemas.setup import WorldConfig
 from agentarium.engines import get_engine
+from agentarium.engines.pymunk2d.builder import valid_ground_spans
 from agentarium.engines.pymunk2d.engine import Pymunk2DEngine
 from agentarium.services.run_service import hardcoded_demo_design
 
@@ -131,6 +132,28 @@ def test_body_spawned_at_ground_default_does_not_tunnel_through():
     trace = Pymunk2DEngine().simulate(design, _world(), duration_seconds=5.0)
     final_y = trace.frames[-1].bodies["b1"].y
     assert final_y > -1.0  # resting on/near the ground, not tunneled through
+
+
+def test_valid_ground_spans_drops_malformed_entries():
+    # Shared by the physics floor and the trace's visual ground props, so both
+    # must agree on which spans are real — malformed entries (wrong shape,
+    # reversed, zero-width) are dropped, not raised, since this ultimately
+    # comes from world-template YAML rather than untrusted agent input.
+    design = DesignSpec(name="t")
+    design.metadata["ground_spans"] = [
+        [-10.0, -4.0],
+        "not-a-span",
+        [5.0],  # too short
+        [8.0, 8.0],  # zero-width
+        [12.0, 6.0],  # reversed
+        [4.0, 10.0],
+    ]
+    assert valid_ground_spans(design, map_width=32.0) == [(-10.0, -4.0), (4.0, 10.0)]
+
+
+def test_valid_ground_spans_defaults_to_full_width():
+    design = DesignSpec(name="t")
+    assert valid_ground_spans(design, map_width=32.0) == [(-32.0, 32.0)]
 
 
 def test_ground_spans_carve_a_real_gap():

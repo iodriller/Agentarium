@@ -208,6 +208,7 @@ def test_test_connection_filters_non_chat_models():
                 "data": [
                     {"id": "gpt-4o-mini"},
                     {"id": "gpt-4o"},
+                    {"id": "gpt-4o-search-preview"},  # real chat model — must survive
                     {"id": "text-embedding-3-small"},
                     {"id": "whisper-1"},
                     {"id": "tts-1"},
@@ -222,7 +223,7 @@ def test_test_connection_filters_non_chat_models():
     provider = _provider(handler)
     status = asyncio.run(provider.test_connection(_EP, "k"))
     assert status.online is True
-    assert status.models == ["gpt-4o-mini", "gpt-4o", "o1"]
+    assert status.models == ["gpt-4o-mini", "gpt-4o", "gpt-4o-search-preview", "o1"]
 
 
 def test_no_endpoint_is_config_error():

@@ -59,7 +59,6 @@ _NON_CHAT_MARKERS = (
     "rerank",
     "similarity",
     "edit",
-    "search",
     "davinci-002",
     "babbage-002",
     "clip",

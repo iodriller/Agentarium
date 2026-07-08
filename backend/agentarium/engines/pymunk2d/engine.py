@@ -10,7 +10,7 @@ from agentarium.core.schemas.trace import (
     StaticProp,
 )
 from agentarium.engines.base import EngineAdapter
-from agentarium.engines.pymunk2d.builder import GROUND_ID, build_space
+from agentarium.engines.pymunk2d.builder import GROUND_ID, build_space, valid_ground_spans
 
 # Hard cap on physics steps to keep simulations (and tests) fast.
 _MAX_STEPS = 6000
@@ -90,19 +90,12 @@ class Pymunk2DEngine(EngineAdapter):
     @staticmethod
     def _build_static(design: DesignSpec, world: WorldConfig) -> list[StaticProp]:
         props: list[StaticProp] = []
-        map_width = world.map_size[0] if world.map_size else 32
-        raw_spans = design.metadata.get("ground_spans") or [
-            [-float(map_width), float(map_width)]
-        ]
-        for i, span in enumerate(raw_spans):
-            if not isinstance(span, (list, tuple)) or len(span) < 2:
-                continue
-            x0, x1 = float(span[0]), float(span[1])
-            if x1 <= x0:
-                continue
+        map_width = float(world.map_size[0]) if world.map_size else 32.0
+        spans = valid_ground_spans(design, map_width)
+        for i, (x0, x1) in enumerate(spans):
             props.append(
                 StaticProp(
-                    id=f"{GROUND_ID}_{i}" if len(raw_spans) > 1 else GROUND_ID,
+                    id=f"{GROUND_ID}_{i}" if len(spans) > 1 else GROUND_ID,
                     kind="ground",
                     position=[(x0 + x1) / 2.0, 0.0],
                     size=[x1 - x0, 0.2],
