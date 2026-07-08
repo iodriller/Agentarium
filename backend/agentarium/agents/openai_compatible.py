@@ -16,7 +16,7 @@ from agentarium.agents.parsing import parse_tool_calls
 
 # Connection probes are health checks — keep them short. Generation calls can take
 # much longer and are configurable via env so real/local deployments can tune them.
-_PROBE_TIMEOUT = 5.0
+_PROBE_TIMEOUT = 3.0
 _DOTENV_LOADED = False
 
 

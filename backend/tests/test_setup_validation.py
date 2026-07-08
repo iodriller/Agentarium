@@ -1,7 +1,9 @@
 """Tests for the POST /api/setup/validate endpoint (Step 6 — real validation logic)."""
 
 import copy
+from typing import Any
 
+import httpx
 from fastapi.testclient import TestClient
 
 from agentarium.app import app
@@ -65,6 +67,65 @@ def test_mock_provider_ready() -> None:
     assert body["state"] == "READY"
     assert body["missing"] == []
     assert body["estimated_runtime_min"] == [2, 4]
+
+
+def test_remote_provider_requires_selected_model() -> None:
+    config = copy.deepcopy(VALID_CONFIG)
+    participant = config["agents"]["participants"][0]
+    participant.update(
+        {
+            "provider": "openai_compatible",
+            "model": "",
+            "endpoint_url": "https://api.openai.com/v1",
+        }
+    )
+    config["llm_connection"] = {"endpoint_url": "https://api.openai.com/v1"}
+
+    body = _post(config)
+
+    assert body["state"] == "MISSING_REQUIRED"
+    assert "agents.participants[0].model" in body["missing"]
+
+
+def test_remote_provider_rejects_model_not_returned_by_endpoint(monkeypatch) -> None:
+    class _Client:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            del args, kwargs
+            pass
+
+        async def __aenter__(self) -> "_Client":
+            return self
+
+        async def __aexit__(self, *args: Any) -> None:
+            del args
+            pass
+
+        async def get(
+            self, url: str, headers: dict[str, str] | None = None
+        ) -> httpx.Response:
+            del url, headers
+            return httpx.Response(
+                200,
+                json={"data": [{"id": "gpt-4o-mini"}, {"id": "gpt-4.1-mini"}]},
+            )
+
+    config = copy.deepcopy(VALID_CONFIG)
+    participant = config["agents"]["participants"][0]
+    participant.update(
+        {
+            "provider": "openai_compatible",
+            "model": "gpt-4-turbo",
+            "endpoint_url": "https://api.openai.com/v1",
+        }
+    )
+    config["llm_connection"] = {"endpoint_url": "https://api.openai.com/v1"}
+    monkeypatch.setattr("agentarium.setup.validators.httpx.AsyncClient", _Client)
+
+    body = _post(config)
+
+    assert body["state"] == "LLM_OFFLINE"
+    assert "Model not available" in body["missing"][0]
+    assert "gpt-4-turbo" in body["missing"][0]
 
 
 def test_empty_tools_warning() -> None:

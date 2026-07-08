@@ -19,14 +19,30 @@ recommended_tools:
 # left for the agent to place (add_bin with accepts=red/blue). The balls are
 # dynamic, so the world simulates immediately and the agent can aim ramps/bins.
 scaffold:
+  - id: red_target_pad
+    shape: box
+    kind: bin
+    position: [-3.0, 0.15]
+    size: [2.0, 0.3]
+    static: true
+    color: "red"
+  - id: blue_target_pad
+    shape: box
+    kind: bin
+    position: [1.0, 0.15]
+    size: [2.0, 0.3]
+    static: true
+    color: "blue"
   - id: ball_red
     shape: circle
+    kind: ball
     position: [-3.0, 5.0]
     size: [0.5]
     mass: 1.0
     color: "red"
   - id: ball_blue
     shape: circle
+    kind: ball
     position: [-1.0, 6.0]
     size: [0.5]
     mass: 1.0

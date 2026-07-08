@@ -1,6 +1,6 @@
 id: tiny_city_preview
-name: Tiny City Preview
-tagline: Grow a tiny city within constraints.
+name: Tiny City Builder
+tagline: Grow a recognizable city block within constraints.
 tags:
   - Economy
   - Planning
@@ -22,3 +22,60 @@ recommended_tools: []
 goal:
   target_structures: 6
   min_spacing: 2.0
+scaffold:
+  - id: main_road
+    shape: box
+    kind: road
+    position: [0.0, 0.12]
+    size: [24.0, 0.24]
+    static: true
+    color: "#4b5563"
+  - id: crosswalk_west
+    shape: box
+    kind: plaza
+    position: [-4.0, 0.28]
+    size: [1.4, 0.08]
+    static: true
+    color: "#e5e7eb"
+  - id: crosswalk_east
+    shape: box
+    kind: plaza
+    position: [4.0, 0.28]
+    size: [1.4, 0.08]
+    static: true
+    color: "#e5e7eb"
+  - id: pocket_park
+    shape: box
+    kind: park
+    position: [-9.0, 0.16]
+    size: [3.2, 0.32]
+    static: true
+    color: "#4ade80"
+  - id: demo_shop
+    shape: box
+    kind: shop
+    position: [-5.5, 1.3]
+    size: [2.2, 2.6]
+    static: true
+    color: "#38bdf8"
+  - id: demo_tower
+    shape: box
+    kind: tower
+    position: [7.5, 3.4]
+    size: [2.0, 6.8]
+    static: true
+    color: "#a78bfa"
+  - id: street_tree_west
+    shape: box
+    kind: tree
+    position: [-2.2, 0.9]
+    size: [1.0, 1.8]
+    static: true
+    color: "#22c55e"
+  - id: street_tree_east
+    shape: box
+    kind: tree
+    position: [2.4, 0.9]
+    size: [1.0, 1.8]
+    static: true
+    color: "#22c55e"

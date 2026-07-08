@@ -33,6 +33,15 @@ from agentarium.tools.apply import apply_tool_call
 from agentarium.tools.registry import get_tool
 
 _RUNS_DIR = pathlib.Path("runs")
+_DEFAULT_PROJECT_NAMES = {"", "Agentarium Run", "Bridge Builder Lab"}
+
+
+def _project_name(config: LaunchConfig, preset: ScenarioPreset | None = None) -> str:
+    """Human run name, correcting stale default setup names when possible."""
+    preset = preset or get_scenario_preset(config.scenario.preset)
+    if preset is not None and config.project_name in _DEFAULT_PROJECT_NAMES:
+        return preset.name
+    return config.project_name or (preset.name if preset is not None else "Agentarium Run")
 
 
 def _inject_challenge_goal(config: LaunchConfig, design: DesignSpec) -> None:
@@ -416,7 +425,8 @@ async def run_agent_attempt(
     # Build the starting world first so the prompt can describe it and the agent
     # has a concrete, non-empty design to extend.
     preset = get_scenario_preset(config.scenario.preset)
-    design = DesignSpec(name=config.project_name)
+    display_name = _project_name(config, preset)
+    design = DesignSpec(name=display_name)
     _seed_world(design, config)
     _seed_scaffold(design, preset)
 
@@ -504,7 +514,7 @@ async def run_agent_attempt(
         store_score(trace_run_id, score)
         record_run_meta(
             trace_run_id,
-            project_name=config.project_name,
+            project_name=display_name,
             challenge=config.scenario.preset,
             mode=config.agents.mode.value,
         )
@@ -592,7 +602,8 @@ async def run_cooperative_attempt(
     objective = config.scenario.objective or config.scenario.preset
 
     preset = get_scenario_preset(config.scenario.preset)
-    design = DesignSpec(name=config.project_name)
+    display_name = _project_name(config, preset)
+    design = DesignSpec(name=display_name)
     _seed_world(design, config)
     _seed_scaffold(design, preset)
 
@@ -690,7 +701,7 @@ async def run_cooperative_attempt(
         store_score(trace_run_id, score)
         record_run_meta(
             trace_run_id,
-            project_name=config.project_name,
+            project_name=display_name,
             challenge=config.scenario.preset,
             mode=config.agents.mode.value,
         )

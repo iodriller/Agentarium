@@ -330,7 +330,7 @@ export function SetupScreen() {
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <TopBar
-        projectName="Bridge Builder Lab"
+        projectName={config.project_name || 'Agentarium'}
         status={
           backendReachable === null ? 'connecting' : backendReachable ? 'online' : 'offline'
         }

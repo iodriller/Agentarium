@@ -59,6 +59,10 @@ _TOOLS: list[ToolDefinition] = [
                         "house/tower/road/tree/wall/crate/water/etc."
                     ),
                 },
+                "color": {
+                    "type": "string",
+                    "description": "Optional render color, e.g. '#60a5fa' or 'red'.",
+                },
             },
         },
     ),
@@ -155,6 +159,10 @@ _TOOLS: list[ToolDefinition] = [
                 },
                 "width": {"type": "number", "description": "Thickness of the beam"},
                 "kind": {"type": "string", "description": "Semantic label (default 'beam')"},
+                "color": {
+                    "type": "string",
+                    "description": "Optional render color, e.g. '#8b5a2b'.",
+                },
             },
         },
     ),
@@ -188,6 +196,10 @@ _TOOLS: list[ToolDefinition] = [
                     "description": "Override angle in degrees (optional)",
                 },
                 "kind": {"type": "string", "description": "Semantic label (default 'ramp')"},
+                "color": {
+                    "type": "string",
+                    "description": "Optional render color, e.g. '#64748b'.",
+                },
             },
         },
     ),
@@ -260,6 +272,10 @@ _TOOLS: list[ToolDefinition] = [
                     "description": "Ball class/color this bin accepts (sorting challenges)",
                 },
                 "kind": {"type": "string", "description": "Semantic label (default 'bin')"},
+                "color": {
+                    "type": "string",
+                    "description": "Optional render color, usually matching accepts.",
+                },
             },
         },
     ),

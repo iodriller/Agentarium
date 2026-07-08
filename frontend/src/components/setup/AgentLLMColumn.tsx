@@ -87,7 +87,7 @@ const MULTI_MODES: { value: CollaborationMode; title: string; subtitle: string }
 const MODEL_HINT: Record<LLMProvider, string> = {
   mock: 'No model — offline mock',
   localdeploy: 'Click Check, then pick a model',
-  openai_compatible: 'e.g. gpt-4o-mini',
+  openai_compatible: 'Detected models only',
   manual: 'No model — manual',
 }
 
@@ -213,7 +213,7 @@ function AgentCard({
     if (ep) patch.endpoint_url = ep
     if (next === 'mock') patch.model = 'mock'
     else if (next === 'manual') patch.model = 'manual'
-    else if (agent.model === 'mock' || agent.model === 'manual') patch.model = ''
+    else patch.model = ''
     setStatus(null)
     onChange(patch)
   }
@@ -228,11 +228,16 @@ function AgentCard({
       })
       setStatus(res)
       // First reachable model becomes the default if none is chosen yet.
-      if (res.online && res.models && res.models.length > 0 && !agent.model) {
-        onChange({ model: res.models[0] })
+      if (res.online && res.models && res.models.length > 0) {
+        if (!agent.model || !res.models.includes(agent.model)) {
+          onChange({ model: res.models[0] })
+        }
+      } else if (usesModel && agent.model) {
+        onChange({ model: '' })
       }
     } catch (e) {
       setStatus({ online: false, detail: e instanceof Error ? e.message : 'Connection failed' })
+      if (usesModel && agent.model) onChange({ model: '' })
     } finally {
       setChecking(false)
     }
@@ -310,7 +315,7 @@ function AgentCard({
               style={selectStyle()}
             >
               {providers.length === 0 && <option value={provider}>{provider}</option>}
-              {providers.map((p) => (
+              {providers.filter((p) => p.id !== 'manual').map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
                   {p.env_api_key_available ? ' (env key)' : ''}
@@ -321,18 +326,13 @@ function AgentCard({
           <Field label="Model">
             {usesModel && models.length > 0 ? (
               <select
-                value={agent.model ?? ''}
+                value={agent.model && models.includes(agent.model) ? agent.model : ''}
                 onChange={(e) => onChange({ model: e.target.value })}
                 style={selectStyle()}
               >
-                {agent.model && !models.includes(agent.model) && (
-                  <option value={agent.model}>{agent.model} (current)</option>
-                )}
-                {!agent.model && (
-                  <option value="" disabled>
-                    Select…
-                  </option>
-                )}
+                <option value="" disabled>
+                  Select detected model…
+                </option>
                 {models.map((m) => (
                   <option key={m} value={m}>
                     {m}
@@ -341,9 +341,17 @@ function AgentCard({
               </select>
             ) : (
               <input
-                value={usesModel ? (agent.model ?? '') : MODEL_HINT[provider]}
+                value={
+                  usesModel
+                    ? status?.online
+                      ? 'Endpoint reachable, but no models were listed'
+                      : status
+                        ? 'Endpoint unavailable - no models selectable'
+                        : 'Detecting available models...'
+                    : MODEL_HINT[provider]
+                }
                 onChange={(e) => onChange({ model: e.target.value })}
-                disabled={!usesModel}
+                disabled
                 placeholder={MODEL_HINT[provider]}
                 style={inputStyle()}
               />
@@ -356,7 +364,7 @@ function AgentCard({
             <Field label="Endpoint URL">
               <input
                 value={agent.endpoint_url ?? ''}
-                onChange={(e) => onChange({ endpoint_url: e.target.value })}
+                onChange={(e) => onChange({ endpoint_url: e.target.value, model: '' })}
                 placeholder={endpointForProvider(provider) || GENERIC_ENDPOINT}
                 style={inputStyle()}
               />
@@ -448,7 +456,9 @@ function AgentCard({
                 {checking
                   ? '● detecting models…'
                   : status?.online
-                    ? `● ${status.models?.length ?? 0} models detected`
+                    ? (status.models?.length ?? 0) > 0
+                      ? `● ${status.models?.length ?? 0} models detected`
+                      : '● endpoint reachable, no models listed'
                     : status
                       ? `● ${status.detail ?? 'offline'}`
                       : '● auto-detecting…'}
