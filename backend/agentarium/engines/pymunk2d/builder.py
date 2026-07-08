@@ -136,15 +136,23 @@ def build_space(
 
     bodies: dict[str, pymunk.Body] = {}
 
-    # Static ground segment near y=0 spanning the map width.
+    # Ground: one segment per span near y=0. ``ground_spans`` on the design
+    # metadata (seeded from the world template) lets a world carve a real
+    # gap/chasm; a body positioned between spans has no floor beneath it.
+    # Default (no spans recorded) is the original single full-width floor.
     map_width = world.map_size[0] if world.map_size else 32
     ground = space.static_body
-    ground_segment = pymunk.Segment(
-        ground, (-float(map_width), 0.0), (float(map_width), 0.0), radius=0.1
-    )
-    ground_segment.friction = 0.9
-    ground_segment.elasticity = 0.1
-    space.add(ground_segment)
+    spans = design.metadata.get("ground_spans") or [[-float(map_width), float(map_width)]]
+    for span in spans:
+        if not isinstance(span, (list, tuple)) or len(span) < 2:
+            continue
+        x0, x1 = float(span[0]), float(span[1])
+        if x1 <= x0:
+            continue
+        ground_segment = pymunk.Segment(ground, (x0, 0.0), (x1, 0.0), radius=0.1)
+        ground_segment.friction = 0.9
+        ground_segment.elasticity = 0.1
+        space.add(ground_segment)
 
     for spec in design.bodies:
         body = _make_body(spec)

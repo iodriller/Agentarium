@@ -2,7 +2,7 @@ import asyncio
 import pathlib
 
 from agentarium.agents.base import AgentProvider, ProviderStatus, StructuredOutputResult
-from agentarium.agents.runner import AttemptResult, run_single_attempt
+from agentarium.agents.runner import AttemptResult, _seed_world, run_single_attempt
 from agentarium.core.schemas.design import DesignSpec
 from agentarium.core.schemas.score import ScoreCard
 from agentarium.core.schemas.setup import (
@@ -244,6 +244,45 @@ def test_repair_pass_preserves_rejected_call_and_adds_timeline_step(monkeypatch)
     assert result.build_steps[-1].label == "Auto-repair"
     assert "dup_r" in result.build_steps[-1].new_body_ids
     assert "dup_r" in {b.id for b in result.design.bodies}
+
+
+def test_seed_world_propagates_ground_spans_and_kill_y(monkeypatch):
+    # A world template's ground_spans/kill_y (a real gap/chasm) must reach the
+    # design metadata so the engine can build the physics floor from it and the
+    # trace can carry kill_y to the renderer.
+    import agentarium.agents.runner as runner_module
+    from agentarium.core.schemas.challenge import WorldTemplate
+
+    template = WorldTemplate(
+        id="gappy",
+        name="Gappy",
+        terrain="grassland",
+        map_size=[32, 32],
+        ground_spans=[[-12.0, -4.0], [4.0, 12.0]],
+        kill_y=-3.0,
+    )
+    monkeypatch.setattr(runner_module, "get_world_template", lambda _tid: template)
+
+    design = DesignSpec(name="t")
+    config = _bridge_config()
+    _seed_world(design, config)
+
+    assert design.metadata["ground_spans"] == [[-12.0, -4.0], [4.0, 12.0]]
+    assert design.metadata["kill_y"] == -3.0
+
+
+def test_seed_world_omits_ground_spans_when_template_has_none(monkeypatch):
+    import agentarium.agents.runner as runner_module
+    from agentarium.core.schemas.challenge import WorldTemplate
+
+    template = WorldTemplate(id="flat", name="Flat", terrain="grassland", map_size=[32, 32])
+    monkeypatch.setattr(runner_module, "get_world_template", lambda _tid: template)
+
+    design = DesignSpec(name="t")
+    _seed_world(design, _bridge_config())
+
+    assert "ground_spans" not in design.metadata
+    assert "kill_y" not in design.metadata
 
 
 def test_challenge_kinds_do_not_leak_across_scenarios():

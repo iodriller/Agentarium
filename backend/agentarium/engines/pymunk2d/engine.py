@@ -45,6 +45,7 @@ class Pymunk2DEngine(EngineAdapter):
             engine=self.name,
             terrain=getattr(world.terrain, "value", str(world.terrain)),
             dt=dt,
+            kill_y=design.metadata.get("kill_y"),
             world_static=self._build_static(design, world),
             body_meta={
                 spec.id: BodyMeta(
@@ -90,14 +91,23 @@ class Pymunk2DEngine(EngineAdapter):
     def _build_static(design: DesignSpec, world: WorldConfig) -> list[StaticProp]:
         props: list[StaticProp] = []
         map_width = world.map_size[0] if world.map_size else 32
-        props.append(
-            StaticProp(
-                id=GROUND_ID,
-                kind="ground",
-                position=[0.0, 0.0],
-                size=[float(map_width) * 2.0, 0.2],
+        raw_spans = design.metadata.get("ground_spans") or [
+            [-float(map_width), float(map_width)]
+        ]
+        for i, span in enumerate(raw_spans):
+            if not isinstance(span, (list, tuple)) or len(span) < 2:
+                continue
+            x0, x1 = float(span[0]), float(span[1])
+            if x1 <= x0:
+                continue
+            props.append(
+                StaticProp(
+                    id=f"{GROUND_ID}_{i}" if len(raw_spans) > 1 else GROUND_ID,
+                    kind="ground",
+                    position=[(x0 + x1) / 2.0, 0.0],
+                    size=[x1 - x0, 0.2],
+                )
             )
-        )
         for spec in design.bodies:
             if spec.static:
                 shape_name = (

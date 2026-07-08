@@ -198,6 +198,33 @@ def test_test_connection_lists_models():
     assert status.models == ["llama-3", "qwen"]
 
 
+def test_test_connection_filters_non_chat_models():
+    """Embeddings/audio/image/moderation models must not reach the Setup dropdown."""
+
+    def handler(_req: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"id": "gpt-4o-mini"},
+                    {"id": "gpt-4o"},
+                    {"id": "text-embedding-3-small"},
+                    {"id": "whisper-1"},
+                    {"id": "tts-1"},
+                    {"id": "dall-e-3"},
+                    {"id": "text-moderation-latest"},
+                    {"id": "gpt-4o-realtime-preview"},
+                    {"id": "o1"},
+                ]
+            },
+        )
+
+    provider = _provider(handler)
+    status = asyncio.run(provider.test_connection(_EP, "k"))
+    assert status.online is True
+    assert status.models == ["gpt-4o-mini", "gpt-4o", "o1"]
+
+
 def test_no_endpoint_is_config_error():
     with pytest.raises(LLMError) as exc:
         asyncio.run(

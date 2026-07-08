@@ -46,6 +46,9 @@ class EpisodeTrace(BaseModel):
     camera: str = "side"
     terrain: str = "grassland"  # drives the renderer's ground/background palette
     dt: float
+    # Below this world-y, a body over a ground gap is considered fallen into the
+    # chasm. None means no gap in this world (ground_spans not set).
+    kill_y: float | None = None
     world_static: list[StaticProp] = []
     # Per-dynamic-body shape/size/color, keyed by body id (see BodyMeta).
     body_meta: dict[str, BodyMeta] = {}

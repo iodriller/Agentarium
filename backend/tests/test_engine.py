@@ -131,6 +131,71 @@ def test_body_spawned_at_ground_default_does_not_tunnel_through():
     assert final_y > -1.0  # resting on/near the ground, not tunneled through
 
 
+def test_ground_spans_carve_a_real_gap():
+    # A body positioned over the gap between two ground_spans must keep falling
+    # (no phantom floor); a body resting on a span must stay put. This is the
+    # mechanism a Bridge-style challenge needs: without it, every world has one
+    # continuous invisible floor and a chasm can never be physically real.
+    design = DesignSpec(
+        name="gap",
+        bodies=[
+            BodySpec(
+                id="over_gap", shape=BodyShape.circle, position=[0.0, 1.0],
+                size=[0.3], mass=1.0,
+            ),
+            BodySpec(
+                id="over_span", shape=BodyShape.circle, position=[-10.0, 1.0],
+                size=[0.3], mass=1.0,
+            ),
+        ],
+    )
+    # Ground only from x=-12..-4 and x=4..12 — the gap is -4..4, where "over_gap"
+    # sits directly above.
+    design.metadata["ground_spans"] = [[-12.0, -4.0], [4.0, 12.0]]
+    trace = Pymunk2DEngine().simulate(design, _world(), duration_seconds=2.0)
+
+    gap_final_y = trace.frames[-1].bodies["over_gap"].y
+    span_final_y = trace.frames[-1].bodies["over_span"].y
+    assert gap_final_y < -5.0  # fell through the gap, no phantom floor
+    assert span_final_y > 0.0  # rested on its span
+
+
+def test_ground_spans_default_to_full_width_when_absent():
+    # Backward compat: a design/world with no ground_spans recorded behaves like
+    # before — one continuous floor at y=0 across the whole map.
+    design = DesignSpec(
+        name="no-gap",
+        bodies=[
+            BodySpec(id="ball", shape=BodyShape.circle, position=[0.0, 1.0], size=[0.3], mass=1.0),
+        ],
+    )
+    trace = Pymunk2DEngine().simulate(design, _world(), duration_seconds=2.0)
+    assert trace.frames[-1].bodies["ball"].y > 0.0
+
+
+def test_world_static_ground_props_reflect_spans():
+    design = DesignSpec(name="gap")
+    design.metadata["ground_spans"] = [[-12.0, -4.0], [4.0, 12.0]]
+    trace = Pymunk2DEngine().simulate(design, _world(), duration_seconds=0.1)
+    ground_props = [p for p in trace.world_static if p.kind == "ground"]
+    assert len(ground_props) == 2
+    xs = sorted(p.position[0] for p in ground_props)
+    assert xs == [-8.0, 8.0]  # midpoints of [-12,-4] and [4,12]
+
+
+def test_kill_y_flows_from_metadata_to_trace():
+    design = DesignSpec(name="gap")
+    design.metadata["ground_spans"] = [[-12.0, -4.0], [4.0, 12.0]]
+    design.metadata["kill_y"] = -3.0
+    trace = Pymunk2DEngine().simulate(design, _world(), duration_seconds=0.1)
+    assert trace.kill_y == -3.0
+
+
+def test_kill_y_defaults_to_none():
+    trace = Pymunk2DEngine().simulate(DesignSpec(name="plain"), _world(), duration_seconds=0.1)
+    assert trace.kill_y is None
+
+
 def test_kind_falls_back_to_shape_when_absent():
     # Bodies without a `kind` keep the old shape-name fallback (backward compat
     # with challenges that don't use the cosmetic kind hint, e.g. bridge/crawl).
