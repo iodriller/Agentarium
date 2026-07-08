@@ -1,5 +1,10 @@
 # Agentarium — Challenge Overhaul & Self‑Eval Plan
 
+**Status: all phases below (1–6) implemented and merged to this branch.** See
+`docs/remaining_gaps.md` (E6–E11) for the itemized fixes and what's still deferred
+(gait smoothness, a couple of cosmetic zoom/kind-palette gaps). This doc is kept as the
+design record; treat `remaining_gaps.md` as the live status source.
+
 Goal: make the four agent challenges (Bridge, Crawl, Sorter, City) actually *look like* and
 *test* what they claim, score against real physical outcomes, fix the OpenAI model dropdown,
 and stand up a screenshot **self‑evaluation loop** so Claude can launch a challenge, look at
