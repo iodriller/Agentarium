@@ -257,6 +257,23 @@ export interface RunSummary {
   score_total?: number | null
   success?: boolean | null
   artifact_dir?: string | null
+  config_available?: boolean
+}
+
+export interface RunConfigResponse {
+  run_id: string
+  config: LaunchConfig
+  provenance?: Record<string, unknown>
+}
+
+export interface RelaunchRunRequest {
+  patch?: Record<string, unknown>
+}
+
+export interface RelaunchRunResponse {
+  run_id: string
+  source_run_id: string
+  config: LaunchConfig
 }
 
 // ─── Score / tool-call (mirrors backend score.py / toolcall.py) ────────────────

@@ -153,7 +153,15 @@ def _world_context(config: LaunchConfig, preset: ScenarioPreset | None, design: 
 _MAX_SIM_DURATION_SECONDS = 60
 
 
-def _simulate_design(design: DesignSpec, world, duration: float) -> str | None:
+def _simulate_design(
+    design: DesignSpec,
+    config: LaunchConfig,
+    duration: float,
+    *,
+    parent_run_id: str | None = None,
+    attempt_index: int | None = None,
+    agent_id: str | None = None,
+) -> str | None:
     """Simulate ``design``, returning its trace run id, or None if it can't run.
 
     Any engine/physics failure (a degenerate body or constraint that trips
@@ -161,7 +169,19 @@ def _simulate_design(design: DesignSpec, world, duration: float) -> str | None:
     going, instead of an exception aborting the entire run.
     """
     try:
-        return create_run_from_design(design, world, duration_seconds=duration)
+        provenance = {
+            "kind": "attempt",
+            "parent_run_id": parent_run_id,
+            "attempt_index": attempt_index,
+            "agent_id": agent_id,
+        }
+        return create_run_from_design(
+            design,
+            config.world,
+            duration_seconds=duration,
+            launch_config=config,
+            provenance={k: v for k, v in provenance.items() if v is not None},
+        )
     except Exception:  # noqa: BLE001 - a bad design must not abort the whole run
         return None
 
@@ -386,6 +406,7 @@ async def run_single_attempt(
     *,
     attempt_index: int = 0,
     previous: AttemptResult | None = None,
+    parent_run_id: str | None = None,
 ) -> AttemptResult:
     """Run one single-agent build attempt end-to-end with the mock/real provider.
 
@@ -395,7 +416,11 @@ async def run_single_attempt(
     if not participants:
         raise ValueError("config.agents.participants is empty")
     return await run_agent_attempt(
-        config, participants[0], attempt_index=attempt_index, previous=previous
+        config,
+        participants[0],
+        attempt_index=attempt_index,
+        previous=previous,
+        parent_run_id=parent_run_id,
     )
 
 
@@ -405,6 +430,7 @@ async def run_agent_attempt(
     *,
     attempt_index: int = 0,
     previous: AttemptResult | None = None,
+    parent_run_id: str | None = None,
 ) -> AttemptResult:
     """Run one build attempt end-to-end for a SPECIFIC participant.
 
@@ -506,7 +532,14 @@ async def run_agent_attempt(
         duration = min(
             config.constraints.simulation_duration_seconds, _MAX_SIM_DURATION_SECONDS
         )
-        trace_run_id = _simulate_design(design, config.world, duration)
+        trace_run_id = _simulate_design(
+            design,
+            config,
+            duration,
+            parent_run_id=parent_run_id,
+            attempt_index=attempt_index,
+            agent_id=agent.id,
+        )
 
     trace = get_trace(trace_run_id) if trace_run_id is not None else None
     score = score_attempt(trace, design, config.scenario.reward)
@@ -576,7 +609,10 @@ def _remap_ids(agent_id: str, tool: str, args: dict, created: dict[str, str]) ->
 
 
 async def run_cooperative_attempt(
-    config: LaunchConfig, *, attempt_index: int = 0
+    config: LaunchConfig,
+    *,
+    attempt_index: int = 0,
+    parent_run_id: str | None = None,
 ) -> AttemptResult:
     """Run one COOPERATIVE attempt: all participants build ONE shared design.
 
@@ -693,7 +729,14 @@ async def run_cooperative_attempt(
         duration = min(
             config.constraints.simulation_duration_seconds, _MAX_SIM_DURATION_SECONDS
         )
-        trace_run_id = _simulate_design(design, config.world, duration)
+        trace_run_id = _simulate_design(
+            design,
+            config,
+            duration,
+            parent_run_id=parent_run_id,
+            attempt_index=attempt_index,
+            agent_id="shared",
+        )
 
     trace = get_trace(trace_run_id) if trace_run_id is not None else None
     score = score_attempt(trace, design, config.scenario.reward)

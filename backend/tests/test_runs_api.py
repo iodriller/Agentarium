@@ -78,3 +78,49 @@ def test_get_snapshots_for_persisted_agent_attempt():
     assert steps[0]["tool"] == "create_body"
     assert steps[0]["trace_run_id"] == result.trace_run_id
     assert "trace" in steps[0]
+
+    cfg = client.get(f"/api/runs/{result.trace_run_id}/config")
+    assert cfg.status_code == 200
+    assert cfg.json()["config"]["scenario"]["preset"] == "tiny_city_preview"
+    assert cfg.json()["provenance"]["kind"] == "attempt"
+
+
+def test_launch_config_is_captured_and_relaunchable():
+    config = {
+        "scenario": {"preset": "tiny_city_preview", "objective": "", "reward": "city_score"},
+        "world": {"template": "tiny_city_block", "engine": "pymunk2d", "seed": 7},
+        "agents": {
+            "mode": "single",
+            "participants": [
+                {
+                    "id": "agent_a",
+                    "name": "Agent A",
+                    "provider": "mock",
+                    "model": "mock",
+                    "temperature": 0.2,
+                }
+            ],
+        },
+        "tools": {"enabled": ["create_body", "run_simulation"]},
+        "constraints": {"max_attempts": 1, "simulation_duration_seconds": 10},
+        "outputs": {},
+    }
+    launched = client.post("/api/setup/launch", json=config)
+    assert launched.status_code == 200
+    run_id = launched.json()["run_id"]
+
+    captured = client.get(f"/api/runs/{run_id}/config")
+    assert captured.status_code == 200
+    body = captured.json()
+    assert body["config"]["world"]["seed"] == 7
+    assert body["provenance"]["kind"] == "launch"
+
+    relaunched = client.post(
+        f"/api/runs/{run_id}/relaunch",
+        json={"patch": {"world": {"seed": 99}, "constraints": {"max_attempts": 1}}},
+    )
+    assert relaunched.status_code == 200
+    next_body = relaunched.json()
+    assert next_body["source_run_id"] == run_id
+    assert next_body["config"]["world"]["seed"] == 99
+    assert next_body["run_id"] != run_id
