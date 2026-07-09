@@ -20,6 +20,7 @@ from agentarium.services.run_service import (
     get_trace,
     hardcoded_demo_design,
     leaderboard,
+    list_run_attempts,
     list_runs,
 )
 from agentarium.setup.validators import validate_launch_config
@@ -38,6 +39,7 @@ class RunSummary(BaseModel):
     success: bool | None = None
     artifact_dir: str | None = None
     config_available: bool = False
+    attempt_count: int = 1
 
 
 class CreateRunRequest(BaseModel):
@@ -64,6 +66,14 @@ class RelaunchRunResponse(BaseModel):
     run_id: str
     source_run_id: str
     config: LaunchConfig
+
+
+class RunAttemptSummary(BaseModel):
+    trace_run_id: str
+    attempt_index: int | None = None
+    agent_id: str | None = None
+    score_total: float | None = None
+    success: bool | None = None
 
 
 def _default_world() -> WorldConfig:
@@ -167,6 +177,16 @@ async def relaunch_run(
         source_run_id=run_id,
         config=config,
     )
+
+
+@router.get("/{run_id}/attempts", response_model=list[RunAttemptSummary])
+async def get_run_attempts(run_id: str) -> list[RunAttemptSummary]:
+    """Every attempt trace belonging to the same run as ``run_id`` (empty if none).
+
+    Lets Studio show and replay each attempt of a finished/historical run, not
+    only the single best trace it opened with.
+    """
+    return [RunAttemptSummary(**a) for a in list_run_attempts(run_id)]
 
 
 @router.get("/{run_id}/trace", response_model=EpisodeTrace)

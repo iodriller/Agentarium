@@ -58,7 +58,7 @@ export function HistoryScreen() {
         <div>
           <h1 style={{ fontSize: 20, fontWeight: 600, color: 'var(--text-1)' }}>Run History</h1>
           <p style={{ fontSize: 12, color: 'var(--text-2)' }}>
-            Past runs persist across restarts — click any to replay it.
+            One row per launch (best attempt shown) — click to replay and browse its attempts.
           </p>
         </div>
         <button onClick={() => navigate('/setup')} style={primaryBtn()}>
@@ -135,7 +135,8 @@ export function HistoryScreen() {
                   <Th>Challenge</Th>
                   <Th>Mode</Th>
                   <Th>Reward</Th>
-                  <Th>Score</Th>
+                  <Th>Best Score</Th>
+                  <Th>Attempts</Th>
                   <Th>Result</Th>
                   <Th>When</Th>
                   <Th>Actions</Th>
@@ -152,6 +153,7 @@ export function HistoryScreen() {
                     <Td>{r.mode ?? '—'}</Td>
                     <Td>{r.reward ?? '—'}</Td>
                     <Td color="var(--accent)">{r.score_total?.toFixed(1) ?? '—'}</Td>
+                    <Td>{r.attempt_count ?? 1}</Td>
                     <Td color={r.success ? 'var(--ok)' : 'var(--text-2)'}>
                       {r.success == null ? '—' : r.success ? '✓ success' : 'no'}
                     </Td>

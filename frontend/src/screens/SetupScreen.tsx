@@ -2,16 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ApiError, api } from '../api/client'
 import type {
-  AgentConfig,
   LaunchConfig,
   LaunchResponse,
-  LLMProvider,
   RunConfigResponse,
-  ScenarioPreset,
   ValidationResult,
   WorkspaceConfigResponse,
   WorkspaceConfigStatus,
-  WorldTemplate,
 } from '../api/types'
 import { AgentLLMColumn } from '../components/setup/AgentLLMColumn'
 import { ScenarioWorldColumn } from '../components/setup/ScenarioWorldColumn'
@@ -110,7 +106,6 @@ export function SetupScreen() {
   const [workspaceSyncState, setWorkspaceSyncState] = useState<
     'loading' | 'saved' | 'saving' | 'external' | 'error'
   >('loading')
-  const [advancedOpen, setAdvancedOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   // Responsive breakpoints: 3 cols → 2 cols (≤1080px) → 1 col (≤720px).
@@ -467,98 +462,55 @@ export function SetupScreen() {
         )}
       </div>
 
-      {/* Quick Start + Advanced setup */}
+      {/* Full setup — three columns (collapses to 2 then 1 on narrow widths) */}
       <div
         style={{
           flex: 1,
-          overflowY: 'auto',
+          display: 'grid',
+          gridTemplateColumns: oneCol ? '1fr' : twoCol ? '1fr 1fr' : '1fr 1fr 1fr',
+          gap: 0,
+          // When stacked, the whole grid scrolls; on wide screens each column does.
+          overflowY: stacked ? 'auto' : 'hidden',
           overflowX: 'hidden',
         }}
       >
-        <div style={{ padding: 16, borderBottom: '1px solid var(--border)' }}>
-          <QuickStartCard
+        {/* Column 1 — Scenario & World */}
+        <div
+          style={{
+            borderRight: oneCol ? 'none' : '1px solid var(--border)',
+            borderBottom: stacked ? '1px solid var(--border)' : 'none',
+            padding: 16,
+            overflowY: stacked ? 'visible' : 'auto',
+          }}
+        >
+          <ColumnHeader number={1} title="Scenario & World Setup" badge="Required" />
+          <ScenarioWorldColumn config={config} onConfigChange={handleConfigChange} />
+        </div>
+
+        {/* Column 2 — Agent & LLM */}
+        <div
+          style={{
+            borderRight: oneCol ? 'none' : '1px solid var(--border)',
+            borderBottom: stacked ? '1px solid var(--border)' : 'none',
+            padding: 16,
+            overflowY: stacked ? 'visible' : 'auto',
+          }}
+        >
+          <ColumnHeader number={2} title="Agent & LLM Setup" badge="Required" />
+          <AgentLLMColumn config={config} onConfigChange={handleConfigChange} />
+        </div>
+
+        {/* Column 3 — Tools, Constraints & Launch */}
+        <div style={{ padding: 16, overflowY: stacked ? 'visible' : 'auto' }}>
+          <ColumnHeader number={3} title="Tools, Constraints & Launch" />
+          <ToolsLaunchColumn
             config={config}
             onConfigChange={handleConfigChange}
             validationResult={validationResult}
-            launching={launching}
+            onValidateNow={handleValidateNow}
             onLaunch={handleLaunch}
+            onSavePreset={handleSavePreset}
           />
-        </div>
-
-        <div style={{ padding: 16 }}>
-          <button
-            onClick={() => setAdvancedOpen((open) => !open)}
-            style={{
-              width: '100%',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '10px 12px',
-              borderRadius: 8,
-              border: '1px solid var(--border)',
-              background: 'var(--surface-1)',
-              color: 'var(--text-1)',
-              fontSize: 12,
-              fontWeight: 700,
-              cursor: 'pointer',
-              marginBottom: advancedOpen ? 12 : 0,
-            }}
-          >
-            <span>Advanced setup</span>
-            <span style={{ color: 'var(--text-2)' }}>{advancedOpen ? '▾' : '▸'}</span>
-          </button>
-
-          {advancedOpen && (
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: oneCol ? '1fr' : twoCol ? '1fr 1fr' : '1fr 1fr 1fr',
-                gap: 0,
-                border: '1px solid var(--border)',
-                borderRadius: 8,
-                overflow: 'hidden',
-              }}
-            >
-              {/* Column 1 — Scenario & World */}
-              <div
-                style={{
-                  borderRight: oneCol ? 'none' : '1px solid var(--border)',
-                  borderBottom: stacked ? '1px solid var(--border)' : 'none',
-                  padding: 16,
-                  background: 'var(--surface-1)',
-                }}
-              >
-                <ColumnHeader number={1} title="Scenario & World Setup" badge="Required" />
-                <ScenarioWorldColumn config={config} onConfigChange={handleConfigChange} />
-              </div>
-
-              {/* Column 2 — Agent & LLM */}
-              <div
-                style={{
-                  borderRight: oneCol ? 'none' : '1px solid var(--border)',
-                  borderBottom: stacked ? '1px solid var(--border)' : 'none',
-                  padding: 16,
-                  background: 'var(--surface-1)',
-                }}
-              >
-                <ColumnHeader number={2} title="Agent & LLM Setup" badge="Required" />
-                <AgentLLMColumn config={config} onConfigChange={handleConfigChange} />
-              </div>
-
-              {/* Column 3 — Tools, Constraints & Launch */}
-              <div style={{ padding: 16, background: 'var(--surface-1)' }}>
-                <ColumnHeader number={3} title="Tools, Constraints & Launch" />
-                <ToolsLaunchColumn
-                  config={config}
-                  onConfigChange={handleConfigChange}
-                  validationResult={validationResult}
-                  onValidateNow={handleValidateNow}
-                  onLaunch={handleLaunch}
-                  onSavePreset={handleSavePreset}
-                />
-              </div>
-            </div>
-          )}
         </div>
       </div>
 
@@ -572,302 +524,6 @@ export function SetupScreen() {
           message={presetMsg}
         />
       )}
-    </div>
-  )
-}
-
-const QUICK_PRESET_IMAGES: Record<string, string> = {
-  bridge_builder: '/presets/bridge-builder.png',
-  crawl_challenge: '/presets/crawl-challenge.png',
-  sorter: '/presets/sorter.png',
-  tiny_city_preview: '/presets/tiny-city-preview.png',
-  custom: '/presets/custom-scenario.png',
-}
-
-function endpointForProvider(provider: LLMProvider): string {
-  if (provider === 'localdeploy') return 'http://127.0.0.1:8000/v1'
-  if (provider === 'openai_compatible') return 'https://api.openai.com/v1'
-  return ''
-}
-
-function QuickStartCard({
-  config,
-  onConfigChange,
-  validationResult,
-  launching,
-  onLaunch,
-}: {
-  config: Partial<LaunchConfig>
-  onConfigChange: (patch: Partial<LaunchConfig>) => void
-  validationResult: ValidationResult | null
-  launching: boolean
-  onLaunch: () => void
-}) {
-  const [presets, setPresets] = useState<ScenarioPreset[]>([])
-  const [worlds, setWorlds] = useState<WorldTemplate[]>([])
-
-  useEffect(() => {
-    api.get<ScenarioPreset[]>('/presets').then(setPresets).catch(() => {})
-    api.get<WorldTemplate[]>('/worlds').then(setWorlds).catch(() => {})
-  }, [])
-
-  const selectedPresetId = config.scenario?.preset ?? ''
-  const selectedPreset = presets.find((preset) => preset.id === selectedPresetId)
-  const participants: AgentConfig[] =
-    config.agents?.participants && config.agents.participants.length > 0
-      ? config.agents.participants
-      : (DEFAULT_CONFIG.agents?.participants as AgentConfig[] | undefined) ?? []
-  const agent = participants[0]
-  const provider = (agent?.provider ?? 'mock') as LLMProvider
-  const ready = validationResult?.state === 'READY'
-  const statusText = ready
-    ? 'Ready'
-    : validationResult
-      ? validationResult.missing?.[0] ?? validationResult.state
-      : 'Validating...'
-
-  useEffect(() => {
-    const preset = presets.find((item) => item.id === selectedPresetId)
-    if (!preset || preset.required_tools.length === 0) return
-    const enabled = new Set(config.tools?.enabled ?? [])
-    const before = enabled.size
-    preset.required_tools.forEach((tool) => enabled.add(tool))
-    if (enabled.size !== before) {
-      onConfigChange({ tools: { enabled: Array.from(enabled) } } as Partial<LaunchConfig>)
-    }
-  }, [config.tools?.enabled, onConfigChange, presets, selectedPresetId])
-
-  function worldFieldsFor(worldId: string): Partial<LaunchConfig['world']> {
-    const world = worlds.find((item) => item.id === worldId)
-    if (!world) return { template: worldId || config.world?.template || 'flat_arena' }
-    return {
-      template: world.id,
-      terrain: world.terrain,
-      map_size: world.map_size,
-      gravity: world.gravity,
-      active_physics_zones: world.active_physics_zones,
-      engine: config.world?.engine ?? 'pymunk2d',
-      seed: config.world?.seed ?? null,
-    }
-  }
-
-  function selectPreset(preset: ScenarioPreset) {
-    const enabled = Array.from(
-      new Set([...(config.tools?.enabled ?? []), ...preset.required_tools]),
-    )
-    onConfigChange({
-      project_name: preset.name,
-      scenario: {
-        preset: preset.id,
-        objective: preset.objective,
-        reward: preset.reward,
-      },
-      world: worldFieldsFor(preset.default_world),
-      tools: { enabled },
-    } as Partial<LaunchConfig>)
-  }
-
-  function updateFirstAgent(patch: Partial<AgentConfig>) {
-    if (!agent) return
-    const next = [...participants]
-    next[0] = { ...agent, ...patch }
-    onConfigChange({
-      agents: { ...(config.agents ?? { mode: 'single' }), participants: next },
-      llm_connection: {
-        endpoint_url: next[0].endpoint_url ?? '',
-        api_key: next[0].api_key ?? null,
-      },
-    } as Partial<LaunchConfig>)
-  }
-
-  function setProvider(next: LLMProvider) {
-    const endpoint = endpointForProvider(next)
-    updateFirstAgent({
-      provider: next,
-      endpoint_url: endpoint || null,
-      model: next === 'mock' ? 'mock' : '',
-    })
-  }
-
-  const cards = presets.length > 0 ? presets : []
-
-  return (
-    <div
-      style={{
-        borderRadius: 8,
-        border: '1px solid var(--border)',
-        background: 'var(--surface-1)',
-        overflow: 'hidden',
-      }}
-    >
-      <div
-        style={{
-          padding: '10px 12px',
-          borderBottom: '1px solid var(--border)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 12,
-        }}
-      >
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-1)' }}>
-          Quick Start
-        </div>
-        <div
-          style={{
-            fontSize: 11,
-            color: ready ? 'var(--ok)' : 'var(--warn)',
-            minWidth: 0,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-          title={statusText}
-        >
-          {statusText}
-        </div>
-      </div>
-
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-          gap: 16,
-          padding: 12,
-        }}
-      >
-        <div>
-          <div style={quickLabel()}>Task</div>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-              gap: 8,
-            }}
-          >
-            {cards.map((preset) => {
-              const selected = preset.id === selectedPresetId
-              return (
-                <button
-                  key={preset.id}
-                  onClick={() => selectPreset(preset)}
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '54px 1fr',
-                    gap: 8,
-                    alignItems: 'center',
-                    textAlign: 'left',
-                    padding: 8,
-                    minHeight: 72,
-                    borderRadius: 7,
-                    border: selected ? '1px solid var(--accent)' : '1px solid var(--border)',
-                    background: selected ? 'var(--accent-soft)' : 'var(--surface-2)',
-                    color: 'var(--text-1)',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <img
-                    src={QUICK_PRESET_IMAGES[preset.id] ?? QUICK_PRESET_IMAGES.custom}
-                    alt=""
-                    style={{
-                      width: 54,
-                      height: 48,
-                      objectFit: 'cover',
-                      borderRadius: 5,
-                      border: '1px solid var(--border)',
-                    }}
-                  />
-                  <span style={{ minWidth: 0 }}>
-                    <span style={{ display: 'block', fontSize: 12, fontWeight: 700 }}>
-                      {preset.name}
-                    </span>
-                    <span
-                      style={{
-                        display: 'block',
-                        marginTop: 2,
-                        fontSize: 10,
-                        color: 'var(--text-2)',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {preset.tagline}
-                    </span>
-                  </span>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-
-        <div>
-          <div style={quickLabel()}>Model</div>
-          <div style={{ display: 'grid', gap: 8 }}>
-            <label style={{ display: 'grid', gap: 3 }}>
-              <span style={fieldLabel()}>Provider</span>
-              <select
-                value={provider}
-                onChange={(e) => setProvider(e.target.value as LLMProvider)}
-                style={inputStyle()}
-              >
-                <option value="mock">Mock</option>
-                <option value="localdeploy">LocalDeploy</option>
-                <option value="openai_compatible">OpenAI-Compatible</option>
-              </select>
-            </label>
-            <label style={{ display: 'grid', gap: 3 }}>
-              <span style={fieldLabel()}>Model</span>
-              <input
-                value={agent?.model ?? ''}
-                onChange={(e) => updateFirstAgent({ model: e.target.value })}
-                disabled={provider === 'mock'}
-                style={inputStyle()}
-              />
-            </label>
-            <label style={{ display: 'grid', gap: 3 }}>
-              <span style={fieldLabel()}>Attempts</span>
-              <input
-                type="number"
-                min={1}
-                value={config.constraints?.max_attempts ?? 50}
-                onChange={(e) =>
-                  onConfigChange({
-                    constraints: { max_attempts: Number(e.target.value) },
-                  } as Partial<LaunchConfig>)
-                }
-                style={inputStyle()}
-              />
-            </label>
-            <button
-              disabled={!ready || launching}
-              onClick={() => {
-                if (ready && !launching) void onLaunch()
-              }}
-              style={{
-                marginTop: 2,
-                width: '100%',
-                padding: '10px 14px',
-                borderRadius: 7,
-                border: 'none',
-                background: ready ? 'var(--accent)' : 'var(--surface-2)',
-                color: ready ? 'var(--on-accent)' : 'var(--text-2)',
-                fontSize: 13,
-                fontWeight: 800,
-                cursor: ready && !launching ? 'pointer' : 'not-allowed',
-                opacity: ready ? 1 : 0.55,
-              }}
-            >
-              {launching ? 'Launching...' : 'Launch'}
-            </button>
-            {selectedPreset && (
-              <div style={{ fontSize: 11, color: 'var(--text-2)' }}>
-                {selectedPreset.default_world || config.world?.template || 'custom world'}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
     </div>
   )
 }
@@ -1069,32 +725,3 @@ function secondaryBtn(): React.CSSProperties {
   }
 }
 
-function quickLabel(): React.CSSProperties {
-  return {
-    fontSize: 10,
-    fontWeight: 800,
-    color: 'var(--text-2)',
-    textTransform: 'uppercase',
-    letterSpacing: '0.7px',
-    marginBottom: 8,
-  }
-}
-
-function fieldLabel(): React.CSSProperties {
-  return {
-    fontSize: 10,
-    color: 'var(--text-2)',
-  }
-}
-
-function inputStyle(): React.CSSProperties {
-  return {
-    width: '100%',
-    padding: '7px 9px',
-    borderRadius: 6,
-    border: '1px solid var(--border)',
-    background: 'var(--surface-2)',
-    color: 'var(--text-1)',
-    fontSize: 12,
-  }
-}

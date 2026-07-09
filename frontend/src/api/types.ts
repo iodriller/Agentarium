@@ -258,6 +258,7 @@ export interface RunSummary {
   success?: boolean | null
   artifact_dir?: string | null
   config_available?: boolean
+  attempt_count?: number
 }
 
 export interface RunConfigResponse {
@@ -274,6 +275,14 @@ export interface RelaunchRunResponse {
   run_id: string
   source_run_id: string
   config: LaunchConfig
+}
+
+export interface RunAttemptSummary {
+  trace_run_id: string
+  attempt_index?: number | null
+  agent_id?: string | null
+  score_total?: number | null
+  success?: boolean | null
 }
 
 // ─── Score / tool-call (mirrors backend score.py / toolcall.py) ────────────────

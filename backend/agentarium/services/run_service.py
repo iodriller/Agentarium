@@ -81,17 +81,33 @@ def _init_db() -> None:
                 reward TEXT,
                 score_total REAL,
                 success INTEGER,
-                artifact_dir TEXT
+                artifact_dir TEXT,
+                -- Parent live-launch id shared by every attempt of one launch, so
+                -- run history can collapse a launch's attempts into a single row.
+                parent_run_id TEXT
             );
             CREATE INDEX IF NOT EXISTS ix_meta_challenge_score
                 ON run_meta (challenge, score_total DESC);
         """)
+        # Migrate pre-existing DBs that predate the parent_run_id column.
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(run_meta)")}
+        if "parent_run_id" not in cols:
+            conn.execute("ALTER TABLE run_meta ADD COLUMN parent_run_id TEXT")
 
 
 # Only these columns may be written via _db_upsert_meta — guards the f-string
 # column interpolation against ever taking an attacker-controlled key.
 _META_COLUMNS = frozenset(
-    {"project_name", "challenge", "mode", "reward", "score_total", "success", "artifact_dir"}
+    {
+        "project_name",
+        "challenge",
+        "mode",
+        "reward",
+        "score_total",
+        "success",
+        "artifact_dir",
+        "parent_run_id",
+    }
 )
 
 
@@ -399,6 +415,7 @@ def create_run_from_design(
     duration_seconds: float = 5.0,
     launch_config: LaunchConfig | None = None,
     provenance: dict | None = None,
+    parent_run_id: str | None = None,
 ) -> str:
     """Run ``design`` with the engine named by ``world.engine`` and store the trace.
 
@@ -438,14 +455,17 @@ def create_run_from_design(
     )
 
     # Seed the run-history row with what we know here (challenge/mode/project are
-    # filled in later by the runner via record_run_meta).
-    _db_upsert_meta(
-        run_id,
+    # filled in later by the runner via record_run_meta). ``parent_run_id`` links
+    # this attempt to its launch so history can collapse a launch to one row.
+    meta_fields: dict[str, object] = dict(
         score_total=baseline.score_total,
         success=int(baseline.success),
         reward=baseline.reward,
         artifact_dir=str(run_dir),
     )
+    if parent_run_id is not None:
+        meta_fields["parent_run_id"] = parent_run_id
+    _db_upsert_meta(run_id, **meta_fields)
 
     return run_id
 
@@ -471,32 +491,63 @@ def record_run_meta(
         _db_upsert_meta(run_id, **fields)
 
 
+# One representative row per launch: the best-scoring attempt stands in for the
+# whole launch, carrying an ``attempt_count`` of how many attempts it had. A
+# standalone run (no parent_run_id) is its own group of one. Attempts of one
+# launch therefore collapse to a single history/leaderboard row instead of N.
+_RUN_GROUPS_CTE = """
+    SELECT
+        run_meta.*,
+        run_meta.rowid AS _rowid,
+        COUNT(*) OVER (
+            PARTITION BY COALESCE(parent_run_id, run_id)
+        ) AS attempt_count,
+        MAX(created_at) OVER (
+            PARTITION BY COALESCE(parent_run_id, run_id)
+        ) AS _grp_created,
+        ROW_NUMBER() OVER (
+            PARTITION BY COALESCE(parent_run_id, run_id)
+            ORDER BY score_total IS NULL, score_total DESC, run_meta.rowid DESC
+        ) AS _rn,
+        EXISTS(
+            SELECT 1 FROM run_configs
+            WHERE run_configs.run_id = run_meta.run_id
+        ) AS config_available
+    FROM run_meta
+"""
+
+_GROUP_INTERNAL_KEYS = ("_rn", "_rowid", "_grp_created")
+
+
+def _clean_group_row(row: sqlite3.Row) -> dict:
+    d = dict(row)
+    for key in _GROUP_INTERNAL_KEYS:
+        d.pop(key, None)
+    return d
+
+
 def list_runs(limit: int = 50) -> list[dict]:
-    """Most-recent runs first, for the run-history view (survives restart)."""
+    """Most-recent launches first, one row per launch (survives restart)."""
     if not _DB_PATH.exists():
         return []
     with _db_lock:
         with sqlite3.connect(_DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
-                "SELECT run_meta.*, "
-                "EXISTS(SELECT 1 FROM run_configs "
-                "WHERE run_configs.run_id = run_meta.run_id) AS config_available "
-                "FROM run_meta ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                f"SELECT * FROM ({_RUN_GROUPS_CTE}) WHERE _rn = 1 "
+                "ORDER BY _grp_created DESC, _rowid DESC LIMIT ?",
                 (max(1, min(limit, 500)),),
             ).fetchall()
-    return [dict(r) for r in rows]
+    return [_clean_group_row(r) for r in rows]
 
 
 def leaderboard(challenge: str | None = None, limit: int = 10) -> list[dict]:
-    """Top runs by score, optionally filtered to one challenge."""
+    """Top launches by best score, optionally filtered to one challenge."""
     if not _DB_PATH.exists():
         return []
     query = (
-        "SELECT run_meta.*, "
-        "EXISTS(SELECT 1 FROM run_configs "
-        "WHERE run_configs.run_id = run_meta.run_id) AS config_available "
-        "FROM run_meta WHERE score_total IS NOT NULL"
+        f"SELECT * FROM ({_RUN_GROUPS_CTE}) "
+        "WHERE _rn = 1 AND score_total IS NOT NULL"
     )
     params: list[object] = []
     if challenge:
@@ -511,7 +562,77 @@ def leaderboard(challenge: str | None = None, limit: int = 10) -> list[dict]:
         with sqlite3.connect(_DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(query, params).fetchall()
-    return [dict(r) for r in rows]
+    return [_clean_group_row(r) for r in rows]
+
+
+def list_run_attempts(run_id: str) -> list[dict]:
+    """Return every attempt trace that belongs to the same run as ``run_id``.
+
+    Attempts are linked to their parent live-launch run through the provenance
+    captured in ``run_configs`` (``kind='attempt'`` + ``parent_run_id``). ``run_id``
+    may be either the parent launch id (returned by ``/setup/launch``) or one of
+    its individual attempt trace ids — in both cases the full sibling set is
+    returned, sorted by agent then attempt index, so Studio can browse and replay
+    any attempt of a finished run.
+    """
+    if not _DB_PATH.exists():
+        return []
+    with _db_lock:
+        with sqlite3.connect(_DB_PATH) as conn:
+            conn.row_factory = sqlite3.Row
+            config_rows = conn.execute(
+                "SELECT run_id, provenance_json FROM run_configs"
+            ).fetchall()
+
+            provs: dict[str, dict] = {}
+            for row in config_rows:
+                try:
+                    parsed = json.loads(row["provenance_json"])
+                except Exception:
+                    parsed = {}
+                provs[row["run_id"]] = parsed if isinstance(parsed, dict) else {}
+
+            # If run_id is itself an attempt, group by its parent; otherwise treat
+            # run_id as the parent id directly.
+            parent = run_id
+            own = provs.get(run_id, {})
+            if own.get("kind") == "attempt" and own.get("parent_run_id"):
+                parent = own["parent_run_id"]
+
+            attempts = [
+                (tid, prov)
+                for tid, prov in provs.items()
+                if prov.get("kind") == "attempt" and prov.get("parent_run_id") == parent
+            ]
+            if not attempts:
+                return []
+
+            result: list[dict] = []
+            for tid, prov in attempts:
+                meta = conn.execute(
+                    "SELECT score_total, success FROM run_meta WHERE run_id = ?", (tid,)
+                ).fetchone()
+                result.append(
+                    {
+                        "trace_run_id": tid,
+                        "attempt_index": prov.get("attempt_index"),
+                        "agent_id": prov.get("agent_id"),
+                        "score_total": meta["score_total"] if meta else None,
+                        "success": (
+                            None
+                            if meta is None or meta["success"] is None
+                            else bool(meta["success"])
+                        ),
+                    }
+                )
+
+    result.sort(
+        key=lambda a: (
+            a["agent_id"] or "",
+            a["attempt_index"] if a["attempt_index"] is not None else 0,
+        )
+    )
+    return result
 
 
 def get_trace(run_id: str) -> EpisodeTrace | None:

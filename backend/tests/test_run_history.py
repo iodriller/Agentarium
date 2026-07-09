@@ -52,6 +52,40 @@ def test_history_lists_recent_runs(_db):
     assert row["artifact_dir"]
 
 
+def test_history_collapses_attempts_to_one_row_per_launch(_db):
+    world = WorldConfig(template="flat_arena", engine="pymunk2d")
+    parent = "launch-collapse-xyz"
+    ids = []
+    for i in range(3):
+        rid = create_run_from_design(
+            hardcoded_demo_design(), world, duration_seconds=0.05, parent_run_id=parent
+        )
+        record_run_meta(rid, project_name="P", challenge="bridge_builder", mode="single")
+        store_score(
+            rid,
+            ScoreCard(
+                run_id=rid, reward="bridge_transport", score_total=float(i * 10),
+                success=(i == 2), metrics={}, failure_events=[], summary="", improvement_hint="",
+            ),
+        )
+        ids.append(rid)
+
+    runs = list_runs(limit=10)
+    launch_rows = [r for r in runs if r["run_id"] in ids]
+    # Three attempts of one launch collapse to a single row, keyed to the best.
+    assert len(launch_rows) == 1
+    row = launch_rows[0]
+    assert row["attempt_count"] == 3
+    assert row["run_id"] == ids[2]  # best attempt (score 20) represents the launch
+    assert row["score_total"] == 20.0
+
+    board = leaderboard(challenge="bridge_builder")
+    board_launch = [r for r in board if r["run_id"] in ids]
+    assert len(board_launch) == 1
+    assert board_launch[0]["run_id"] == ids[2]
+    assert board_launch[0]["attempt_count"] == 3
+
+
 def test_leaderboard_orders_by_score(_db):
     _make_run("bridge_builder", 10.0)
     high = _make_run("bridge_builder", 90.0)
