@@ -22,6 +22,7 @@ import type {
   CreateRunResponse,
   DesignSummary,
   EpisodeTrace,
+  RunAttemptSummary,
   RunCaps,
   RunEvent,
   ScoreCard,
@@ -154,7 +155,10 @@ export function StudioScreen() {
   }, [])
 
   // Load + replay a specific attempt's trace by run id (Attempt History clicks).
+  // Picking an attempt is a manual action, so it stops live-follow and reflects
+  // the chosen attempt in the score/telemetry panels.
   const replayTraceRunId = async (traceRunId: string) => {
+    followLiveRef.current = false
     try {
       const fetched = await api.get<EpisodeTrace>(`/runs/${traceRunId}/trace`)
       setTrace(fetched)
@@ -163,6 +167,20 @@ export function StudioScreen() {
       setStatus('ready')
       setViewMode('physics')
       void loadBuildStepsForTrace(traceRunId)
+      // Reflect the picked attempt in the telemetry/score panels.
+      const match = Object.entries(traceByAttempt).find(([, v]) => v === traceRunId)
+      if (match) {
+        const [aid, idxStr] = match[0].split(':')
+        const idx = Number(idxStr)
+        setLatestAgentId(aid)
+        if (Number.isFinite(idx)) setLatestAttemptIndex(idx)
+        try {
+          const sc = await api.get<ScoreCard>(`/runs/${traceRunId}/score`)
+          setLatestScoreByAgent((prev) => ({ ...prev, [aid]: sc }))
+        } catch {
+          /* score is best-effort */
+        }
+      }
     } catch {
       setStatus('error')
     }
@@ -173,6 +191,11 @@ export function StudioScreen() {
   const wsRef = useRef<WebSocket | null>(null)
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const worldViewRef = useRef<WorldViewHandle | null>(null)
+  // While true, newly-produced attempt traces auto-load and play (live follow).
+  // Any manual playback action (pause/stop/seek/pick an attempt) turns this off
+  // so the user's controls stay authoritative and a live run can't yank the
+  // viewport away or un-pause them.
+  const followLiveRef = useRef(true)
 
   useEffect(() => {
     if (!runId) return
@@ -207,14 +230,71 @@ export function StudioScreen() {
         setRunStatus('finished')
         setViewMode('physics')
         void loadBuildStepsForTrace(rid, () => cancelled)
+        let openedScore: ScoreCard | null = null
         try {
           const sc = await api.get<ScoreCard>(`/runs/${rid}/score`)
           if (!cancelled) {
+            openedScore = sc
             setLatestScoreByAgent({ agent_a: sc })
             if (sc.reward) setReward(sc.reward)
           }
         } catch {
           /* score is best-effort */
+        }
+        // Populate the full attempt list so every attempt of this finished run
+        // is browsable/replayable — not just the single trace we opened with.
+        try {
+          const attempts = await api.get<RunAttemptSummary[]>(`/runs/${rid}/attempts`)
+          if (!cancelled && attempts.length > 0) {
+            const traceMap: Record<string, string> = {}
+            const byAgent: Record<string, AttemptScore[]> = {}
+            const discovered = new Set<string>()
+            for (const a of attempts) {
+              const aid = a.agent_id ?? 'agent_a'
+              const idx = a.attempt_index ?? 0
+              traceMap[`${aid}:${idx}`] = a.trace_run_id
+              discovered.add(aid)
+              ;(byAgent[aid] ??= []).push({
+                index: idx,
+                scorecard: {
+                  score_total: a.score_total ?? 0,
+                  success: a.success ?? false,
+                  metrics: {},
+                  failure_events: [],
+                  summary: '',
+                  reward: '',
+                },
+              })
+            }
+            for (const list of Object.values(byAgent)) list.sort((x, y) => x.index - y.index)
+            setTraceByAttempt((prev) => ({ ...traceMap, ...prev }))
+            setAttemptsByAgent((prev) => ({ ...byAgent, ...prev }))
+            setAgents((prev) => {
+              const have = new Set(prev.map((p) => p.id))
+              const additions = [...discovered]
+                .filter((id) => !have.has(id))
+                .map((id) => ({ id, name: id === 'agent_a' ? 'Agent A' : id, role: 'builder' }))
+              return additions.length > 0 ? [...prev, ...additions] : prev
+            })
+            const opened = attempts.find((a) => a.trace_run_id === rid)
+            const openedAgent = opened?.agent_id ?? 'agent_a'
+            setLatestAgentId(openedAgent)
+            setLatestAttemptIndex(opened?.attempt_index ?? 0)
+            // Key the opened attempt's full score under its real agent, so a
+            // multi-agent run's telemetry isn't misattributed to agent_a.
+            if (openedScore && openedAgent !== 'agent_a') {
+              setLatestScoreByAgent({ [openedAgent]: openedScore })
+            }
+            const series = byAgent[openedAgent] ?? []
+            if (series.length > 0) {
+              const best = series.reduce((b, a) =>
+                a.scorecard.score_total > b.scorecard.score_total ? a : b,
+              )
+              setBestAttemptIndex(best.index)
+            }
+          }
+        } catch {
+          /* attempt list is best-effort */
         }
         return true
       } catch {
@@ -298,7 +378,9 @@ export function StudioScreen() {
             ...prev,
             [`${id}:${event.attempt_index}`]: event.trace_run_id,
           }))
-          void loadTrace(event.trace_run_id)
+          // Only follow the newest attempt if the user hasn't taken manual
+          // control of playback; otherwise keep them where they are.
+          if (followLiveRef.current) void loadTrace(event.trace_run_id)
           break
         }
         case 'score': {
@@ -325,8 +407,11 @@ export function StudioScreen() {
         case 'run_finished':
           if (event.winner_agent_id) setWinnerAgentId(event.winner_agent_id)
           if (event.best_attempt_index >= 0) setBestAttemptIndex(event.best_attempt_index)
-          // One-click winner replay: surface the best attempt's trace at run end.
-          if (event.best_trace_run_id) void loadTrace(event.best_trace_run_id)
+          // One-click winner replay: surface the best attempt's trace at run end,
+          // unless the user is manually reviewing a specific attempt.
+          if (event.best_trace_run_id && followLiveRef.current) {
+            void loadTrace(event.best_trace_run_id)
+          }
           setRunStatus('finished')
           break
         case 'error':
@@ -450,12 +535,19 @@ export function StudioScreen() {
     }
   }, [playing, trace, speed])
 
-  const handleTogglePlay = () => setPlaying((p) => !p)
+  const handleTogglePlay = () => {
+    followLiveRef.current = false
+    setPlaying((p) => !p)
+  }
   const handleStop = () => {
+    followLiveRef.current = false
     setPlaying(false)
     setFrameIndex(0)
   }
-  const handleSeek = (index: number) => setFrameIndex(index)
+  const handleSeek = (index: number) => {
+    followLiveRef.current = false
+    setFrameIndex(index)
+  }
   const handleFullscreen = () => {
     const el = viewportRef.current
     if (!el) return
@@ -496,13 +588,16 @@ export function StudioScreen() {
       if (!trace) return
       if (e.code === 'Space') {
         e.preventDefault()
+        followLiveRef.current = false
         setPlaying((p) => !p)
       } else if (e.code === 'ArrowRight') {
         e.preventDefault()
+        followLiveRef.current = false
         setPlaying(false)
         setFrameIndex((i) => Math.min(i + 1, trace.frames.length - 1))
       } else if (e.code === 'ArrowLeft') {
         e.preventDefault()
+        followLiveRef.current = false
         setPlaying(false)
         setFrameIndex((i) => Math.max(i - 1, 0))
       }

@@ -507,8 +507,9 @@ export function ScenarioWorldColumn({ config, onConfigChange }: ScenarioWorldCol
               style={inputStyle()}
             />
           </FieldRow>
-          <div style={{ fontSize: 10, color: 'var(--text-2)', marginTop: 4 }}>
-            Randomization, Debug — coming soon.
+          <div style={{ fontSize: 10, color: 'var(--text-2)', marginTop: 4, lineHeight: 1.4 }}>
+            Seed varies LLM sampling only — the physics engine is already
+            deterministic, so replays are exact regardless of seed.
           </div>
         </div>
       )}

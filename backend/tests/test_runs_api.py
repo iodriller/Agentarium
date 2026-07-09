@@ -1,4 +1,5 @@
 import asyncio
+import uuid
 
 from fastapi.testclient import TestClient
 
@@ -83,6 +84,42 @@ def test_get_snapshots_for_persisted_agent_attempt():
     assert cfg.status_code == 200
     assert cfg.json()["config"]["scenario"]["preset"] == "tiny_city_preview"
     assert cfg.json()["provenance"]["kind"] == "attempt"
+
+
+def test_run_attempts_grouped_by_parent():
+    config = LaunchConfig(
+        scenario=ScenarioConfig(preset="tiny_city_preview"),
+        world=WorldConfig(template="tiny_city_block"),
+        agents=AgentsConfig(
+            participants=[AgentConfig(id="agent_a", name="Builder", provider=LLMProvider.mock)]
+        ),
+        tools=ToolsConfig(enabled=["create_body", "run_simulation"]),
+    )
+    parent = f"test-parent-{uuid.uuid4().hex}"
+    a0 = asyncio.run(run_single_attempt(config, attempt_index=0, parent_run_id=parent))
+    a1 = asyncio.run(run_single_attempt(config, attempt_index=1, parent_run_id=parent))
+    assert a0.trace_run_id and a1.trace_run_id
+
+    # Grouped by the parent launch id: both attempts, sorted by attempt index.
+    r = client.get(f"/api/runs/{parent}/attempts")
+    assert r.status_code == 200
+    attempts = r.json()
+    ids = [a["trace_run_id"] for a in attempts]
+    assert a0.trace_run_id in ids
+    assert a1.trace_run_id in ids
+    assert [a["attempt_index"] for a in attempts] == [0, 1]
+    assert attempts[0]["agent_id"] == "agent_a"
+
+    # Querying by one attempt id returns the full sibling set, not just itself.
+    r2 = client.get(f"/api/runs/{a0.trace_run_id}/attempts")
+    assert r2.status_code == 200
+    siblings = [a["trace_run_id"] for a in r2.json()]
+    assert a1.trace_run_id in siblings
+
+    # An unrelated run has no linked attempts.
+    r3 = client.get("/api/runs/does-not-exist/attempts")
+    assert r3.status_code == 200
+    assert r3.json() == []
 
 
 def test_launch_config_is_captured_and_relaunchable():

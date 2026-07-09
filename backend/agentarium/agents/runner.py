@@ -181,6 +181,7 @@ def _simulate_design(
             duration_seconds=duration,
             launch_config=config,
             provenance={k: v for k, v in provenance.items() if v is not None},
+            parent_run_id=parent_run_id,
         )
     except Exception:  # noqa: BLE001 - a bad design must not abort the whole run
         return None
