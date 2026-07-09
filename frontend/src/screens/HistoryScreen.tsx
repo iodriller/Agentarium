@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import type { RunSummary } from '../api/types'
+import { RunRelaunchActions } from '../components/shared/RunRelaunchActions'
 import { TopBar } from '../components/shared/TopBar'
 
 export function HistoryScreen() {
@@ -95,7 +96,7 @@ export function HistoryScreen() {
             <Empty text={loading ? 'Loading…' : 'No scored runs yet.'} />
           ) : (
             board.map((r, i) => (
-              <button
+              <div
                 key={r.run_id}
                 onClick={() => navigate(`/studio/${r.run_id}`)}
                 style={rowBtn()}
@@ -109,7 +110,13 @@ export function HistoryScreen() {
                 <span style={{ color: 'var(--accent)', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
                   {r.score_total?.toFixed(1) ?? '—'}
                 </span>
-              </button>
+                <RunRelaunchActions
+                  runId={r.run_id}
+                  compact
+                  align="left"
+                  disabled={!r.config_available}
+                />
+              </div>
             ))
           )}
         </div>
@@ -131,6 +138,7 @@ export function HistoryScreen() {
                   <Th>Score</Th>
                   <Th>Result</Th>
                   <Th>When</Th>
+                  <Th>Actions</Th>
                 </tr>
               </thead>
               <tbody>
@@ -148,6 +156,13 @@ export function HistoryScreen() {
                       {r.success == null ? '—' : r.success ? '✓ success' : 'no'}
                     </Td>
                     <Td>{fmtTime(r.created_at)}</Td>
+                    <td style={{ padding: '6px 8px' }}>
+                      <RunRelaunchActions
+                        runId={r.run_id}
+                        compact
+                        disabled={!r.config_available}
+                      />
+                    </td>
                   </tr>
                 ))}
               </tbody>

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import pathlib
 import sqlite3
 import threading
@@ -14,11 +15,13 @@ from agentarium.core.schemas.design import (
     JointType,
 )
 from agentarium.core.schemas.score import ScoreCard
-from agentarium.core.schemas.setup import WorldConfig
+from agentarium.core.schemas.setup import LaunchConfig, WorldConfig
 from agentarium.core.schemas.toolcall import BuildStepRecord
 from agentarium.core.schemas.trace import EpisodeTrace
 from agentarium.engines import get_engine
 from agentarium.services.scoring_service import score_attempt
+
+logger = logging.getLogger(__name__)
 
 # In-memory store of run traces.
 RUNS: dict[str, EpisodeTrace] = {}
@@ -61,6 +64,12 @@ def _init_db() -> None:
             CREATE TABLE IF NOT EXISTS designs (
                 run_id TEXT PRIMARY KEY,
                 design_json TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS run_configs (
+                run_id TEXT PRIMARY KEY,
+                config_json TEXT NOT NULL,
+                provenance_json TEXT NOT NULL DEFAULT '{}',
+                created_at INTEGER NOT NULL DEFAULT (unixepoch())
             );
             -- Queryable summary for run history + leaderboards (resume after restart).
             CREATE TABLE IF NOT EXISTS run_meta (
@@ -140,6 +149,91 @@ def _db_write_score(run_id: str, score: ScoreCard) -> None:
                 (run_id, score.model_dump_json()),
             )
             conn.commit()
+
+
+def record_launch_config(
+    run_id: str,
+    config: LaunchConfig,
+    provenance: dict | None = None,
+) -> None:
+    """Persist the exact LaunchConfig that produced or owns ``run_id``.
+
+    ``run_id`` may be either the parent live launch id returned by
+    ``/api/setup/launch`` or an individual simulated attempt trace id. Storing
+    both makes Studio and History equally reproducible.
+    """
+    provenance = provenance or {}
+    with _db_lock:
+        with sqlite3.connect(_DB_PATH) as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO run_configs "
+                "(run_id, config_json, provenance_json) VALUES (?, ?, ?)",
+                (
+                    run_id,
+                    config.model_dump_json(),
+                    json.dumps(provenance, sort_keys=True),
+                ),
+            )
+            conn.commit()
+
+    # Mirror the config into the artifact dir so a copied run folder is
+    # self-contained even without the SQLite database.
+    run_dir = _RUNS_DIR / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "launch_config.json").write_text(
+        config.model_dump_json(indent=2), encoding="utf-8"
+    )
+    (run_dir / "launch_provenance.json").write_text(
+        json.dumps(provenance, indent=2, sort_keys=True), encoding="utf-8"
+    )
+
+
+def get_launch_config(run_id: str) -> LaunchConfig | None:
+    """Return the persisted LaunchConfig for ``run_id`` if one was captured."""
+    if _DB_PATH.exists():
+        with _db_lock:
+            with sqlite3.connect(_DB_PATH) as conn:
+                row = conn.execute(
+                    "SELECT config_json FROM run_configs WHERE run_id = ?", (run_id,)
+                ).fetchone()
+        if row is not None:
+            try:
+                return LaunchConfig.model_validate_json(row[0])
+            except Exception:
+                return None
+
+    path = _RUNS_DIR / run_id / "launch_config.json"
+    if not path.is_file():
+        return None
+    try:
+        return LaunchConfig.model_validate_json(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def get_launch_provenance(run_id: str) -> dict:
+    """Return best-effort provenance metadata for a captured launch config."""
+    if _DB_PATH.exists():
+        with _db_lock:
+            with sqlite3.connect(_DB_PATH) as conn:
+                row = conn.execute(
+                    "SELECT provenance_json FROM run_configs WHERE run_id = ?", (run_id,)
+                ).fetchone()
+        if row is not None:
+            try:
+                value = json.loads(row[0])
+                return value if isinstance(value, dict) else {}
+            except Exception:
+                return {}
+
+    path = _RUNS_DIR / run_id / "launch_provenance.json"
+    if not path.is_file():
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else {}
+    except Exception:
+        return {}
 
 
 def _db_get_trace(run_id: str) -> EpisodeTrace | None:
@@ -303,6 +397,8 @@ def create_run_from_design(
     design: DesignSpec,
     world: WorldConfig,
     duration_seconds: float = 5.0,
+    launch_config: LaunchConfig | None = None,
+    provenance: dict | None = None,
 ) -> str:
     """Run ``design`` with the engine named by ``world.engine`` and store the trace.
 
@@ -313,6 +409,12 @@ def create_run_from_design(
         raise ValueError(f"Unsupported engine: {world.engine.value}")
 
     run_id = uuid.uuid4().hex
+    if launch_config is not None:
+        try:
+            record_launch_config(run_id, launch_config, provenance)
+        except Exception:  # noqa: BLE001 - config capture must not suppress a trace
+            logger.warning("Failed to capture launch config for run %s", run_id, exc_info=True)
+
     trace = engine.simulate(design, world, duration_seconds)
     trace.run_id = run_id
 
@@ -377,7 +479,10 @@ def list_runs(limit: int = 50) -> list[dict]:
         with sqlite3.connect(_DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
-                "SELECT * FROM run_meta ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                "SELECT run_meta.*, "
+                "EXISTS(SELECT 1 FROM run_configs "
+                "WHERE run_configs.run_id = run_meta.run_id) AS config_available "
+                "FROM run_meta ORDER BY created_at DESC, rowid DESC LIMIT ?",
                 (max(1, min(limit, 500)),),
             ).fetchall()
     return [dict(r) for r in rows]
@@ -387,7 +492,12 @@ def leaderboard(challenge: str | None = None, limit: int = 10) -> list[dict]:
     """Top runs by score, optionally filtered to one challenge."""
     if not _DB_PATH.exists():
         return []
-    query = "SELECT * FROM run_meta WHERE score_total IS NOT NULL"
+    query = (
+        "SELECT run_meta.*, "
+        "EXISTS(SELECT 1 FROM run_configs "
+        "WHERE run_configs.run_id = run_meta.run_id) AS config_available "
+        "FROM run_meta WHERE score_total IS NOT NULL"
+    )
     params: list[object] = []
     if challenge:
         query += " AND challenge = ?"

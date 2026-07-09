@@ -13,6 +13,7 @@ import { TelemetryPanel, type AttemptScore } from '../components/studio/Telemetr
 import { AttemptHistory } from '../components/studio/AttemptHistory'
 import { AttemptDiffPanel } from '../components/studio/AttemptDiffPanel'
 import { api, downloadUrl, wsUrl } from '../api/client'
+import { RunRelaunchActions } from '../components/shared/RunRelaunchActions'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import type {
   AttemptDiff,
@@ -519,6 +520,7 @@ export function StudioScreen() {
     : runStatus === 'connecting'
       ? 'connecting'
       : 'online'
+  const activeRunId = runId ?? trace?.run_id ?? null
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -573,8 +575,11 @@ export function StudioScreen() {
             </span>
           )
         })()}
-        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-2)' }}>
-          run: {runId ?? trace?.run_id ?? '—'}
+        <span style={{ marginLeft: 'auto' }}>
+          <RunRelaunchActions runId={activeRunId} compact disabled={!activeRunId} />
+        </span>
+        <span style={{ fontSize: 11, color: 'var(--text-2)' }}>
+          run: {activeRunId ?? '—'}
         </span>
       </div>
 

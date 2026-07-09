@@ -17,6 +17,7 @@ from agentarium.core.schemas.setup import (
     LaunchConfig,
 )
 from agentarium.services.preset_service import get_scenario_preset
+from agentarium.services.run_service import record_launch_config
 
 # Delay between streamed tool_call events so the UI sees them arrive one at a
 # time. Tests set this to 0.0 to keep runs fast.
@@ -139,8 +140,20 @@ class RunManager:
 
     # ── Public API ────────────────────────────────────────────────────────
 
-    async def create_run(self, config: LaunchConfig) -> str:
+    async def create_run(
+        self,
+        config: LaunchConfig,
+        provenance: dict | None = None,
+    ) -> str:
         run_id = uuid.uuid4().hex
+        record_launch_config(
+            run_id,
+            config,
+            {
+                "kind": "launch",
+                **(provenance or {}),
+            },
+        )
         state = _RunState()
         self._runs[run_id] = state
         self._evict_finished_runs()
@@ -307,7 +320,11 @@ class RunManager:
             )
 
             result = await run_agent_attempt(
-                config, agent, attempt_index=attempt_index, previous=previous
+                config,
+                agent,
+                attempt_index=attempt_index,
+                previous=previous,
+                parent_run_id=run_id,
             )
             previous = result
 
@@ -499,7 +516,9 @@ class RunManager:
             )
 
             result = await run_cooperative_attempt(
-                config, attempt_index=attempt_index
+                config,
+                attempt_index=attempt_index,
+                parent_run_id=run_id,
             )
 
             # Stream each tool call attributed to its own author.

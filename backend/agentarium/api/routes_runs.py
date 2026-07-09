@@ -1,22 +1,28 @@
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from agentarium.core.schemas.design import DesignSpec
 from agentarium.core.schemas.score import ScoreCard
-from agentarium.core.schemas.setup import WorldConfig
+from agentarium.core.schemas.setup import LaunchConfig, LaunchState, WorldConfig
 from agentarium.core.schemas.toolcall import BuildStepRecord
 from agentarium.core.schemas.trace import EpisodeTrace
+from agentarium.services.orchestrator import run_manager
 from agentarium.services.run_service import (
     create_run_from_design,
     get_build_snapshots,
+    get_launch_config,
+    get_launch_provenance,
     get_score,
     get_trace,
     hardcoded_demo_design,
     leaderboard,
     list_runs,
 )
+from agentarium.setup.validators import validate_launch_config
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 
@@ -31,6 +37,7 @@ class RunSummary(BaseModel):
     score_total: float | None = None
     success: bool | None = None
     artifact_dir: str | None = None
+    config_available: bool = False
 
 
 class CreateRunRequest(BaseModel):
@@ -43,8 +50,36 @@ class CreateRunResponse(BaseModel):
     run_id: str
 
 
+class RunConfigResponse(BaseModel):
+    run_id: str
+    config: LaunchConfig
+    provenance: dict[str, Any] = {}
+
+
+class RelaunchRunRequest(BaseModel):
+    patch: dict[str, Any] | None = None
+
+
+class RelaunchRunResponse(BaseModel):
+    run_id: str
+    source_run_id: str
+    config: LaunchConfig
+
+
 def _default_world() -> WorldConfig:
     return WorldConfig(template="flat_ground")
+
+
+def _deep_merge(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
+    """Recursively merge mappings; lists/scalars are replaced as whole values."""
+    merged = dict(base)
+    for key, value in patch.items():
+        existing = merged.get(key)
+        if isinstance(existing, dict) and isinstance(value, dict):
+            merged[key] = _deep_merge(existing, value)
+        else:
+            merged[key] = value
+    return merged
 
 
 @router.post("", response_model=CreateRunResponse)
@@ -71,6 +106,67 @@ async def run_history(limit: int = 50) -> list[RunSummary]:
 async def run_leaderboard(challenge: str | None = None, limit: int = 10) -> list[RunSummary]:
     """Top runs by score, optionally filtered to one challenge."""
     return [_to_summary(r) for r in leaderboard(challenge, limit)]
+
+
+@router.get("/{run_id}/config", response_model=RunConfigResponse)
+async def get_run_config(run_id: str) -> RunConfigResponse:
+    config = get_launch_config(run_id)
+    if config is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Launch config not found for run: {run_id}",
+        )
+    return RunConfigResponse(
+        run_id=run_id,
+        config=config,
+        provenance=get_launch_provenance(run_id),
+    )
+
+
+@router.post("/{run_id}/relaunch", response_model=RelaunchRunResponse)
+async def relaunch_run(
+    run_id: str,
+    request: RelaunchRunRequest | None = None,
+) -> RelaunchRunResponse:
+    original = get_launch_config(run_id)
+    if original is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Launch config not found for run: {run_id}",
+        )
+
+    patch = (request.patch if request is not None else None) or {}
+    try:
+        config = LaunchConfig.model_validate(
+            _deep_merge(original.model_dump(mode="json"), patch)
+        )
+    except Exception as exc:  # noqa: BLE001 - surface invalid patch as 422
+        raise HTTPException(status_code=422, detail=f"Invalid launch patch: {exc}") from exc
+
+    result = await validate_launch_config(config)
+    if result.state != LaunchState.ready:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "state": result.state.value,
+                "missing": result.missing,
+                "warnings": result.warnings,
+            },
+        )
+
+    new_run_id = await run_manager.create_run(
+        config,
+        provenance={
+            "source": "relaunch",
+            "source_run_id": run_id,
+            "patch": patch,
+        },
+    )
+    return RelaunchRunResponse(
+        run_id=new_run_id,
+        source_run_id=run_id,
+        config=config,
+    )
 
 
 @router.get("/{run_id}/trace", response_model=EpisodeTrace)
