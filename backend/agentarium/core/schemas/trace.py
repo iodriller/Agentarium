@@ -15,6 +15,10 @@ class StaticProp(BaseModel):
     # segment) — the renderer needs this to size a segment as a thin plank
     # instead of a square built from its length alone.
     shape: str = "box"
+    # Ground-plane depth coordinate. Only meaningful for iso/`citysim` traces,
+    # where a prop's footprint sits at (position[0], z) and extrudes upward by
+    # size[1]; side-view (pymunk2d) traces leave this 0 and it is ignored.
+    z: float = 0.0
 
 
 class BodyMeta(BaseModel):
@@ -35,6 +39,8 @@ class FrameBody(BaseModel):
     x: float
     y: float
     angle: float
+    # Ground-plane depth coordinate (iso traces only); 0 for side-view traces.
+    z: float = 0.0
 
 
 class Frame(BaseModel):
@@ -44,11 +50,11 @@ class Frame(BaseModel):
 
 
 class EpisodeTrace(BaseModel):
-    version: int = 1
+    version: int = 2
     run_id: str
     attempt_id: str = "attempt_001"
     engine: str = "pymunk2d"
-    camera: str = "side"
+    camera: str = "side"  # "side" (Pymunk2D, x-right/y-up) | "iso" (citysim, x/z ground plane)
     terrain: str = "grassland"  # drives the renderer's ground/background palette
     dt: float
     # Below this world-y, a body over a ground gap is considered fallen into the

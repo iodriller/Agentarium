@@ -31,7 +31,7 @@ export type MutationStrategy = 'balanced' | 'aggressive' | 'conservative'
 
 export type LLMProvider = 'localdeploy' | 'openai_compatible' | 'mock' | 'manual'
 
-export type PhysicsEngine = 'pymunk2d' | 'pybullet3d'
+export type PhysicsEngine = 'pymunk2d' | 'pybullet3d' | 'citysim'
 
 export type Terrain = 'grassland' | 'desert' | 'factory' | 'city' | 'cave'
 
@@ -148,6 +148,12 @@ export interface LaunchConfig {
   outputs?: OutputsConfig
 }
 
+export interface RewardOption {
+  value: string
+  label: string
+  description?: string
+}
+
 export interface ScenarioPreset {
   id: string
   name: string
@@ -159,6 +165,10 @@ export interface ScenarioPreset {
   required_tools: string[]
   recommended_tools: string[]
   goal?: Record<string, number | string>
+  // Alternate scoring goals for this same challenge/world (e.g. City
+  // Builder's Boomtown/Budget/Balanced/Green goals). Empty for every
+  // challenge that has only one reward.
+  reward_options?: RewardOption[]
 }
 
 export interface WorldTemplate {
@@ -169,6 +179,10 @@ export interface WorldTemplate {
   gravity: number
   active_physics_zones: number
   description: string
+  // Which engine simulates this world (defaults to pymunk2d server-side).
+  engine?: PhysicsEngine
+  // Starting city treasury (citysim worlds only).
+  starting_budget?: number | null
 }
 
 export interface ValidationResult {
@@ -202,12 +216,16 @@ export interface StaticProp {
   // Actual geometry (box/circle/segment), independent of `kind` — a
   // beam/ramp/wall is semantically e.g. "beam" but geometrically a segment.
   shape?: string
+  // Ground-plane depth coordinate (iso/`citysim` traces only); 0 for side view.
+  z?: number
 }
 
 export interface FrameBody {
   x: number
   y: number
   angle: number
+  // Ground-plane depth coordinate (iso traces only); 0 for side-view traces.
+  z?: number
 }
 
 export interface BodyMeta {

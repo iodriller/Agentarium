@@ -52,11 +52,28 @@ _TOOLS: list[ToolDefinition] = [
                     "maxItems": 2,
                     "description": "Centre [x, y] position; a body sits on the ground when y = height/2",
                 },
+                "z": {
+                    "type": "number",
+                    "description": (
+                        "Ground-plane depth coordinate — ONLY for the citysim (isometric "
+                        "city) engine, where a structure's footprint sits at [x, z]. Ignored "
+                        "by physics worlds."
+                    ),
+                },
+                "depth": {
+                    "type": "number",
+                    "minimum": 0.01,
+                    "description": (
+                        "Footprint depth along the z-axis (citysim only). Defaults to a "
+                        "square footprint (same as width) when omitted."
+                    ),
+                },
                 "kind": {
                     "type": "string",
                     "description": (
                         "Semantic label so it renders as a recognizable prop: "
-                        "house/tower/road/tree/wall/crate/water/etc."
+                        "house/apartment/tower/shop/factory/school/hospital/power_plant/"
+                        "road/tree/park/plaza/fountain/wall/crate/water/etc."
                     ),
                 },
                 "color": {

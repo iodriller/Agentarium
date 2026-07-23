@@ -36,6 +36,14 @@ class BodySpec(BaseModel):
     # goal/finish marker, which announces "reached here" and must not itself be
     # a solid obstacle standing in the way of whatever is meant to reach it.
     sensor: bool = False
+    # Ground-plane depth coordinate. Only meaningful for the layout-based
+    # `citysim` engine, where a structure's footprint sits at (position[0], z)
+    # and extrudes upward by size[1] (height); pymunk2d ignores this and uses
+    # position as [x, y_height] instead.
+    z: float = 0.0
+    # Footprint depth (z-axis) for `citysim` structures. None means a square
+    # footprint (same as the x-axis width, size[0]). Unused by pymunk2d.
+    depth: float | None = None
 
 
 class JointType(StrEnum):

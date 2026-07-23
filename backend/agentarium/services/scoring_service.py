@@ -303,6 +303,64 @@ def compute_metrics(trace: EpisodeTrace, design: DesignSpec) -> dict[str, float]
     return metrics
 
 
+def _final_city_tick(trace: EpisodeTrace) -> dict:
+    """The last `city_tick` event on the trace (CityEngine's economy summary)."""
+    for frame in reversed(trace.frames):
+        for event in reversed(frame.events):
+            if event.get("type") == "city_tick":
+                return event
+    return {}
+
+
+def compute_city_metrics(trace: EpisodeTrace, design: DesignSpec) -> dict[str, float]:
+    """Derive metrics for a `citysim` trace: zoning, connectivity, and the
+    final tick's economy summary (population/budget/pollution/happiness).
+
+    Unlike `compute_metrics` (rigid-body distance/stability/falls), a city has
+    no physics outcome to read off frames — CityEngine already computed the
+    economy tick-by-tick, so this only reads its final summary and derives
+    zoning/connectivity/overlap from the design, per invariant #4 (scoring
+    derives from the trace, never re-simulates the engine).
+    """
+    # Local import: only city-scored runs need the citysim layout helpers.
+    from agentarium.engines.citysim import layout
+
+    agent_bodies = _agent_bodies(design)
+    roads = [b for b in agent_bodies if layout.zone_of(b.kind) == "road"]
+    residential = [b for b in agent_bodies if layout.zone_of(b.kind) == "residential"]
+    commercial = [b for b in agent_bodies if layout.zone_of(b.kind) == "commercial"]
+    industrial = [b for b in agent_bodies if layout.zone_of(b.kind) == "industrial"]
+    civic = [b for b in agent_bodies if layout.zone_of(b.kind) == "civic"]
+    green = [b for b in agent_bodies if layout.zone_of(b.kind) == "green"]
+    zoned = residential + commercial + industrial
+
+    connected = sum(1 for b in zoned if layout.is_connected(b, roads))
+    connectivity_fraction = connected / len(zoned) if zoned else 0.0
+
+    overlap_total = 0.0
+    for i in range(len(zoned)):
+        for j in range(i + 1, len(zoned)):
+            overlap_total += layout.footprint_overlap_2d(zoned[i], zoned[j])
+
+    tick = _final_city_tick(trace)
+    return {
+        "population": float(tick.get("population", 0.0)),
+        "budget": float(tick.get("budget", 0.0)),
+        "happiness": float(tick.get("happiness", 0.0)),
+        "pollution": float(tick.get("pollution", 0.0)),
+        "residential_count": float(len(residential)),
+        "commercial_count": float(len(commercial)),
+        "industrial_count": float(len(industrial)),
+        "civic_count": float(len(civic)),
+        "green_count": float(len(green)),
+        "road_count": float(len(roads)),
+        "zoned_count": float(len(zoned)),
+        "connectivity_fraction": connectivity_fraction,
+        "overlap_total": overlap_total,
+        "parts_used": float(len(agent_bodies)),
+    }
+
+
 # --- reward functions ----------------------------------------------------------
 # Each maps a metrics dict to (score_total, success, summary).
 def _reward_distance_plus_stability(m: dict[str, float]) -> tuple[float, bool, str]:
@@ -449,6 +507,87 @@ def _reward_city_score(m: dict[str, float]) -> tuple[float, bool, str]:
     return score, success, summary
 
 
+def _zone_balance(m: dict[str, float]) -> float:
+    """1.0 = perfectly even residential/commercial/industrial split, 0.0 = all one zone."""
+    zoned = m.get("residential_count", 0.0) + m.get("commercial_count", 0.0) + m.get(
+        "industrial_count", 0.0
+    )
+    if zoned <= 0.0:
+        return 0.0
+    shares = [
+        m.get("residential_count", 0.0) / zoned,
+        m.get("commercial_count", 0.0) / zoned,
+        m.get("industrial_count", 0.0) / zoned,
+    ]
+    return max(0.0, 1.0 - (max(shares) - 1.0 / 3.0))
+
+
+def _reward_city_planning(m: dict[str, float]) -> tuple[float, bool, str]:
+    """Grid City: population + road connectivity + green space − overlap.
+
+    The flagship isometric-city reward — rewards a REAL zoned layout (grown
+    population, connected to roads) over a pile of disconnected buildings.
+    """
+    population = m.get("population", 0.0)
+    connectivity = m.get("connectivity_fraction", 0.0)
+    green = m.get("green_count", 0.0)
+    zoned = m.get("zoned_count", 0.0)
+    overlap = m.get("overlap_total", 0.0)
+    score = population * 2.0 + connectivity * 40.0 + min(green, 6.0) * 5.0 - overlap * 8.0
+    success = population >= 20.0 and connectivity >= 0.6 and zoned >= 4
+    summary = (
+        f"Population {population:.0f}, {connectivity:.0%} connected to roads, "
+        f"{int(green)} green space(s)."
+    )
+    return score, success, summary
+
+
+def _reward_boomtown(m: dict[str, float]) -> tuple[float, bool, str]:
+    """Boomtown: maximize population growth — connectivity is what feeds it."""
+    population = m.get("population", 0.0)
+    connectivity = m.get("connectivity_fraction", 0.0)
+    score = population * 5.0 + connectivity * 20.0
+    success = population >= 40.0
+    summary = f"Boomtown: population {population:.0f} ({connectivity:.0%} connected)."
+    return score, success, summary
+
+
+def _reward_budget_city(m: dict[str, float]) -> tuple[float, bool, str]:
+    """Budget City: grow the treasury while still building a real zoned city."""
+    budget = m.get("budget", 0.0)
+    zoned = m.get("zoned_count", 0.0)
+    score = budget * 0.1 + zoned * 3.0
+    success = budget >= 1500.0 and zoned >= 4
+    summary = f"Budget {budget:.0f} with {int(zoned)} zoned structures."
+    return score, success, summary
+
+
+def _reward_balanced_city(m: dict[str, float]) -> tuple[float, bool, str]:
+    """Balanced City: even residential/commercial/industrial mix + happiness."""
+    balance = _zone_balance(m)
+    happiness = m.get("happiness", 0.0)
+    green = m.get("green_count", 0.0)
+    zoned = m.get("zoned_count", 0.0)
+    score = balance * 50.0 + happiness * 30.0 + min(green, 4.0) * 5.0
+    success = balance >= 0.7 and happiness >= 0.6 and zoned >= 6
+    summary = f"Zone balance {balance:.0%}, happiness {happiness:.0%}."
+    return score, success, summary
+
+
+def _reward_green_capital(m: dict[str, float]) -> tuple[float, bool, str]:
+    """Green Capital: grow population while keeping pollution low."""
+    pollution = m.get("pollution", 0.0)
+    population = m.get("population", 0.0)
+    green = m.get("green_count", 0.0)
+    score = population * 2.0 + green * 8.0 - pollution * 3.0
+    success = pollution <= 5.0 and population >= 15.0
+    summary = (
+        f"Population {population:.0f}, pollution {pollution:.1f}, "
+        f"{int(green)} green space(s)."
+    )
+    return score, success, summary
+
+
 def _reward_default(m: dict[str, float]) -> tuple[float, bool, str]:
     distance = m.get("distance_m", 0.0)
     score = distance * 10.0
@@ -463,8 +602,20 @@ REWARDS: dict[str, Callable[[dict[str, float]], tuple[float, bool, str]]] = {
     "crawl_locomotion": _reward_crawl_locomotion,
     "sorting_accuracy": _reward_sorting_accuracy,
     "city_score": _reward_city_score,
+    "city_planning": _reward_city_planning,
+    "boomtown": _reward_boomtown,
+    "budget_city": _reward_budget_city,
+    "balanced_city": _reward_balanced_city,
+    "green_capital": _reward_green_capital,
     "default": _reward_default,
 }
+
+# Rewards scored from a `citysim` (layout/economy) trace rather than a
+# physics trace — compute_city_metrics reads zoning/connectivity + the
+# final economy tick instead of distance/stability/falls.
+_CITY_REWARDS = frozenset(
+    {"city_planning", "boomtown", "budget_city", "balanced_city", "green_capital"}
+)
 
 
 # Reference distance below which a stable design is considered "short" for the
@@ -472,8 +623,23 @@ REWARDS: dict[str, Callable[[dict[str, float]], tuple[float, bool, str]]] = {
 _SHORT_DISTANCE_TARGET = 3.0
 
 
+def _city_improvement_hint(metrics: dict[str, float]) -> str:
+    """Improvement hint for a citysim (`population` present) metrics dict."""
+    if metrics.get("parts_used", 0.0) == 0:
+        return "Design was empty — place buildings before simulating."
+    if metrics.get("zoned_count", 0.0) == 0:
+        return "No zoned structures (house/shop/factory/…) — nothing to grow."
+    if metrics.get("connectivity_fraction", 0.0) < 0.5:
+        return "Most structures aren't near a road — add roads or move buildings closer."
+    if metrics.get("overlap_total", 0.0) > 0:
+        return "Buildings overlap — space structures further apart."
+    return "Solid city — iterate on zoning mix and green space."
+
+
 def _improvement_hint(metrics: dict[str, float]) -> str:
     """Short, deterministic "why it failed / how to improve" derived from metrics."""
+    if "population" in metrics:
+        return _city_improvement_hint(metrics)
     parts = metrics.get("parts_used", 0.0)
     falls = metrics.get("falls", 0.0)
     distance = metrics.get("distance_m", 0.0)
@@ -517,9 +683,13 @@ def score_attempt(
             improvement_hint=_improvement_hint(no_trace_metrics),
         )
 
-    metrics = compute_metrics(trace, design)
-
     reward_name = reward if reward in REWARDS else "default"
+    metrics = (
+        compute_city_metrics(trace, design)
+        if reward_name in _CITY_REWARDS
+        else compute_metrics(trace, design)
+    )
+
     reward_fn = REWARDS[reward_name]
     score_total, success, summary = reward_fn(metrics)
 

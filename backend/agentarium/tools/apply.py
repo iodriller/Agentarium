@@ -185,6 +185,8 @@ def _mutate(design: DesignSpec, agent_id: str, tool: str, args: dict) -> bool:
                 color=args.get("color"),
                 kind=args.get("kind"),
                 created_by=agent_id,
+                z=float(args.get("z", 0.0)),
+                depth=(float(args["depth"]) if "depth" in args else None),
             )
         )
         return True

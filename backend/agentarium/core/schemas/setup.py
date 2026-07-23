@@ -55,6 +55,9 @@ class LLMProvider(StrEnum):
 class PhysicsEngine(StrEnum):
     pymunk2d = "pymunk2d"
     pybullet3d = "pybullet3d"
+    # Layout + economy simulation (no rigid-body physics) for isometric city
+    # building — zoning/roads/population/budget over discrete ticks.
+    citysim = "citysim"
 
 
 class Terrain(StrEnum):

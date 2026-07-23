@@ -1,6 +1,18 @@
 import Phaser from 'phaser'
 import type { BodyMeta, EpisodeTrace, StaticProp } from '../api/types'
-import { colorForBody as kindColor, drawProp, isSemanticKind, sizePx } from './props'
+import {
+  computeStreetFurniture,
+  drawIsoFurniture,
+  drawIsoGroundTiles,
+  drawIsoIntersectionPatch,
+  drawIsoProp,
+  isoColorForBody,
+  isoFootprint,
+  isoProject,
+  roadOverlap,
+  seedFromId,
+} from './isoProps'
+import { colorForBody as kindColor, drawProp, isSemanticKind, shade, sizePx } from './props'
 
 // The simulation is a 2D side-view physics world (gravity pulls -y, things stack
 // and fall). We render it as a straight side view — x to the right, y up — so a
@@ -51,6 +63,14 @@ interface Bounds {
   maxY: number
 }
 
+// Ground-plane bounds for the isometric (citysim) path — (x, z) instead of (x, y).
+interface IsoBounds {
+  minX: number
+  maxX: number
+  minZ: number
+  maxZ: number
+}
+
 /**
  * TraceRenderer renders an EpisodeTrace as a 2D side view. React calls its
  * imperative methods to load a trace, render a frame, and drive the camera.
@@ -62,6 +82,7 @@ export class TraceRenderer extends Phaser.Scene {
   private ready = false
   private pendingFrame: number | null = null
 
+  private skyLayer!: Phaser.GameObjects.Graphics
   private bgLayer!: Phaser.GameObjects.Graphics
   private staticLayer!: Phaser.GameObjects.Graphics
   private gridLayer!: Phaser.GameObjects.Graphics
@@ -78,11 +99,22 @@ export class TraceRenderer extends Phaser.Scene {
   }
 
   create(): void {
+    // Added first so it always renders behind bgLayer/staticLayer/bodyLayer
+    // (insertion order = draw order). Screen-fixed (scroll factor 0) so the
+    // sky doesn't pan/zoom with the camera.
+    this.skyLayer = this.add.graphics()
+    this.skyLayer.setScrollFactor(0)
     this.bgLayer = this.add.graphics()
     this.gridLayer = this.add.graphics()
     this.staticLayer = this.add.graphics()
     this.bodyLayer = this.add.container(0, 0)
     this.ready = true
+    // Keep the iso sky backdrop sized to the viewport across a resize.
+    this.scale.on('resize', () => {
+      if (this.trace && (this.trace.camera ?? 'side') === 'iso') {
+        this.drawIsoSky(TERRAIN[this.trace.terrain ?? 'city'] ?? TERRAIN.city)
+      }
+    })
     if (this.trace) {
       this.buildWorld()
       this.renderFrame(this.pendingFrame ?? 0)
@@ -109,6 +141,10 @@ export class TraceRenderer extends Phaser.Scene {
     }
     const trace = this.trace
     if (!trace || trace.frames.length === 0) return
+    if ((trace.camera ?? 'side') === 'iso') {
+      this.renderIsoFrame(index)
+      return
+    }
     const clamped = Math.max(0, Math.min(index, trace.frames.length - 1))
     const frame = trace.frames[clamped]
     for (const [id, body] of Object.entries(frame.bodies)) {
@@ -139,6 +175,10 @@ export class TraceRenderer extends Phaser.Scene {
   }
 
   resetCamera(): void {
+    if ((this.trace?.camera ?? 'side') === 'iso') {
+      this.isoFitToWorld()
+      return
+    }
     this.fitToWorld()
   }
 
@@ -158,6 +198,12 @@ export class TraceRenderer extends Phaser.Scene {
     this.staticLayer.clear()
     this.gridLayer.clear()
     this.bgLayer.clear()
+    this.skyLayer.clear()
+
+    if ((trace.camera ?? 'side') === 'iso') {
+      this.buildIsoWorld()
+      return
+    }
 
     const bounds = this.worldBounds(trace)
     const pal = TERRAIN[trace.terrain ?? 'grassland'] ?? TERRAIN.grassland
@@ -443,5 +489,213 @@ export class TraceRenderer extends Phaser.Scene {
 
     this.bodyLayer.add(g)
     this.bodies.set(id, g)
+  }
+
+  // ── Isometric (citysim) path ──────────────────────────────────────────────
+  // A separate code path from the side-view methods above: ground-plane (x, z)
+  // instead of (x, y), painter's-algorithm depth sorting, and extruded-box
+  // props via isoProps.ts. Kept parallel rather than merged into the side-view
+  // methods so the well-exercised physics replay path is untouched.
+
+  private isoWorldBounds(trace: EpisodeTrace): IsoBounds {
+    let minX = -8
+    let maxX = 8
+    let minZ = -8
+    let maxZ = 8
+    const grow = (x: number, z: number, r = 1) => {
+      minX = Math.min(minX, x - r)
+      maxX = Math.max(maxX, x + r)
+      minZ = Math.min(minZ, z - r)
+      maxZ = Math.max(maxZ, z + r)
+    }
+    for (const p of trace.world_static ?? []) {
+      if (!p.position || p.position.length < 1) continue
+      const { w, d } = isoFootprint(p.size)
+      grow(p.position[0], p.z ?? 0, Math.max(w, d) / 2 + 0.5)
+    }
+    const first = trace.frames[0]
+    if (first) for (const b of Object.values(first.bodies)) grow(b.x, b.z ?? 0, 1)
+    return { minX, maxX, minZ, maxZ }
+  }
+
+  private isoMaxHeight(trace: EpisodeTrace): number {
+    let maxHeight = 4
+    for (const p of trace.world_static ?? []) {
+      const { h } = isoFootprint(p.size)
+      maxHeight = Math.max(maxHeight, h)
+    }
+    return maxHeight
+  }
+
+  private isoFitToWorld(bounds?: IsoBounds): void {
+    const cam = this.cameras?.main
+    const trace = this.trace
+    if (!cam || !trace) return
+    const b = bounds ?? this.isoWorldBounds(trace)
+    const maxHeight = this.isoMaxHeight(trace)
+    const corners = [
+      isoProject(b.minX, b.minZ, 0),
+      isoProject(b.maxX, b.minZ, 0),
+      isoProject(b.minX, b.maxZ, 0),
+      isoProject(b.maxX, b.maxZ, 0),
+      isoProject(b.minX, b.minZ, maxHeight),
+      isoProject(b.maxX, b.minZ, maxHeight),
+      isoProject(b.minX, b.maxZ, maxHeight),
+      isoProject(b.maxX, b.maxZ, maxHeight),
+    ]
+    const minSx = Math.min(...corners.map((p) => p.sx))
+    const maxSx = Math.max(...corners.map((p) => p.sx))
+    const minSy = Math.min(...corners.map((p) => p.sy))
+    const maxSy = Math.max(...corners.map((p) => p.sy))
+    const pad = 60
+    const worldW = Math.max(maxSx - minSx + pad * 2, 1)
+    const worldH = Math.max(maxSy - minSy + pad * 2, 1)
+    const vw = this.scale.width || 800
+    const vh = this.scale.height || 600
+    const zoom = Phaser.Math.Clamp(Math.min(vw / worldW, vh / worldH) * 0.95, 0.1, 8)
+    cam.setZoom(zoom)
+    cam.centerOn((minSx + maxSx) / 2, (minSy + maxSy) / 2)
+  }
+
+  /** Screen-fixed vertical sky gradient behind the whole iso scene. */
+  private drawIsoSky(pal: { sky: number; ground: number }): void {
+    const g = this.skyLayer
+    g.clear()
+    const w = this.scale.width || 800
+    const h = this.scale.height || 600
+    const zenith = shade(pal.sky, 0.65)
+    const horizon = shade(pal.sky, 1.7)
+    g.fillGradientStyle(zenith, zenith, horizon, horizon, 1)
+    g.fillRect(0, 0, w, h)
+  }
+
+  /** Textured ground (grass mottling + sidewalks bordering roads), plus a
+   * defining outer edge so the world reads as a bounded plot, not a void. */
+  private drawIsoGround(b: IsoBounds, pal: { ground: number; groundEdge: number }, roads: StaticProp[]): void {
+    const g = this.staticLayer
+    drawIsoGroundTiles(g, b, pal.ground, roads)
+
+    const corners = [
+      isoProject(b.minX, b.minZ, 0),
+      isoProject(b.maxX, b.minZ, 0),
+      isoProject(b.maxX, b.maxZ, 0),
+      isoProject(b.minX, b.maxZ, 0),
+    ]
+    g.lineStyle(2, pal.groundEdge, 0.6)
+    g.beginPath()
+    g.moveTo(corners[0].sx, corners[0].sy)
+    for (let i = 1; i < corners.length; i++) g.lineTo(corners[i].sx, corners[i].sy)
+    g.closePath()
+    g.strokePath()
+  }
+
+  /** Draw one static prop's extruded iso shape, translated to its ground point. */
+  private drawIsoStaticProp(prop: StaticProp): void {
+    const g = this.staticLayer
+    const { w, d, h } = isoFootprint(prop.size)
+    const color = isoColorForBody(prop.id, prop)
+    const origin = isoProject(prop.position[0] ?? 0, prop.z ?? 0, 0)
+    g.save()
+    g.translateCanvas(origin.sx, origin.sy)
+    drawIsoProp(g, prop.kind, w, d, h, color, seedFromId(prop.id))
+    g.restore()
+  }
+
+  /** Paved patches over every road-road intersection, drawn after all road
+   * props so they sit cleanly on top of both crossing segments' markings. */
+  private drawIsoIntersections(roads: StaticProp[]): void {
+    const g = this.staticLayer
+    for (let i = 0; i < roads.length; i++) {
+      for (let j = i + 1; j < roads.length; j++) {
+        const overlap = roadOverlap(roads[i], roads[j])
+        if (!overlap) continue
+        const topY = Math.max(isoFootprint(roads[i].size).h, isoFootprint(roads[j].size).h)
+        drawIsoIntersectionPatch(g, overlap.cx, overlap.cz, overlap.w, overlap.d, topY)
+      }
+    }
+  }
+
+  /** Streetlights/parked cars scattered along road edges — decorative only,
+   * derived client-side from the trace's own roads/buildings (never sent to
+   * or from the backend), same spirit as the side view's parallax skyline. */
+  private drawIsoStreetFurniture(roads: StaticProp[], buildings: StaticProp[]): void {
+    const g = this.staticLayer
+    const items = computeStreetFurniture(roads, buildings)
+    const sorted = [...items].sort((a, b) => a.x + a.z - (b.x + b.z))
+    sorted.forEach((item, i) => {
+      const origin = isoProject(item.x, item.z, 0)
+      g.save()
+      g.translateCanvas(origin.sx, origin.sy)
+      drawIsoFurniture(g, item, i)
+      g.restore()
+    })
+  }
+
+  private buildIsoWorld(): void {
+    const trace = this.trace
+    if (!trace) return
+
+    const bounds = this.isoWorldBounds(trace)
+    const pal = TERRAIN[trace.terrain ?? 'city'] ?? TERRAIN.city
+    this.cameras.main.setBackgroundColor(pal.sky)
+    this.drawIsoSky(pal)
+
+    const allProps = (trace.world_static ?? []).filter((p) => p.position && p.position.length >= 1)
+    const roads = allProps.filter((p) => p.kind === 'road')
+    const buildings = allProps.filter((p) => p.kind !== 'road')
+
+    this.drawIsoGround(bounds, pal, roads)
+
+    // Painter's algorithm: draw back-to-front by ground-plane depth (x + z),
+    // so nearer structures correctly occlude farther ones.
+    const props = [...allProps].sort(
+      (a, b) => a.position[0] + (a.z ?? 0) - (b.position[0] + (b.z ?? 0)),
+    )
+    for (const prop of props) this.drawIsoStaticProp(prop)
+
+    this.drawIsoIntersections(roads)
+    this.drawIsoStreetFurniture(roads, buildings)
+
+    const first = trace.frames[0]
+    if (first) {
+      const ids = Object.keys(first.bodies).sort((a, b) => {
+        const ba = first.bodies[a]
+        const bb = first.bodies[b]
+        return ba.x + (ba.z ?? 0) - (bb.x + (bb.z ?? 0))
+      })
+      for (const id of ids) this.createIsoBody(id)
+    }
+
+    this.isoFitToWorld(bounds)
+  }
+
+  /** Create a dynamic iso body's graphics (unused by CityEngine today — it has
+   * no rigid-body motion — but supported for a future engine that animates
+   * ground-plane movement, e.g. cars/pedestrians). */
+  private createIsoBody(id: string): void {
+    const meta: BodyMeta | undefined = this.trace?.body_meta?.[id]
+    const g = this.add.graphics()
+    const { w, d, h } = isoFootprint(meta?.size)
+    const color = isoColorForBody(id, meta)
+    drawIsoProp(g, meta?.kind, w, d, h, color, seedFromId(id))
+    this.bodyLayer.add(g)
+    this.bodies.set(id, g)
+  }
+
+  private renderIsoFrame(index: number): void {
+    const trace = this.trace
+    if (!trace || trace.frames.length === 0) return
+    const clamped = Math.max(0, Math.min(index, trace.frames.length - 1))
+    const frame = trace.frames[clamped]
+    for (const [id, body] of Object.entries(frame.bodies)) {
+      let gfx = this.bodies.get(id)
+      if (!gfx) {
+        this.createIsoBody(id)
+        gfx = this.bodies.get(id)
+      }
+      if (!gfx) continue
+      const { sx, sy } = isoProject(body.x, body.z ?? 0, 0)
+      gfx.setPosition(sx, sy)
+    }
   }
 }

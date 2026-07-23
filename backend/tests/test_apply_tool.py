@@ -50,6 +50,47 @@ def test_create_body_width_height_static():
     assert body.static is True
 
 
+def test_create_body_z_and_depth_for_citysim():
+    # z/depth place a structure on a ground plane (x, z) for the citysim engine;
+    # pymunk2d bodies simply carry them unused (z=0.0, depth=None by default).
+    design = DesignSpec()
+    result = apply_tool_call(
+        design,
+        agent_id="a",
+        tool="create_body",
+        args={
+            "id": "shop1",
+            "shape": "box",
+            "position": [4.0, 2.0],
+            "z": 5.0,
+            "width": 2.0,
+            "height": 4.0,
+            "depth": 3.0,
+            "static": True,
+            "kind": "shop",
+        },
+        enabled_tools=["create_body"],
+    )
+    assert result.mutated is True
+    body = design.bodies[0]
+    assert body.z == 5.0
+    assert body.depth == 3.0
+
+
+def test_create_body_z_and_depth_default():
+    design = DesignSpec()
+    apply_tool_call(
+        design,
+        agent_id="a",
+        tool="create_body",
+        args={"id": "b1", "shape": "box", "static": True},
+        enabled_tools=["create_body"],
+    )
+    body = design.bodies[0]
+    assert body.z == 0.0
+    assert body.depth is None
+
+
 def test_create_body_kind_flows_through():
     # The cosmetic `kind` hint (renderer-only) must land on the BodySpec so the
     # engine/renderer can pick it up later.
