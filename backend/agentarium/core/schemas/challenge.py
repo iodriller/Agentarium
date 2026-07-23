@@ -2,6 +2,23 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
+from agentarium.core.schemas.setup import PhysicsEngine
+
+
+class RewardOption(BaseModel):
+    """One selectable scoring goal for a challenge with more than one reward.
+
+    ``ScenarioPreset.reward`` stays the ACTIVE reward (single source of truth
+    for scoring); ``reward_options`` just lets the Setup screen offer several
+    named goals over the same challenge/world instead of duplicating the whole
+    challenge per goal (e.g. one "City Builder" challenge, several city goals).
+    Empty on every challenge that has only one reward.
+    """
+
+    value: str
+    label: str
+    description: str = ""
+
 
 class ScenarioPreset(BaseModel):
     id: str
@@ -21,6 +38,9 @@ class ScenarioPreset(BaseModel):
     # mapping. This gives every challenge a concrete, non-empty world the agent
     # can reason about and reference, and guarantees something to simulate.
     scaffold: list[dict] = []
+    # Alternate scoring goals for this same challenge/world (see RewardOption).
+    # Empty for every challenge with only one reward.
+    reward_options: list[RewardOption] = []
 
 
 class WorldTemplate(BaseModel):
@@ -43,3 +63,10 @@ class WorldTemplate(BaseModel):
     # World-y below which a body in a gap is considered to have fallen into the
     # chasm (used by scoring, not physics). Only meaningful when ground_spans is set.
     kill_y: float | None = None
+    # Which engine simulates this world. Defaults to pymunk2d (physics) so every
+    # existing template is unaffected; `citysim` templates use the layout+economy
+    # engine instead (no rigid-body physics).
+    engine: PhysicsEngine = PhysicsEngine.pymunk2d
+    # Starting city budget (citysim only), seeded onto design.metadata the same
+    # way ground_spans/kill_y are — read by CityEngine's economy tick loop.
+    starting_budget: float | None = None

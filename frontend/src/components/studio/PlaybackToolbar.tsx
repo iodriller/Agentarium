@@ -7,6 +7,7 @@ interface PlaybackToolbarProps {
   frameIndex: number
   totalFrames: number
   onFullscreen?: () => void
+  cameraLabel?: string
 }
 
 export function PlaybackToolbar({
@@ -18,6 +19,7 @@ export function PlaybackToolbar({
   frameIndex,
   totalFrames,
   onFullscreen,
+  cameraLabel = 'Side View',
 }: PlaybackToolbarProps) {
   return (
     <div
@@ -42,7 +44,7 @@ export function PlaybackToolbar({
       >
         Camera
       </span>
-      <span style={{ fontSize: 12, color: 'var(--text-1)' }}>Side View</span>
+      <span style={{ fontSize: 12, color: 'var(--text-1)' }}>{cameraLabel}</span>
 
       <span
         style={{

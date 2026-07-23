@@ -50,6 +50,10 @@ const PRESET_IMAGES: Record<string, { src: string; alt: string }> = {
     src: '/presets/tiny-city-preview.png',
     alt: 'Side-view render: a small city block with houses, towers, a road, and trees',
   },
+  city_builder: {
+    src: '/presets/city-builder.png',
+    alt: 'Isometric render: houses, a tower, a shop, a road with sidewalks, and a park',
+  },
   custom: {
     src: '/presets/custom-scenario.png',
     alt: 'Side-view render: an open flat arena for freeform building',
@@ -273,8 +277,29 @@ export function ScenarioWorldColumn({ config, onConfigChange }: ScenarioWorldCol
     }
   }, [onConfigChange, presets, projectName, selectedPresetId])
 
-  // All cards: API presets + custom card
-  const allCards: ScenarioPreset[] = [...presets, CUSTOM_PRESET]
+  // Cards shown in the list: API presets minus the classic side-view city
+  // (folded into City Building as the "City View" selector below, so there
+  // aren't two confusing city cards) + the custom card.
+  const allCards: ScenarioPreset[] = [
+    ...presets.filter((p) => p.id !== 'tiny_city_preview'),
+    CUSTOM_PRESET,
+  ]
+
+  // Every preset, INCLUDING ones without their own card — needed to resolve
+  // the active selection (tiny_city_preview has no card but can still be
+  // scenario.preset) for reward_options/description lookups below.
+  const allPresets: ScenarioPreset[] = [...presets, CUSTOM_PRESET]
+  const selectedPreset = allPresets.find((p) => p.id === selectedPresetId)
+  const selectedPresetOptions = selectedPreset?.reward_options ?? []
+  const selectedRewardOptionDescription = selectedPresetOptions.find(
+    (o) => o.value === (scenario?.reward ?? selectedPresetOptions[0]?.value),
+  )?.description
+
+  // City View: the classic 2D side-view city is a SETTING within City
+  // Building, not its own card — this toggles between the two real presets.
+  const cityBuilderPreset = presets.find((p) => p.id === 'city_builder')
+  const tinyCityPreset = presets.find((p) => p.id === 'tiny_city_preview')
+  const isCityFamily = selectedPresetId === 'city_builder' || selectedPresetId === 'tiny_city_preview'
 
   // ── Apply a world template's dependent fields ──
   function worldFieldsFor(worldId: string): Partial<LaunchConfig['world']> {
@@ -286,6 +311,10 @@ export function ScenarioWorldColumn({ config, onConfigChange }: ScenarioWorldCol
       map_size: w.map_size,
       gravity: w.gravity,
       active_physics_zones: w.active_physics_zones,
+      // The template dictates its engine too (like terrain/map_size) — a
+      // citysim (isometric city) template must not silently launch on the
+      // physics engine, which is what would happen if this stayed pymunk2d.
+      engine: w.engine ?? 'pymunk2d',
     }
   }
 
@@ -306,6 +335,22 @@ export function ScenarioWorldColumn({ config, onConfigChange }: ScenarioWorldCol
       world: worldFieldsFor(preset.default_world),
       tools: { enabled },
     } as Partial<LaunchConfig>)
+  }
+
+  // ── Picking a City Goal (or any challenge with reward_options) just
+  // changes scenario.reward — same challenge, same build, different scoring.
+  function handleSelectRewardOption(reward: string) {
+    onConfigChange({
+      scenario: { preset: selectedPresetId, objective: scenario?.objective ?? '', reward },
+    } as Partial<LaunchConfig>)
+  }
+
+  // ── City View swaps the whole preset (isometric city_builder <-> classic
+  // side-view tiny_city_preview) — a different world/engine/reward, not just
+  // a reward, so it reuses handleSelectPreset rather than patching one field.
+  function handleSelectCityView(view: 'isometric' | 'classic') {
+    const target = view === 'isometric' ? cityBuilderPreset : tinyCityPreset
+    if (target) handleSelectPreset(target)
   }
 
   // ── Changing world template updates dependent fields ──
@@ -349,6 +394,67 @@ export function ScenarioWorldColumn({ config, onConfigChange }: ScenarioWorldCol
           />
         ))}
       </div>
+
+      {/* City View — the classic 2D side-view city is a setting here, not a
+          separate card. Only shown once City Building is selected either way. */}
+      {isCityFamily && cityBuilderPreset && tinyCityPreset && (
+        <div style={{ marginTop: 4, marginBottom: 4 }}>
+          <FieldRow label="City View">
+            <div style={{ display: 'flex', gap: 6 }}>
+              {(['isometric', 'classic'] as const).map((view) => {
+                const active =
+                  view === 'isometric'
+                    ? selectedPresetId === 'city_builder'
+                    : selectedPresetId === 'tiny_city_preview'
+                return (
+                  <button
+                    key={view}
+                    onClick={() => handleSelectCityView(view)}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: 6,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      border: active ? '1px solid var(--accent)' : '1px solid var(--border)',
+                      background: active ? 'var(--accent-soft)' : 'var(--surface-2)',
+                      color: active ? 'var(--accent)' : 'var(--text-2)',
+                    }}
+                  >
+                    {view === 'isometric' ? 'Isometric' : 'Classic Side View'}
+                  </button>
+                )
+              })}
+            </div>
+          </FieldRow>
+        </div>
+      )}
+
+      {/* City Goal — only shown for a challenge with alternate reward_options
+          (today: City Builder's Balanced/Boomtown/Budget/Zoned/Green goals).
+          Selecting one just changes scenario.reward; it's the same build. */}
+      {selectedPresetOptions.length > 0 && (
+        <div style={{ marginTop: 4, marginBottom: 4 }}>
+          <FieldRow label="City Goal">
+            <select
+              value={scenario?.reward ?? selectedPresetOptions[0].value}
+              onChange={(e) => handleSelectRewardOption(e.target.value)}
+              style={selectStyle()}
+            >
+              {selectedPresetOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </FieldRow>
+          {selectedRewardOptionDescription && (
+            <div style={{ fontSize: 10, color: 'var(--text-2)', marginTop: -4, marginBottom: 4 }}>
+              {selectedRewardOptionDescription}
+            </div>
+          )}
+        </div>
+      )}
 
       <Divider />
 
@@ -440,6 +546,18 @@ export function ScenarioWorldColumn({ config, onConfigChange }: ScenarioWorldCol
               }}
             >
               Coming Soon
+            </span>
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+            <input
+              type="radio"
+              name="physics-engine"
+              checked={world?.engine === 'citysim'}
+              onChange={() => handleWorldField({ engine: 'citysim' as PhysicsEngine })}
+              style={{ accentColor: 'var(--accent)', cursor: 'pointer' }}
+            />
+            <span style={{ fontSize: 11, color: 'var(--text-1)' }}>
+              City Sim (Isometric layout, no physics)
             </span>
           </label>
         </div>

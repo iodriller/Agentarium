@@ -1,0 +1,46 @@
+id: city_builder
+name: City Builder
+tagline: Plan a living isometric city — roads, zoning, and growth.
+tags:
+  - Economy
+  - Planning
+  - Isometric
+objective: >-
+  Build a zoned isometric city on the ground plane (x, z). Place create_body
+  structures with a `kind`: house/apartment/tower (residential), shop
+  (commercial), factory/power_plant (industrial), school/hospital (civic),
+  park/plaza/tree (green), and road (infrastructure, wide and flat, e.g.
+  width 20, height 0.2, depth 3). Use the `z` arg to vary depth, not just x —
+  a real grid, not a single row. Every zoned (non-road, non-green) structure
+  needs a road within about 3 meters for its connectivity and population to
+  grow. Aim for at least 6 zoned structures, mostly road-connected, plus at
+  least one green space.
+reward: city_planning
+default_world: city_grid
+required_tools:
+  - create_body
+  - run_simulation
+recommended_tools: []
+goal:
+  population_target: 20.0
+  min_connectivity: 0.6
+# The City Goal selector: one city challenge, several scoreable objectives.
+# The Setup screen renders these as a dropdown that sets scenario.reward; the
+# reward functions themselves are the variation (see scoring_service).
+reward_options:
+  - value: city_planning
+    label: Balanced Planning
+    description: Population + road connectivity + green space, penalizing overlap.
+  - value: boomtown
+    label: Boomtown
+    description: Maximize population growth — connectivity is what feeds it.
+  - value: budget_city
+    label: Budget City
+    description: Grow the treasury while still zoning a real mix of structures.
+  - value: balanced_city
+    label: Balanced Zoning
+    description: Even residential/commercial/industrial split, plus happiness.
+  - value: green_capital
+    label: Green Capital
+    description: Grow a population while keeping pollution low.
+scaffold: []

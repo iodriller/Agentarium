@@ -35,6 +35,13 @@ from agentarium.tools.registry import get_tool
 _RUNS_DIR = pathlib.Path("runs")
 _DEFAULT_PROJECT_NAMES = {"", "Agentarium Run", "Bridge Builder Lab"}
 
+# Rewards scored from an all-static design (a city needs no movable body to
+# "work") — the system prompt's "at least one MOVABLE body or score zero"
+# rule would otherwise fight these challenges.
+_STATIC_OK_REWARDS = frozenset(
+    {"city_score", "city_planning", "boomtown", "budget_city", "balanced_city", "green_capital"}
+)
+
 
 def _project_name(config: LaunchConfig, preset: ScenarioPreset | None = None) -> str:
     """Human run name, correcting stale default setup names when possible."""
@@ -92,6 +99,16 @@ def _seed_world(design: DesignSpec, config: LaunchConfig) -> None:
         design.metadata["ground_spans"] = template.ground_spans
     if template.kill_y is not None:
         design.metadata["kill_y"] = template.kill_y
+    # Starting city treasury (citysim only), read by CityEngine's economy tick
+    # loop the same way ground_spans/kill_y are read by the physics builder.
+    if template.starting_budget is not None:
+        design.metadata["starting_budget"] = template.starting_budget
+    # The template is authoritative for which engine simulates it, same as
+    # terrain/map_size/gravity — guards a stale/hand-built LaunchConfig (whose
+    # world.engine still defaults to pymunk2d) from running a citysim template
+    # through the physics engine. A no-op for every existing template, whose
+    # WorldTemplate.engine also defaults to pymunk2d.
+    config.world.engine = template.engine
 
 
 def _seed_scaffold(design: DesignSpec, preset: ScenarioPreset | None) -> None:
@@ -117,12 +134,25 @@ def _world_context(config: LaunchConfig, preset: ScenarioPreset | None, design: 
     half_x = int(w.map_size[0] // 2) if w.map_size else 16
     max_y = int(w.map_size[1]) if w.map_size and len(w.map_size) > 1 else 16
     max_y = max(10, max_y)
-    lines = [
-        f"{w.terrain.value} terrain, engine {w.engine.value}, gravity {w.gravity} m/s^2.",
-        "Coordinates are in METERS, not pixels. The ground is a flat solid floor at "
-        f"y=0 and up is +y. Keep parts within x in [-{half_x}, {half_x}] and y in "
-        f"[0, {max_y}].",
-    ]
+    if w.engine.value == "citysim":
+        lines = [
+            f"{w.terrain.value} terrain, engine citysim (isometric city — NOT physics: "
+            "structures don't fall over, they get zoned and connected to roads).",
+            "Coordinates are in METERS on a GROUND PLANE: x is create_body's `position[0]`, "
+            f"z is the separate `z` arg (depth). Keep both within [-{half_x}, {half_x}]. "
+            "`height` (size[1]) is how tall a structure is, not a y-position.",
+            "Zoning: kind house/apartment/tower = residential; shop = commercial; "
+            "factory/power_plant = industrial; school/hospital = civic; "
+            "park/plaza/tree/water = green; road = infrastructure. Every zoned "
+            "(non-road, non-green) structure needs a road within ~3m to grow population.",
+        ]
+    else:
+        lines = [
+            f"{w.terrain.value} terrain, engine {w.engine.value}, gravity {w.gravity} m/s^2.",
+            "Coordinates are in METERS, not pixels. The ground is a flat solid floor at "
+            f"y=0 and up is +y. Keep parts within x in [-{half_x}, {half_x}] and y in "
+            f"[0, {max_y}].",
+        ]
     if design.bodies:
         objs = "; ".join(
             f"{b.id} ({'fixed' if b.static else 'movable'} {b.shape.value}) at "
@@ -462,7 +492,7 @@ async def run_agent_attempt(
         objective,
         world_summary,
         enabled_defs,
-        movable_body_required=preset is None or preset.reward != "city_score",
+        movable_body_required=preset is None or preset.reward not in _STATIC_OK_REWARDS,
     )
     memory = (
         _build_memory(previous)
@@ -649,7 +679,7 @@ async def run_cooperative_attempt(
         objective,
         world_summary,
         enabled_defs,
-        movable_body_required=preset is None or preset.reward != "city_score",
+        movable_body_required=preset is None or preset.reward not in _STATIC_OK_REWARDS,
     )
 
     records: list[ToolCallRecord] = []

@@ -8,6 +8,66 @@ Status legend: 🟢 **Done** · 🟡 **Planned** · 🔵 **Needs a product call*
 
 ---
 
+## 0. Isometric city building: `citysim` engine (2026-07-22)
+
+User ask: make city building look like an actual isometric city, with more
+depth/goals, without the heavier PyBullet/Three.js bet (§1). Root cause of "it
+doesn't look like a city" was architectural, not content: `TraceRenderer` is a
+straight side view (x-right/y-up, no depth axis), and `city_score` scored a
+spacing/spread proxy over rigid-body physics a city doesn't actually need.
+
+**Direction taken:** add a depth axis to the trace contract, an isometric
+projection path in the renderer, and a new **`CityEngine`** behind the existing
+`EngineAdapter` seam — a layout + economy simulation (zoning, roads,
+population, budget, pollution/happiness over discrete ticks), not rigid-body
+physics. Additive only: `pymunk2d` and the existing 4 challenges (including the
+original side-view `tiny_city_preview`) are completely untouched.
+
+| Area | What shipped |
+|------|--------------|
+| Trace/design schema | `FrameBody.z`, `StaticProp.z` (ground-plane depth; 0 for side-view traces, backward compatible). `BodySpec.z` / `BodySpec.depth` (footprint depth), meaningful only to `citysim`. `EpisodeTrace.version` → 2. `PhysicsEngine.citysim`. `WorldTemplate.engine` / `WorldTemplate.starting_budget`. |
+| Engine | `engines/citysim/` — `CityEngine` (no rigid-body motion; every body becomes a static iso prop) + `layout.py` (pure zoning/connectivity/footprint helpers, shared with scoring so the two never disagree). Registered in `engines/get_engine`. |
+| Tools | `create_body` gained optional `z`/`depth` args (no new tool — reusing `create_body` + `kind` was simpler than the originally-sketched `place_zone`/`place_road`/`place_service` tools, which would have just duplicated it). |
+| Scoring | `compute_city_metrics` (zoning/connectivity/overlap from the design + the final `city_tick` event from the trace, per the "scoring derives from the trace" invariant). Five new rewards: `city_planning`, `boomtown`, `budget_city`, `balanced_city`, `green_capital`. |
+| Runner | `_seed_world` seeds `starting_budget` from the template (same pattern as `ground_spans`/`kill_y`) and now makes the **template authoritative for `world.engine`** — a no-op for every pre-existing template (default `pymunk2d`), but guards a stale/hand-built `LaunchConfig` from running a citysim template through the physics engine. `_world_context` gives the agent a citysim-specific world description (ground-plane x/z, zoning vocabulary) instead of the physics one. |
+| Mock provider | New tailored city-builder build (`_CITY_BUILDER_TOOL_CALLS`) varying both x **and** z with a real zone/road mix — routed before the old single-row city check so the two city families don't collide. |
+| Content | New world template `city_grid` (engine `citysim`) + **one** challenge, `city_builder`. Scaffold-free (agent builds roads and zoning itself) to avoid ambiguity between world-seeded and agent-built roads for connectivity scoring. |
+| Renderer | `frontend/src/phaser/isoProps.ts` (new): 2:1 dimetric projection, 3-face extruded-box drawer + per-kind toppers (pitched roof/windows/awning/chimney/cross/road markings/tree canopy/fountain), painter's-algorithm depth sort. `TraceRenderer.ts` branches on `trace.camera === 'iso'` into a parallel set of methods (`buildIsoWorld`/`renderIsoFrame`/`isoFitToWorld`/…) — the side-view path is untouched. Setup screen's world-template selection now also carries `engine` (like terrain/map_size/gravity), and shows a real (non-"coming soon") City Sim radio option. |
+| Tests | `backend/tests/test_citysim.py` (layout helpers, engine ticks/connectivity/budget, scoring, all 5 rewards, preset/template loading, end-to-end mock run through the real API validation path) + `create_body` z/depth tests in `test_apply_tool.py`. |
+
+### Follow-up pass (same day): one challenge + a real visual overhaul
+
+User feedback after the first cut: 5 separate city challenges should be **one** challenge with the goals as a setting, and the render still "doesn't look great" — flat boxes, no roads reading as a network, no ground texture.
+
+**Consolidation.** Deleted `grid_city`/`boomtown`/`budget_city`/`balanced_city`/`green_capital` as separate presets; one `city_builder` challenge remains. `ScenarioPreset.reward_options: list[RewardOption]` (`{value, label, description}`) lets a challenge offer alternate scoring goals over the *same* build — `city_builder` lists all 5 rewards. The Setup screen renders a **City Goal** dropdown (only shown when a preset has `reward_options`) that just sets `scenario.reward`; nothing about the build changes. `test_presets.py`/`test_citysim.py` updated (9 presets → 5; new `test_city_builder_reward_option_selects_a_different_scoring_goal` proves the same build scores differently under a different goal).
+
+**Visual overhaul**, verified with real Playwright screenshots against a live mock run (not just "it compiles") — this caught two real bugs a code read alone wouldn't have:
+- **Consistent lighting + shadows.** One light direction across every extrusion (top/right/front face shade constants, pushed to a punchier `1.0/0.66/0.4` split — a subtle split reads as flat gray at typical zoom). Every structure/tree casts a soft offset ground shadow.
+- **Sky gradient.** A screen-fixed vertical gradient (`skyLayer`, scroll-factor 0, redraws on resize) instead of a flat camera clear color.
+- **Tiled ground + sidewalks.** `drawIsoGroundTiles` mottles the grass fill per-tile (deterministic pseudo-random shade + occasional tufts) and draws a lighter sidewalk strip bordering every road footprint — previously roads had nothing framing them.
+- **Road network detail.** Solid edge lines added alongside the existing dashed centerline; `roadOverlap` + `drawIsoIntersectionPatch` paint a clean paved patch wherever two road props cross, instead of two dash patterns overlapping messily.
+- **Richer facades.** Shop's awning was rebuilt as bold alternating red/white stripes + a bright storefront-glass band (the original plain near-white sliver was nearly invisible against the wall color); windows gained lit/unlit variety seeded from the body id (`seedFromId`) so a row of towers isn't identical clones.
+- **Street furniture.** `computeStreetFurniture` scatters streetlights/parked cars along road edges client-side (derived from the trace's own roads/buildings, never sent to/from the backend — same spirit as the side view's parallax skyline), depth-sorted with everything else.
+- **Two real bugs found via screenshot, not code review:** the hospital's cross was drawn at a hardcoded `z=0.02` instead of the building's actual front-face depth (rendered as a stray sliver at the wrong position); the tree canopy's ellipse radius was passed in **metres** to a Phaser call expecting **pixels** (a sub-pixel, invisible canopy). Both fixed and re-verified with another screenshot.
+- Fixed the Studio's `PlaybackToolbar` camera label, which hardcoded "Side View" even for iso traces (`StudioScreen` now passes `cameraLabel` from `trace.camera`).
+
+### Third pass (same day): fold the classic 2D city into City Builder as a setting
+
+User feedback: the original side-view `tiny_city_preview` challenge was still showing as its **own card**, next to the new isometric `city_builder` — two confusing "city" cards. Rather than merging them on the backend (which would have touched ~10 test files, golden designs, and preview-image conventions across `test_visual_playwright.py`/`goldens.py`/`test_challenge_pack.py`/etc. for a preset that already works correctly), this was a **frontend-only** fix: `tiny_city_preview` stays a real, fully-independent backend preset (untouched — same world, reward, scoring, tests), but `ScenarioWorldColumn` no longer renders it as its own card. Selecting **City Builder** now shows a **City View** toggle (Isometric / Classic Side View); toggling calls the same `handleSelectPreset` used by the card list, swapping the whole world/engine/reward bundle. The City Goal dropdown (reward_options) naturally hides itself under Classic Side View, since `tiny_city_preview` has none. Also generated a real in-engine preview screenshot for the City Builder card (`frontend/public/presets/city-builder.png`, replacing the generic custom-scenario fallback it had no image for) using the same Playwright-screenshot convention as every other preset card.
+
+### Noted, not built (documented simplifications)
+
+| Item | Why |
+|------|-----|
+| Connectivity is "within ~3-4m of a road's footprint," not real road-graph pathfinding. | A proxy, same spirit as the existing spacing/overlap proxies elsewhere in scoring — good enough for "is this near a street," cheap, deterministic. |
+| No per-tile zoning grid — structures place freely, classified by `kind` alone. | Keeps the tool surface identical to every other challenge (`create_body` + `kind`); a real grid/parcel system is a bigger follow-up if wanted. |
+| CityEngine has no rigid-body motion at all (every body is a static prop, even ones the agent marks non-static). | A city's structures don't fall over — deliberate, not a gap — but it does mean a hypothetical "car" or "pedestrian" kind has no real movement yet; `FrameBody.z`/`renderIsoFrame` support animated iso bodies in principle, just nothing produces them today. |
+| `active_physics_zones` on the `city_grid` template is `0` (no physics zones, since there's no physics). | Gives that previously-unused field real meaning for once — see `remaining_gaps.md`'s note that it was otherwise decorative. |
+| The original `tiny_city_preview` / `city_score` (side-view, pymunk2d) is unchanged and still a spacing/spread proxy (`L1` in `remaining_gaps.md`). | Out of scope for this pass — it's a different, already-shipped product surface; the new isometric family is additive, not a replacement. |
+| No automated visual regression test for the iso renderer (the fixes this pass relied on ad hoc Playwright screenshots, not a committed test). | Worth adding as a `test_visual_playwright.py`-style golden screenshot once the visual language settles further — flagged rather than silently skipped. |
+
+---
+
 ## 1. PyBullet 3D engine (the big one)
 
 **Goal:** add a second physics engine behind the existing `EngineAdapter`

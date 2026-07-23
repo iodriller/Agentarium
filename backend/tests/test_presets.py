@@ -20,9 +20,28 @@ def test_list_presets():
     r = client.get("/api/presets")
     assert r.status_code == 200
     body = r.json()
-    assert len(body) == 4
+    assert len(body) == 5
     ids = {p["id"] for p in body}
-    assert ids == {"bridge_builder", "crawl_challenge", "sorter", "tiny_city_preview"}
+    assert ids == {
+        "bridge_builder",
+        "crawl_challenge",
+        "sorter",
+        "tiny_city_preview",
+        "city_builder",
+    }
+
+
+def test_city_builder_preset_has_reward_options():
+    # One isometric city challenge; its 5 scoring goals are a selectable
+    # setting (reward_options), not 5 separate presets.
+    r = client.get("/api/presets/city_builder")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["reward"] == "city_planning"
+    values = {o["value"] for o in body["reward_options"]}
+    assert values == {
+        "city_planning", "boomtown", "budget_city", "balanced_city", "green_capital",
+    }
 
 
 def test_get_preset():

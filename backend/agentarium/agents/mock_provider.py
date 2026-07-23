@@ -183,6 +183,76 @@ _CITY_TOOL_CALLS = [
 ]
 
 
+# A grid layout for the isometric City Builder challenge (city_builder — its
+# reward_options select between city_planning/boomtown/budget_city/
+# balanced_city/green_capital, but they all share this one build) — unlike
+# _CITY_TOOL_CALLS (a single row along x for the pymunk2d side-view city),
+# this varies BOTH x and z so the no-LLM demo actually shows depth/zoning/road
+# connectivity in the iso renderer.
+_CITY_BUILDER_TOOL_CALLS = [
+    {"tool": "create_body", "args": {
+        "id": "main_st", "shape": "box", "kind": "road", "position": [0.0, 0.0], "z": 0.0,
+        "width": 24.0, "height": 0.2, "depth": 3.0, "static": True, "color": "#4b5563",
+    }},
+    {"tool": "create_body", "args": {
+        "id": "cross_st", "shape": "box", "position": [0.0, 0.0], "z": 0.0,
+        "width": 3.0, "height": 0.2, "depth": 20.0, "static": True, "color": "#4b5563",
+        "kind": "road",
+    }},
+    {"tool": "create_body", "args": {
+        "id": "house1", "shape": "box", "kind": "house",
+        "position": [-8.0, 1.5], "z": 5.0, "width": 2.0, "height": 3.0, "static": True,
+        "color": "#d9a066",
+    }},
+    {"tool": "create_body", "args": {
+        "id": "house2", "shape": "box", "kind": "house",
+        "position": [-4.0, 1.5], "z": 5.0, "width": 2.0, "height": 3.0, "static": True,
+        "color": "#f59e0b",
+    }},
+    {"tool": "create_body", "args": {
+        "id": "apartment1", "shape": "box", "kind": "apartment",
+        "position": [-8.0, 3.0], "z": -5.0, "width": 3.0, "height": 6.0, "static": True,
+        "color": "#c084fc",
+    }},
+    {"tool": "create_body", "args": {
+        "id": "shop1", "shape": "box", "kind": "shop",
+        "position": [4.0, 2.0], "z": 5.0, "width": 2.2, "height": 4.0, "static": True,
+        "color": "#38bdf8",
+    }},
+    {"tool": "create_body", "args": {
+        "id": "shop2", "shape": "box", "kind": "shop",
+        "position": [8.0, 2.0], "z": 5.0, "width": 2.2, "height": 4.0, "static": True,
+        "color": "#0ea5e9",
+    }},
+    {"tool": "create_body", "args": {
+        "id": "factory1", "shape": "box", "kind": "factory",
+        "position": [8.0, 2.5], "z": -6.0, "width": 3.5, "height": 5.0, "static": True,
+        "color": "#78716c",
+    }},
+    {"tool": "create_body", "args": {
+        "id": "school1", "shape": "box", "kind": "school",
+        "position": [-2.0, 2.0], "z": -5.0, "width": 3.0, "height": 4.0, "static": True,
+        "color": "#f87171",
+    }},
+    {"tool": "create_body", "args": {
+        "id": "park1", "shape": "box", "kind": "park",
+        "position": [3.0, 0.1], "z": -1.5, "width": 4.0, "height": 0.2, "depth": 4.0,
+        "static": True, "color": "#4ade80",
+    }},
+    {"tool": "create_body", "args": {
+        "id": "tree1", "shape": "box", "kind": "tree",
+        "position": [-1.0, 0.9], "z": 2.0, "width": 1.0, "height": 1.8, "static": True,
+        "color": "#22c55e",
+    }},
+    {"tool": "create_body", "args": {
+        "id": "tree2", "shape": "box", "kind": "tree",
+        "position": [1.5, 0.9], "z": 8.0, "width": 1.0, "height": 1.8, "static": True,
+        "color": "#22c55e",
+    }},
+    {"tool": "run_simulation", "args": {"duration_seconds": 30.0}},
+]
+
+
 def _objective_from_user_prompt(user: str) -> str:
     prompt = user.lower()
     marker = "achieve:"
@@ -201,6 +271,24 @@ def _calls_for_prompt(system: str, user: str) -> list[dict]:
     # Cooperative prompts also list existing body ids, so narrow this to the
     # objective phrase and ignore "agent_a_crate_1"-style context.
     prompt = _objective_from_user_prompt(user)
+    # Check the isometric citysim challenge (city_builder) BEFORE the generic
+    # "city" keyword match below — its objective (and its bare preset id, "city
+    # builder") also contains "city", so this must come first or it would
+    # wrongly route to the old pymunk2d side-view city build. The reward-name
+    # keywords (boomtown/budget_city/…) also match since a bare-objective test
+    # config falls back to config.scenario.reward-adjacent wording in practice.
+    if (
+        "zoning" in prompt
+        or "connectivity" in prompt
+        or "road-connected" in prompt
+        or "city_builder" in prompt
+        or "city builder" in prompt
+        or "boomtown" in prompt
+        or "budget_city" in prompt
+        or "balanced_city" in prompt
+        or "green_capital" in prompt
+    ):
+        return _CITY_BUILDER_TOOL_CALLS
     if "city" in prompt or "plaza" in prompt or "park" in prompt:
         return _CITY_TOOL_CALLS
     if "sorter" in prompt or "sort " in prompt or "matching bin" in prompt:

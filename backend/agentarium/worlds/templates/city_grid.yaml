@@ -1,0 +1,13 @@
+id: city_grid
+name: Isometric City Grid
+terrain: city
+map_size:
+  - 40
+  - 40
+gravity: -9.81
+active_physics_zones: 0
+engine: citysim
+starting_budget: 1200.0
+description: >-
+  An open ground plane for an isometric city — simulated by the layout/economy
+  engine (zoning, roads, population, budget over time), not rigid-body physics.

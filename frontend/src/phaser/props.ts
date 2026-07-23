@@ -83,7 +83,7 @@ export function sizePx(meta: BodyMeta | undefined, scale: number): { w: number; 
   return { w: Math.max(w, 6), h: Math.max(h, 6) }
 }
 
-function shade(color: number, factor: number): number {
+export function shade(color: number, factor: number): number {
   const r = Math.min(255, Math.round(((color >> 16) & 0xff) * factor))
   const g = Math.min(255, Math.round(((color >> 8) & 0xff) * factor))
   const b = Math.min(255, Math.round((color & 0xff) * factor))

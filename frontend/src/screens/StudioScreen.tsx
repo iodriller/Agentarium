@@ -750,6 +750,7 @@ export function StudioScreen() {
             frameIndex={frameIndex}
             totalFrames={totalFrames}
             onFullscreen={handleFullscreen}
+            cameraLabel={trace?.camera === 'iso' ? 'Isometric' : 'Side View'}
           />
 
           {/* Build Timeline toggle — shown for live and historical traces that
