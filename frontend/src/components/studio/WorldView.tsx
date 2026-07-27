@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import Phaser from 'phaser'
 import type { EpisodeTrace } from '../../api/types'
 import { TraceRenderer } from '../../phaser/TraceRenderer'
@@ -40,6 +40,7 @@ export const WorldView = forwardRef<WorldViewHandle, WorldViewProps>(function Wo
   const gameRef = useRef<Phaser.Game | null>(null)
   const sceneRef = useRef<TraceRenderer | null>(null)
   const detachControlsRef = useRef<(() => void) | null>(null)
+  const [presentationMode, setPresentationMode] = useState<'beauty' | 'engineering'>('beauty')
 
   // Create the Phaser.Game exactly once (guard against StrictMode double-mount).
   useEffect(() => {
@@ -68,6 +69,7 @@ export const WorldView = forwardRef<WorldViewHandle, WorldViewProps>(function Wo
 
       const wire = () => {
         detachControlsRef.current = attachCameraControls(scene)
+        scene.setReducedMotion(window.matchMedia('(prefers-reduced-motion: reduce)').matches)
         if (trace) scene.loadTrace(trace)
         scene.renderFrame(frameIndex)
       }
@@ -191,7 +193,39 @@ export const WorldView = forwardRef<WorldViewHandle, WorldViewProps>(function Wo
         <CamButton label="▼" title="Pan down" onClick={() => sceneRef.current?.panBy(0, 40)} />
         <CamButton label="⟳" title="Reset camera" onClick={() => sceneRef.current?.resetCamera()} />
         <CamButton label="#" title="Toggle grid" onClick={() => sceneRef.current?.toggleGrid()} />
+        <CamButton
+          label={presentationMode === 'beauty' ? '◇' : '⌁'}
+          title={
+            presentationMode === 'beauty'
+              ? 'Switch to engineering overlays'
+              : 'Switch to beauty presentation'
+          }
+          active={presentationMode === 'engineering'}
+          onClick={() => {
+            const next = sceneRef.current?.togglePresentationMode()
+            if (next) setPresentationMode(next)
+          }}
+        />
         <CamButton label="⤓" title="Screenshot (PNG)" onClick={handleScreenshot} />
+      </div>
+      <div
+        data-hide-for-capture
+        style={{
+          position: 'absolute',
+          right: 12,
+          top: 12,
+          padding: '5px 8px',
+          borderRadius: 5,
+          border: '1px solid var(--border)',
+          background: 'color-mix(in srgb, var(--surface-1) 88%, transparent)',
+          color: presentationMode === 'engineering' ? 'var(--accent)' : 'var(--text-2)',
+          fontFamily: 'monospace',
+          fontSize: 9,
+          letterSpacing: 0.7,
+          pointerEvents: 'none',
+        }}
+      >
+        {presentationMode === 'engineering' ? 'ENGINEERING OVERLAY' : 'BEAUTY VIEW'}
       </div>
     </div>
   )
@@ -201,10 +235,12 @@ function CamButton({
   label,
   title,
   onClick,
+  active = false,
 }: {
   label: string
   title: string
   onClick: () => void
+  active?: boolean
 }) {
   return (
     <button
@@ -214,9 +250,11 @@ function CamButton({
         width: 28,
         height: 28,
         borderRadius: 6,
-        border: '1px solid var(--border)',
-        background: 'var(--surface-1)',
-        color: 'var(--text-1)',
+        border: active ? '1px solid var(--accent)' : '1px solid var(--border)',
+        background: active
+          ? 'color-mix(in srgb, var(--accent) 16%, var(--surface-1))'
+          : 'var(--surface-1)',
+        color: active ? 'var(--accent)' : 'var(--text-1)',
         fontSize: 13,
         lineHeight: 1,
         cursor: 'pointer',

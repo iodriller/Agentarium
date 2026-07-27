@@ -207,6 +207,17 @@ export interface WorkspaceConfigStatus {
 
 // ─── Episode trace (mirrors backend/agentarium/core/schemas/trace.py) ──────────
 
+export interface VisualSpec {
+  variant?: string | null
+  material?: string | null
+  condition?: string
+  theme?: string | null
+  seed?: number
+  emission?: number
+  label?: string | null
+  animation_state?: string | null
+}
+
 export interface StaticProp {
   id: string
   kind: string // "ground" | "goal" | "prop" | body shape
@@ -219,6 +230,8 @@ export interface StaticProp {
   shape?: string
   // Ground-plane depth coordinate (iso/`citysim` traces only); 0 for side view.
   z?: number
+  created_by?: string | null
+  visual?: VisualSpec
 }
 
 export interface FrameBody {
@@ -234,12 +247,38 @@ export interface BodyMeta {
   size?: number[]
   color?: string | null
   kind?: string | null // semantic label (house/tower/tree/road/…)
+  created_by?: string | null
+  visual?: VisualSpec
 }
+
+export interface JointMeta {
+  id: string
+  body_a: string
+  body_b: string
+  type: 'pivot' | 'pin' | 'slide' | 'spring' | string
+  anchor_a: number[]
+  anchor_b: number[]
+  motor_rate?: number | null
+  motor_max_force?: number
+  created_by?: string | null
+}
+
+export type TraceVisualEvent =
+  | { type: 'body_created'; body_id: string; kind?: string; created_by?: string | null }
+  | { type: 'joint_attached'; joint_id: string; body_a: string; body_b: string }
+  | { type: 'motor_activated'; joint_id: string; rate: number }
+  | { type: 'contact_started'; body_a: string; body_b: string; impulse?: number }
+  | { type: 'structure_stressed'; body_id?: string; joint_id?: string; level: number }
+  | { type: 'goal_reached'; body_id?: string; goal_id?: string }
+  | { type: 'object_sorted'; body_id: string; bin_id: string; accepted: boolean }
+  | { type: 'body_destroyed'; body_id: string; reason?: string }
+  | ({ type: 'city_tick' } & Record<string, unknown>)
+  | ({ type: string } & Record<string, unknown>)
 
 export interface Frame {
   t: number
   bodies: Record<string, FrameBody>
-  events?: Record<string, unknown>[]
+  events?: TraceVisualEvent[]
 }
 
 export interface EpisodeTrace {
@@ -249,12 +288,15 @@ export interface EpisodeTrace {
   engine: string
   camera: string
   terrain?: string
+  visual_style?: VisualStyle
+  visual_seed?: number
   dt: number
   // World-y below which a body in a ground gap has fallen into the chasm. Null
   // when this world has no gap (ground_spans not set).
   kill_y?: number | null
   world_static: StaticProp[]
   body_meta?: Record<string, BodyMeta>
+  joints?: JointMeta[]
   frames: Frame[]
 }
 

@@ -406,3 +406,27 @@ The honest next steps—reference ROS 2 gateway package, certified deployment
 controls, physical reset fixtures, stronger statistical methods, 3D/digital
 twin support, and worker-process execution—are maintained in
 [`remaining_gaps.md`](remaining_gaps.md).
+
+## 13. Unified visual system and challenge overhaul (2026-07-26)
+
+The renderer is now a shared stylized technical-diorama system instead of a
+collection of mostly flat challenge primitives.
+
+| Area | Shipped |
+| --- | --- |
+| Trace contract | `EpisodeTrace` v3 adds backwards-compatible `visual_style`, `visual_seed`, per-object `VisualSpec`, attribution, and renderer-facing joint metadata. Materials/variants are deterministic from world seed + object id. |
+| Visual events | Pymunk traces emit creation, joint/motor, first-contact, high-impulse stress, goal-entry, correct/incorrect sort, and fall events. Zero-duration Build Timeline snapshots deliberately keep empty event lists. |
+| Themes | Realistic diorama, playful, blueprint, and neon-lab themes now change actual sky, terrain, grid, material, outline, hazard, accent, and shadow rendering. The Setup `visual_style` control is no longer decorative. |
+| Renderer layers | Added screen-fixed atmosphere, terrain dressing, semantic props, dynamic contact shadows, visible joints/motors, motion/effect overlays, labels, and separate Beauty/Engineering modes. Reduced-motion preference disables ambient movement. |
+| City | Modular façades, front/right windows, deterministic lit states, doors, floor bands, rooftop equipment, factory doors/signage, detailed parks/plazas/fountains, moving decorative traffic, expanded street furniture, and live city-pulse metrics. |
+| Bridge | Grass-capped stratified cliffs, animated water detail, material-aware riveted/wooden members, circular wooden cargo, visible anchors, stress/contact effects, and clearer goal feedback. |
+| Crawl | Articulated semantic torso/legs, rendered pivots and active motors, terrain cross-sections, contact shadows/trails, and corrected camera fitting that ignores the arena’s collision-floor extent. |
+| Sorter | Factory skyline, roller conveyor, open labeled bins, patterned target pads, distinct ball markings, chutes, and correct/incorrect routing pulses. |
+| Physical Lab | Replaced the floating square with a calibrated SVG instrument: axes/grid, geofence state, target vector, pose trail, robot footprint/heading, front-range cone, localization uncertainty, velocity, battery, and pose readout. |
+| Visual catalog | Added `/visuals` with deterministic City/Bridge/Crawl/Sorter reference scenes and live theme switching, plus a top-level navigation entry. |
+| QA and assets | Browser tests capture all four theme outputs and assert their rendered pixels differ, cover the Physical Lab instrument, and retain before/after golden challenge captures. Setup thumbnails were regenerated from the reviewed, chrome-free engine scenes. |
+| Performance/accessibility | Ground tiling, ambience, labels, traffic, and street furniture are bounded; engineering labels reduce on dense traces; color is reinforced with shapes/patterns; reduced-motion and high-contrast blueprint modes are supported. |
+
+Honest boundary: this is polished procedural 2.5D. A true 3D renderer and
+simulation-driven city actors remain separate roadmap decisions rather than
+being implied by decorative motion.

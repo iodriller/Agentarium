@@ -1,5 +1,5 @@
 import Phaser from 'phaser'
-import type { BodyMeta, EpisodeTrace, StaticProp } from '../api/types'
+import type { BodyMeta, EpisodeTrace, Frame, StaticProp } from '../api/types'
 import {
   computeStreetFurniture,
   drawIsoFurniture,
@@ -13,6 +13,12 @@ import {
   seedFromId,
 } from './isoProps'
 import { colorForBody as kindColor, drawProp, isSemanticKind, shade, sizePx } from './props'
+import {
+  drawIsoFrameEffects,
+  drawSideFrameEffects,
+  drawSideJoints,
+} from './visualOverlays'
+import { resolveVisualTheme, type VisualTheme } from './visualTheme'
 
 // The simulation is a 2D side-view physics world (gravity pulls -y, things stack
 // and fall). We render it as a straight side view — x to the right, y up — so a
@@ -23,17 +29,6 @@ const SCALE = 30
 const AGENT_A = 0xa78bfa
 const AGENT_B = 0x38bdf8
 const NEUTRAL = 0x9aa4b2
-const GRID_LINE = 0x232a36
-const OUTLINE = 0x0b0e14
-
-// Per-terrain ground + sky palette so picking a terrain visibly changes the world.
-const TERRAIN: Record<string, { sky: number; ground: number; groundEdge: number }> = {
-  grassland: { sky: 0x101826, ground: 0x3f6d2f, groundEdge: 0x2f5122 },
-  desert: { sky: 0x1a1606, ground: 0xb07a36, groundEdge: 0x8a5d27 },
-  factory: { sky: 0x14171c, ground: 0x4a4f57, groundEdge: 0x343941 },
-  city: { sky: 0x0f1622, ground: 0x3a4658, groundEdge: 0x2a3340 },
-  cave: { sky: 0x0a0a0c, ground: 0x2a2520, groundEdge: 0x1a1714 },
-}
 
 function colorForBody(id: string): number {
   const lower = id.toLowerCase()
@@ -81,12 +76,20 @@ export class TraceRenderer extends Phaser.Scene {
   private trace: EpisodeTrace | null = null
   private ready = false
   private pendingFrame: number | null = null
+  private currentFrame = 0
+  private engineeringMode = false
+  private reducedMotion = false
+  private theme: VisualTheme = resolveVisualTheme()
 
   private skyLayer!: Phaser.GameObjects.Graphics
   private bgLayer!: Phaser.GameObjects.Graphics
   private staticLayer!: Phaser.GameObjects.Graphics
   private gridLayer!: Phaser.GameObjects.Graphics
+  private jointLayer!: Phaser.GameObjects.Graphics
   private bodyLayer!: Phaser.GameObjects.Container
+  private effectLayer!: Phaser.GameObjects.Graphics
+  private debugLayer!: Phaser.GameObjects.Graphics
+  private labelLayer!: Phaser.GameObjects.Container
   private bodies = new Map<string, Phaser.GameObjects.Graphics>()
 
   constructor() {
@@ -107,13 +110,17 @@ export class TraceRenderer extends Phaser.Scene {
     this.bgLayer = this.add.graphics()
     this.gridLayer = this.add.graphics()
     this.staticLayer = this.add.graphics()
+    this.jointLayer = this.add.graphics()
     this.bodyLayer = this.add.container(0, 0)
+    this.effectLayer = this.add.graphics()
+    this.debugLayer = this.add.graphics()
+    this.labelLayer = this.add.container(0, 0)
     this.ready = true
-    // Keep the iso sky backdrop sized to the viewport across a resize.
+    // Keep the screen-fixed sky backdrop sized to the viewport across a resize.
     this.scale.on('resize', () => {
-      if (this.trace && (this.trace.camera ?? 'side') === 'iso') {
-        this.drawIsoSky(TERRAIN[this.trace.terrain ?? 'city'] ?? TERRAIN.city)
-      }
+      if (!this.trace) return
+      if ((this.trace.camera ?? 'side') === 'iso') this.drawIsoSky()
+      else this.drawSideSky()
     })
     if (this.trace) {
       this.buildWorld()
@@ -126,6 +133,11 @@ export class TraceRenderer extends Phaser.Scene {
 
   loadTrace(trace: EpisodeTrace): void {
     this.trace = trace
+    this.theme = resolveVisualTheme(
+      trace.terrain ?? 'grassland',
+      trace.visual_style ?? 'realistic',
+    )
+    this.currentFrame = 0
     if (!this.ready) {
       this.pendingFrame = 0
       return
@@ -141,12 +153,12 @@ export class TraceRenderer extends Phaser.Scene {
     }
     const trace = this.trace
     if (!trace || trace.frames.length === 0) return
+    this.currentFrame = Math.max(0, Math.min(index, trace.frames.length - 1))
     if ((trace.camera ?? 'side') === 'iso') {
-      this.renderIsoFrame(index)
+      this.renderIsoFrame(this.currentFrame)
       return
     }
-    const clamped = Math.max(0, Math.min(index, trace.frames.length - 1))
-    const frame = trace.frames[clamped]
+    const frame = trace.frames[this.currentFrame]
     for (const [id, body] of Object.entries(frame.bodies)) {
       let gfx = this.bodies.get(id)
       if (!gfx) {
@@ -159,6 +171,7 @@ export class TraceRenderer extends Phaser.Scene {
       // Physics angle is CCW in y-up space; screen y is flipped, so negate.
       gfx.setRotation(-body.angle)
     }
+    this.renderSideOverlays(frame)
   }
 
   panBy(dx: number, dy: number): void {
@@ -186,6 +199,22 @@ export class TraceRenderer extends Phaser.Scene {
     if (this.gridLayer) this.gridLayer.setVisible(!this.gridLayer.visible)
   }
 
+  togglePresentationMode(): 'beauty' | 'engineering' {
+    this.engineeringMode = !this.engineeringMode
+    this.gridLayer.setVisible(this.engineeringMode)
+    this.renderFrame(this.currentFrame)
+    return this.engineeringMode ? 'engineering' : 'beauty'
+  }
+
+  getPresentationMode(): 'beauty' | 'engineering' {
+    return this.engineeringMode ? 'engineering' : 'beauty'
+  }
+
+  setReducedMotion(reduced: boolean): void {
+    this.reducedMotion = reduced
+    this.renderFrame(this.currentFrame)
+  }
+
   // ── Internals ─────────────────────────────────────────────────────────────
 
   private buildWorld(): void {
@@ -197,8 +226,12 @@ export class TraceRenderer extends Phaser.Scene {
     this.bodyLayer.removeAll(true)
     this.staticLayer.clear()
     this.gridLayer.clear()
+    this.jointLayer.clear()
     this.bgLayer.clear()
     this.skyLayer.clear()
+    this.effectLayer.clear()
+    this.debugLayer.clear()
+    this.labelLayer.removeAll(true)
 
     if ((trace.camera ?? 'side') === 'iso') {
       this.buildIsoWorld()
@@ -206,11 +239,10 @@ export class TraceRenderer extends Phaser.Scene {
     }
 
     const bounds = this.worldBounds(trace)
-    const pal = TERRAIN[trace.terrain ?? 'grassland'] ?? TERRAIN.grassland
-    this.cameras.main.setBackgroundColor(pal.sky)
-
-    if ((trace.terrain ?? 'grassland') === 'city') this.drawCitySkyline(bounds)
-    this.drawGround(bounds, trace, pal)
+    this.cameras.main.setBackgroundColor(this.theme.skyTop)
+    this.drawSideSky()
+    this.drawSideEnvironment(bounds, trace.terrain ?? 'grassland')
+    this.drawGround(bounds, trace)
     this.drawGrid(bounds)
     for (const prop of trace.world_static ?? []) {
       if (prop.kind === 'ground') continue // we draw a richer ground band below
@@ -220,6 +252,7 @@ export class TraceRenderer extends Phaser.Scene {
     const first = trace.frames[0]
     if (first) for (const id of Object.keys(first.bodies)) this.createBody(id)
 
+    this.gridLayer.setVisible(this.engineeringMode)
     this.fitToWorld(bounds)
   }
 
@@ -237,6 +270,10 @@ export class TraceRenderer extends Phaser.Scene {
     }
     for (const p of trace.world_static ?? []) {
       if (!p.position || p.position.length < 2) continue
+      // Ground spans describe collision coverage, not the interesting scene
+      // extent. Fitting a 40m arena floor made a 2m crawler/bin occupy only a
+      // handful of pixels. Props, goals and bodies determine camera framing.
+      if (p.kind === 'ground') continue
       // Rotated axis-aligned half-extents — a wide flat prop (e.g. a 28m road)
       // must not inflate the Y bound as much as an equally large X bound would
       // (the old `max(w, h)` isotropic radius did exactly that, zooming the
@@ -276,7 +313,99 @@ export class TraceRenderer extends Phaser.Scene {
   /** Ground is drawn per span (from `world_static` "ground" props), not as one
    * continuous band, so a world with a real gap (a bridge's ravine) shows sky/
    * chasm between cliffs instead of hiding it under a solid floor. */
-  private drawGround(b: Bounds, trace: EpisodeTrace, pal: { ground: number; groundEdge: number }): void {
+  private drawSideSky(): void {
+    const g = this.skyLayer
+    g.clear()
+    const width = this.scale.width || 800
+    const height = this.scale.height || 600
+    g.fillGradientStyle(
+      this.theme.skyTop,
+      this.theme.skyTop,
+      this.theme.skyBottom,
+      this.theme.skyBottom,
+      1,
+    )
+    g.fillRect(0, 0, width, height)
+    if (this.theme.style === 'blueprint') {
+      g.lineStyle(1, this.theme.accent, 0.08)
+      for (let x = 0; x < width; x += 32) g.lineBetween(x, 0, x, height)
+      for (let y = 0; y < height; y += 32) g.lineBetween(0, y, width, y)
+    }
+  }
+
+  private drawSideEnvironment(b: Bounds, terrain: string): void {
+    const g = this.bgLayer
+    const left = (b.minX - 8) * SCALE
+    const right = (b.maxX + 8) * SCALE
+    const horizon = 0
+    const width = right - left
+
+    if (terrain === 'city') {
+      this.drawCitySkyline(b)
+      return
+    }
+    if (terrain === 'factory') {
+      g.fillStyle(shade(this.theme.haze, 0.5), 0.5)
+      for (let i = 0; i < 9; i++) {
+        const x = left + (i / 8) * width
+        const w = 42 + (i % 3) * 18
+        const h = 80 + ((i * 37) % 110)
+        g.fillRect(x - w / 2, horizon - h, w, h)
+        g.fillRect(x - w * 0.3, horizon - h - 38, w * 0.16, 40)
+      }
+      g.lineStyle(5, shade(this.theme.haze, 0.7), 0.42)
+      g.lineBetween(left, -55, right, -55)
+      for (let x = left + 30; x < right; x += 110) {
+        g.lineBetween(x, -55, x, -8)
+      }
+      return
+    }
+    if (terrain === 'cave') {
+      g.fillStyle(0x050609, 0.72)
+      g.beginPath()
+      g.moveTo(left, -240)
+      for (let x = left; x <= right; x += 50) {
+        const y = -190 - Math.abs(Math.sin(x * 0.013)) * 90
+        g.lineTo(x, y)
+      }
+      g.lineTo(right, -420)
+      g.lineTo(left, -420)
+      g.closePath()
+      g.fillPath()
+      return
+    }
+
+    const desert = terrain === 'desert'
+    const layers = desert ? 2 : 3
+    for (let layer = 0; layer < layers; layer++) {
+      const baseY = -10 - layer * 26
+      const amplitude = desert ? 28 + layer * 10 : 45 + layer * 22
+      g.fillStyle(
+        shade(this.theme.haze, 0.5 + layer * 0.14),
+        0.24 + layer * 0.12,
+      )
+      g.beginPath()
+      g.moveTo(left, horizon)
+      for (let x = left; x <= right; x += 35) {
+        const y = baseY - Math.abs(Math.sin(x * 0.009 + layer * 1.7)) * amplitude
+        g.lineTo(x, y)
+      }
+      g.lineTo(right, horizon)
+      g.closePath()
+      g.fillPath()
+    }
+    if (!desert) {
+      g.fillStyle(0xd9f2ff, 0.42)
+      for (let i = 0; i < 5; i++) {
+        const x = left + ((i + 0.5) / 5) * width
+        const y = -150 - (i % 2) * 35
+        g.fillEllipse(x, y, 52, 14)
+        g.fillEllipse(x + 22, y - 5, 44, 15)
+      }
+    }
+  }
+
+  private drawGround(b: Bounds, trace: EpisodeTrace): void {
     const g = this.staticLayer
     const top = 0 // y=0 in screen px
     const bottom = -b.minY * SCALE + Math.abs(b.maxY - b.minY) * SCALE + 400
@@ -288,15 +417,19 @@ export class TraceRenderer extends Phaser.Scene {
         return { lo: p.position[0] - half, hi: p.position[0] + half }
       })
       .sort((x, y) => x.lo - y.lo)
+    const isCliffWorld = trace.kill_y != null && spans.length > 1
+    const fillColor = isCliffWorld ? 0x52606c : this.theme.ground
 
     if (spans.length === 0) {
       // No ground info (shouldn't happen) — fall back to a full-bleed band so
       // the scene never renders as blank sky.
       const left = b.minX * SCALE - 200
       const right = b.maxX * SCALE + 200
-      g.fillStyle(pal.ground, 1)
+      g.fillStyle(fillColor, 1)
       g.fillRect(left, top, right - left, bottom - top)
-      g.lineStyle(3, pal.groundEdge, 1)
+      this.drawGroundTexture(g, left, right, top, bottom)
+      if (isCliffWorld) this.drawRockFace(g, left, right, top, bottom)
+      g.lineStyle(3, this.theme.groundEdge, 1)
       g.lineBetween(left, top, right, top)
       return
     }
@@ -304,10 +437,23 @@ export class TraceRenderer extends Phaser.Scene {
     for (const span of spans) {
       const left = span.lo * SCALE - 4
       const right = span.hi * SCALE + 4
-      g.fillStyle(pal.ground, 1)
+      g.fillStyle(fillColor, 1)
       g.fillRect(left, top, right - left, bottom - top)
-      g.lineStyle(3, pal.groundEdge, 1)
+      this.drawGroundTexture(g, left, right, top, bottom)
+      if (isCliffWorld) this.drawRockFace(g, left, right, top, bottom)
+      g.lineStyle(3, this.theme.groundEdge, 1)
       g.lineBetween(left, top, right, top)
+      if ((trace.terrain ?? 'grassland') === 'grassland') {
+        if (isCliffWorld) {
+          g.fillStyle(this.theme.ground, 1)
+          g.fillRect(left, top, right - left, 10)
+        }
+        g.fillStyle(shade(this.theme.ground, 1.25), 0.75)
+        for (let x = left + 4; x < right - 4; x += 13) {
+          const blade = 3 + ((x / 13) % 3)
+          g.fillTriangle(x, top, x + 3, top, x + 1.5, top - blade)
+        }
+      }
     }
 
     // Ravine: a hazard/water band filling the horizontal gap between
@@ -322,23 +468,66 @@ export class TraceRenderer extends Phaser.Scene {
     }
   }
 
+  private drawRockFace(
+    g: Phaser.GameObjects.Graphics,
+    left: number,
+    right: number,
+    top: number,
+    bottom: number,
+  ): void {
+    const depth = Math.min(bottom - top, 270)
+    g.lineStyle(2, 0x2d3944, 0.48)
+    for (let y = top + 25; y < top + depth; y += 32) {
+      const offset = (Math.floor(y / 32) % 2) * 21
+      for (let x = left + offset; x < right; x += 64) {
+        const end = Math.min(x + 42 + ((x + y) % 17), right)
+        g.lineBetween(x, y, end, y + ((x / 10) % 3) - 1)
+      }
+    }
+    g.fillStyle(0x8c9aa7, 0.18)
+    for (let x = left + 18; x < right; x += 75) {
+      g.fillTriangle(x, top + 18, x + 18, top + 8, x + 32, top + 28)
+    }
+  }
+
+  private drawGroundTexture(
+    g: Phaser.GameObjects.Graphics,
+    left: number,
+    right: number,
+    top: number,
+    bottom: number,
+  ): void {
+    const depth = Math.min(bottom - top, 210)
+    g.lineStyle(1, shade(this.theme.groundEdge, 1.35), 0.22)
+    for (let y = top + 18; y < top + depth; y += 22) {
+      const offset = (Math.floor(y / 22) % 2) * 13
+      for (let x = left + offset; x < right; x += 52) {
+        g.lineBetween(x, y, Math.min(x + 34, right), y + 3)
+      }
+    }
+  }
+
   /** Hazard band for a ground gap: dark water fill + a warning-colored top edge
    * so the ravine reads as "do not fall here", not empty background. */
   private drawChasm(leftPx: number, rightPx: number, topPx: number, bottomPx: number): void {
     const g = this.staticLayer
-    g.fillStyle(0x0c2333, 1)
+    g.fillStyle(0x082334, 1)
     g.fillRect(leftPx, topPx, rightPx - leftPx, bottomPx - topPx)
     g.fillStyle(0x1c5a7a, 0.5)
     for (let x = leftPx; x < rightPx; x += 14) {
       g.fillRect(x, topPx + 6, 8, 3)
     }
-    g.lineStyle(2, 0xf59e0b, 0.9)
+    g.fillStyle(0x70d6ff, 0.22)
+    for (let x = leftPx + 4; x < rightPx; x += 22) {
+      g.fillCircle(x, topPx + 4 + Math.sin(x * 0.05) * 2, 2)
+    }
+    g.lineStyle(2, this.theme.hazard, 0.9)
     g.lineBetween(leftPx, topPx, rightPx, topPx)
   }
 
   private drawGrid(b: Bounds): void {
     const g = this.gridLayer
-    g.lineStyle(1, GRID_LINE, 0.45)
+    g.lineStyle(1, this.theme.grid, this.engineeringMode ? 0.58 : 0.16)
     const x0 = Math.floor(b.minX) - 1
     const x1 = Math.ceil(b.maxX) + 1
     const y0 = Math.floor(b.minY) - 1
@@ -362,7 +551,7 @@ export class TraceRenderer extends Phaser.Scene {
     const spanR = b.maxX + 6
     const width = Math.max(1, spanR - spanL)
     const count = 14
-    g.fillStyle(0x1c2433, 0.55)
+    g.fillStyle(shade(this.theme.haze, 0.55), 0.48)
     for (let i = 0; i < count; i++) {
       const t = i / count
       const bx = spanL + t * width + (pseudoRandom(i) - 0.5) * (width / count) * 0.6
@@ -376,6 +565,19 @@ export class TraceRenderer extends Phaser.Scene {
         bottomRight.sx - topLeft.sx,
         bottomRight.sy - topLeft.sy,
       )
+      if (i % 2 === 0) {
+        g.fillStyle(this.theme.accent, 0.08)
+        const cols = Math.max(1, Math.floor(bw))
+        for (let c = 0; c < cols; c++) {
+          g.fillRect(
+            topLeft.sx + 8 + c * 13,
+            topLeft.sy + 12,
+            4,
+            Math.max(4, (bottomRight.sy - topLeft.sy) * 0.6),
+          )
+        }
+        g.fillStyle(shade(this.theme.haze, 0.55), 0.48)
+      }
     }
   }
 
@@ -390,13 +592,29 @@ export class TraceRenderer extends Phaser.Scene {
     if (isSemanticKind(prop.kind)) {
       // The real geometry (box/circle/segment) — a beam/ramp/wall is a thin
       // segment sized by length alone, not a square built from that length.
-      const meta = { shape: prop.shape ?? 'box', size: prop.size, color: prop.color, kind: prop.kind } as BodyMeta
+      const meta = {
+        shape: prop.shape ?? 'box',
+        size: prop.size,
+        color: prop.color,
+        kind: prop.kind,
+        created_by: prop.created_by,
+        visual: prop.visual,
+      } as BodyMeta
       const { w, h } = sizePx(meta, SCALE)
       const { sx, sy } = TraceRenderer.px(px, py)
       g.save()
       g.translateCanvas(sx, sy)
       g.rotateCanvas(-ang)
-      drawProp(g, prop.kind, w, h, kindColor(prop.id, meta))
+      if (!['road', 'park', 'plaza', 'water', 'goal'].includes(prop.kind)) {
+        g.fillStyle(0x000000, this.theme.shadowAlpha)
+        g.fillEllipse(5, h / 2 + 4, Math.max(8, w * 0.9), Math.max(4, h * 0.13))
+      }
+      drawProp(g, prop.kind, w, h, kindColor(prop.id, meta), {
+        ...prop.visual,
+        style: this.theme.style,
+        time: this.trace?.frames[this.currentFrame]?.t ?? 0,
+        shape: meta.shape,
+      })
       g.restore()
       return
     }
@@ -405,7 +623,7 @@ export class TraceRenderer extends Phaser.Scene {
     const h = prop.kind === 'segment' ? 0.25 : (prop.size?.[1] ?? prop.size?.[0] ?? 1)
     const color = parseHexColor(prop.color, NEUTRAL)
     g.fillStyle(color, 1)
-    g.lineStyle(1.5, OUTLINE, 0.6)
+    g.lineStyle(1.5, this.theme.outline, 0.6)
 
     if (prop.kind === 'circle') {
       const r = (prop.size?.[0] ?? 0.5) * SCALE
@@ -454,7 +672,11 @@ export class TraceRenderer extends Phaser.Scene {
     // Semantic kind (house/tower/tree/…) → a recognizable procedural prop.
     if (isSemanticKind(meta?.kind)) {
       const { w, h } = sizePx(meta, SCALE)
-      drawProp(g, meta?.kind, w, h, kindColor(id, meta))
+      drawProp(g, meta?.kind, w, h, kindColor(id, meta), {
+        ...meta?.visual,
+        style: this.theme.style,
+        shape: meta?.shape,
+      })
       this.bodyLayer.add(g)
       this.bodies.set(id, g)
       return
@@ -468,7 +690,7 @@ export class TraceRenderer extends Phaser.Scene {
     if (shape === 'circle') {
       const r = (meta?.size?.[0] ?? 0.5) * SCALE
       g.fillCircle(0, 0, r)
-      g.lineStyle(2, OUTLINE, 0.5)
+      g.lineStyle(2, this.theme.outline, 0.5)
       g.strokeCircle(0, 0, r)
       // A spoke so rotation (rolling) is visible.
       g.lineStyle(2, 0xffffff, 0.5)
@@ -477,18 +699,145 @@ export class TraceRenderer extends Phaser.Scene {
       const len = (meta?.size?.[0] ?? 1) * SCALE
       const th = 0.25 * SCALE
       g.fillRect(-len / 2, -th / 2, len, th)
-      g.lineStyle(2, OUTLINE, 0.5)
+      g.lineStyle(2, this.theme.outline, 0.5)
       g.strokeRect(-len / 2, -th / 2, len, th)
     } else {
       const w = (meta?.size?.[0] ?? 1) * SCALE
       const h = (meta?.size?.[1] ?? meta?.size?.[0] ?? 1) * SCALE
       g.fillRect(-w / 2, -h / 2, w, h)
-      g.lineStyle(2, OUTLINE, 0.5)
+      g.lineStyle(2, this.theme.outline, 0.5)
       g.strokeRect(-w / 2, -h / 2, w, h)
     }
 
     this.bodyLayer.add(g)
     this.bodies.set(id, g)
+  }
+
+  private renderSideOverlays(frame: Frame): void {
+    const trace = this.trace
+    if (!trace) return
+    const previous = trace.frames[this.currentFrame - 1]
+    const time = this.reducedMotion ? 0 : frame.t
+    this.jointLayer.clear()
+    this.effectLayer.clear()
+    this.debugLayer.clear()
+    this.labelLayer.removeAll(true)
+
+    // Dynamic contact shadows stay tied to the ground, which makes height and
+    // jumping/falling much easier to read than a floating silhouette.
+    for (const [id, body] of Object.entries(frame.bodies)) {
+      const meta = trace.body_meta?.[id]
+      const { w } = sizePx(meta, SCALE)
+      const ground = TraceRenderer.px(body.x, 0)
+      const height = Math.max(0, body.y)
+      const alpha = this.theme.shadowAlpha * Math.max(0.08, 1 - height / 12)
+      this.jointLayer.fillStyle(0x000000, alpha)
+      this.jointLayer.fillEllipse(
+        ground.sx + 5,
+        ground.sy + 3,
+        Math.max(8, w * Math.max(0.25, 1 - height / 18)),
+        Math.max(3, w * 0.12),
+      )
+    }
+
+    drawSideJoints(
+      this.jointLayer,
+      trace,
+      frame,
+      TraceRenderer.px,
+      time,
+      this.engineeringMode,
+    )
+    this.drawSideAmbientEffects(frame, previous)
+    drawSideFrameEffects(
+      this.effectLayer,
+      trace,
+      frame,
+      previous,
+      TraceRenderer.px,
+      this.engineeringMode,
+    )
+    if (this.engineeringMode) this.drawSideEngineeringOverlay(frame)
+  }
+
+  private drawSideAmbientEffects(frame: Frame, previous: Frame | undefined): void {
+    const trace = this.trace
+    if (!trace) return
+    const time = this.reducedMotion ? 0 : frame.t
+    const g = this.effectLayer
+
+    for (const prop of trace.world_static) {
+      if (prop.kind === 'water') {
+        const [x, y] = prop.position
+        const w = (prop.size?.[0] ?? 1) * SCALE
+        const h = Math.max(6, (prop.size?.[1] ?? 0.25) * SCALE)
+        const center = TraceRenderer.px(x, y)
+        g.lineStyle(1.5, 0x9eeaff, 0.45)
+        for (let row = 0; row < 3; row++) {
+          const yy = center.sy - h / 2 + ((row + 1) * h) / 4
+          const segments = Math.max(4, Math.floor(w / 24))
+          for (let segment = 0; segment < segments; segment++) {
+            const x0 = center.sx - w / 2 + (segment * w) / segments
+            const x1 = center.sx - w / 2 + ((segment + 0.65) * w) / segments
+            g.lineBetween(
+              x0,
+              yy + Math.sin(segment + time * 3 + row) * 2,
+              x1,
+              yy,
+            )
+          }
+        }
+      }
+      if (prop.kind === 'goal') {
+        const center = TraceRenderer.px(prop.position[0], prop.position[1])
+        const pulse = this.reducedMotion ? 0 : Math.sin(time * 4) * 4
+        g.lineStyle(2, 0x34d399, 0.45)
+        g.strokeCircle(center.sx, center.sy, 18 + pulse)
+      }
+    }
+
+    if (!previous || this.reducedMotion) return
+    for (const [id, body] of Object.entries(frame.bodies)) {
+      const before = previous.bodies[id]
+      if (!before) continue
+      const speed = Math.hypot(body.x - before.x, body.y - before.y) / Math.max(trace.dt, 0.001)
+      if (speed < 1.1 || body.y > 1.2) continue
+      const point = TraceRenderer.px(body.x, Math.max(0.05, body.y - 0.4))
+      g.fillStyle(0xd6c4a1, Math.min(0.45, speed * 0.04))
+      for (let i = 0; i < 3; i++) {
+        g.fillCircle(point.sx - 5 - i * 5, point.sy + (i % 2) * 2, 2.5 + i)
+      }
+    }
+  }
+
+  private drawSideEngineeringOverlay(frame: Frame): void {
+    const trace = this.trace
+    if (!trace) return
+    const g = this.debugLayer
+    for (const [id, body] of Object.entries(frame.bodies)) {
+      const meta = trace.body_meta?.[id]
+      const { w, h } = sizePx(meta, SCALE)
+      const point = TraceRenderer.px(body.x, body.y)
+      g.save()
+      g.translateCanvas(point.sx, point.sy)
+      g.rotateCanvas(-body.angle)
+      g.lineStyle(1, 0x67e8f9, 0.72)
+      if (meta?.shape === 'circle') g.strokeCircle(0, 0, w / 2)
+      else g.strokeRect(-w / 2, -h / 2, w, h)
+      g.lineStyle(1, 0xffffff, 0.55)
+      g.lineBetween(-5, 0, 5, 0)
+      g.lineBetween(0, -5, 0, 5)
+      g.restore()
+
+      const label = this.add.text(point.sx + 7, point.sy - h / 2 - 14, `${id} · ${meta?.kind ?? meta?.shape ?? 'body'}`, {
+        fontFamily: 'monospace',
+        fontSize: '10px',
+        color: '#d9f7ff',
+        backgroundColor: '#07131dcc',
+        padding: { x: 3, y: 2 },
+      })
+      this.labelLayer.add(label)
+    }
   }
 
   // ── Isometric (citysim) path ──────────────────────────────────────────────
@@ -558,22 +907,32 @@ export class TraceRenderer extends Phaser.Scene {
   }
 
   /** Screen-fixed vertical sky gradient behind the whole iso scene. */
-  private drawIsoSky(pal: { sky: number; ground: number }): void {
+  private drawIsoSky(): void {
     const g = this.skyLayer
     g.clear()
     const w = this.scale.width || 800
     const h = this.scale.height || 600
-    const zenith = shade(pal.sky, 0.65)
-    const horizon = shade(pal.sky, 1.7)
-    g.fillGradientStyle(zenith, zenith, horizon, horizon, 1)
+    g.fillGradientStyle(
+      this.theme.skyTop,
+      this.theme.skyTop,
+      this.theme.skyBottom,
+      this.theme.skyBottom,
+      1,
+    )
     g.fillRect(0, 0, w, h)
+    g.fillStyle(this.theme.haze, 0.18)
+    g.fillEllipse(w * 0.74, h * 0.23, Math.min(w, h) * 0.3, Math.min(w, h) * 0.08)
+    if (this.theme.style === 'neon_lab') {
+      g.lineStyle(1, this.theme.accent, 0.1)
+      for (let y = h * 0.45; y < h; y += 18) g.lineBetween(0, y, w, y)
+    }
   }
 
   /** Textured ground (grass mottling + sidewalks bordering roads), plus a
    * defining outer edge so the world reads as a bounded plot, not a void. */
-  private drawIsoGround(b: IsoBounds, pal: { ground: number; groundEdge: number }, roads: StaticProp[]): void {
+  private drawIsoGround(b: IsoBounds, roads: StaticProp[]): void {
     const g = this.staticLayer
-    drawIsoGroundTiles(g, b, pal.ground, roads)
+    drawIsoGroundTiles(g, b, this.theme.ground, roads)
 
     const corners = [
       isoProject(b.minX, b.minZ, 0),
@@ -581,7 +940,7 @@ export class TraceRenderer extends Phaser.Scene {
       isoProject(b.maxX, b.maxZ, 0),
       isoProject(b.minX, b.maxZ, 0),
     ]
-    g.lineStyle(2, pal.groundEdge, 0.6)
+    g.lineStyle(2, this.theme.groundEdge, 0.7)
     g.beginPath()
     g.moveTo(corners[0].sx, corners[0].sy)
     for (let i = 1; i < corners.length; i++) g.lineTo(corners[i].sx, corners[i].sy)
@@ -590,14 +949,19 @@ export class TraceRenderer extends Phaser.Scene {
   }
 
   /** Draw one static prop's extruded iso shape, translated to its ground point. */
-  private drawIsoStaticProp(prop: StaticProp): void {
+  private drawIsoStaticProp(prop: StaticProp, time = 0): void {
     const g = this.staticLayer
     const { w, d, h } = isoFootprint(prop.size)
     const color = isoColorForBody(prop.id, prop)
     const origin = isoProject(prop.position[0] ?? 0, prop.z ?? 0, 0)
     g.save()
     g.translateCanvas(origin.sx, origin.sy)
-    drawIsoProp(g, prop.kind, w, d, h, color, seedFromId(prop.id))
+    drawIsoProp(g, prop.kind, w, d, h, color, seedFromId(prop.id), {
+      ...prop.visual,
+      style: this.theme.style,
+      time: this.reducedMotion ? 0 : time,
+      shadowAlpha: this.theme.shadowAlpha,
+    })
     g.restore()
   }
 
@@ -636,15 +1000,14 @@ export class TraceRenderer extends Phaser.Scene {
     if (!trace) return
 
     const bounds = this.isoWorldBounds(trace)
-    const pal = TERRAIN[trace.terrain ?? 'city'] ?? TERRAIN.city
-    this.cameras.main.setBackgroundColor(pal.sky)
-    this.drawIsoSky(pal)
+    this.cameras.main.setBackgroundColor(this.theme.skyTop)
+    this.drawIsoSky()
 
     const allProps = (trace.world_static ?? []).filter((p) => p.position && p.position.length >= 1)
     const roads = allProps.filter((p) => p.kind === 'road')
     const buildings = allProps.filter((p) => p.kind !== 'road')
 
-    this.drawIsoGround(bounds, pal, roads)
+    this.drawIsoGround(bounds, roads)
 
     // Painter's algorithm: draw back-to-front by ground-plane depth (x + z),
     // so nearer structures correctly occlude farther ones.
@@ -666,6 +1029,7 @@ export class TraceRenderer extends Phaser.Scene {
       for (const id of ids) this.createIsoBody(id)
     }
 
+    this.gridLayer.setVisible(this.engineeringMode)
     this.isoFitToWorld(bounds)
   }
 
@@ -677,9 +1041,122 @@ export class TraceRenderer extends Phaser.Scene {
     const g = this.add.graphics()
     const { w, d, h } = isoFootprint(meta?.size)
     const color = isoColorForBody(id, meta)
-    drawIsoProp(g, meta?.kind, w, d, h, color, seedFromId(id))
+    drawIsoProp(g, meta?.kind, w, d, h, color, seedFromId(id), {
+      ...meta?.visual,
+      style: this.theme.style,
+      shadowAlpha: this.theme.shadowAlpha,
+    })
     this.bodyLayer.add(g)
     this.bodies.set(id, g)
+  }
+
+  private renderIsoOverlays(frame: Frame): void {
+    const trace = this.trace
+    if (!trace) return
+    const previous = trace.frames[this.currentFrame - 1]
+    this.jointLayer.clear()
+    this.effectLayer.clear()
+    this.debugLayer.clear()
+    this.labelLayer.removeAll(true)
+
+    this.drawIsoAmbientEffects(frame)
+    drawIsoFrameEffects(this.effectLayer, frame, previous, this.engineeringMode)
+    if (this.engineeringMode) this.drawIsoEngineeringOverlay()
+    this.drawCityMetrics(frame)
+  }
+
+  private drawIsoAmbientEffects(frame: Frame): void {
+    const trace = this.trace
+    if (!trace || this.reducedMotion) return
+    const roads = trace.world_static.filter((prop) => prop.kind === 'road')
+    const time = frame.t
+    const g = this.effectLayer
+
+    // Sparse moving traffic provides scale and life without adding simulated
+    // bodies or changing city scoring. Paths are derived deterministically
+    // from trace roads and current replay time.
+    roads.slice(0, 8).forEach((road, index) => {
+      const { w, d, h } = isoFootprint(road.size)
+      const alongX = w >= d
+      const length = alongX ? w : d
+      const phase = ((time * (0.7 + (index % 3) * 0.16) + index * 2.7) % (length + 2)) - length / 2
+      const x = (road.position[0] ?? 0) + (alongX ? phase : 0)
+      const z = (road.z ?? 0) + (alongX ? 0 : phase)
+      const point = isoProject(x, z, h + 0.15)
+      g.fillStyle(index % 2 === 0 ? 0xef4444 : 0x60a5fa, 0.9)
+      g.fillRoundedRect(point.sx - 5, point.sy - 3, 10, 6, 2)
+      g.fillStyle(0xf8fafc, 0.7)
+      g.fillRect(point.sx - 1, point.sy - 2, 3, 2)
+    })
+
+    for (const prop of trace.world_static) {
+      if (prop.kind !== 'fountain') continue
+      const { h } = isoFootprint(prop.size)
+      const center = isoProject(prop.position[0], prop.z ?? 0, h + 0.25)
+      const pulse = 8 + Math.sin(time * 4) * 2
+      g.lineStyle(1.5, 0xa5f3fc, 0.65)
+      g.strokeEllipse(center.sx, center.sy, pulse * 2.2, pulse)
+    }
+  }
+
+  private drawIsoEngineeringOverlay(): void {
+    const trace = this.trace
+    if (!trace) return
+    const g = this.debugLayer
+    const maxLabels = trace.world_static.length > 100 ? 40 : 100
+    trace.world_static.slice(0, maxLabels).forEach((prop) => {
+      const { w, d, h } = isoFootprint(prop.size)
+      const cx = prop.position[0] ?? 0
+      const cz = prop.z ?? 0
+      const corners = [
+        isoProject(cx - w / 2, cz - d / 2, 0.03),
+        isoProject(cx + w / 2, cz - d / 2, 0.03),
+        isoProject(cx + w / 2, cz + d / 2, 0.03),
+        isoProject(cx - w / 2, cz + d / 2, 0.03),
+      ]
+      g.lineStyle(1, 0x67e8f9, 0.6)
+      g.beginPath()
+      g.moveTo(corners[0].sx, corners[0].sy)
+      corners.slice(1).forEach((corner) => g.lineTo(corner.sx, corner.sy))
+      g.closePath()
+      g.strokePath()
+      const top = isoProject(cx, cz, h)
+      const label = this.add.text(top.sx + 5, top.sy - 12, `${prop.id}\n${prop.kind}`, {
+        fontFamily: 'monospace',
+        fontSize: '9px',
+        color: '#d9f7ff',
+        backgroundColor: '#07131dcc',
+        padding: { x: 3, y: 2 },
+      })
+      this.labelLayer.add(label)
+    })
+  }
+
+  private drawCityMetrics(frame: Frame): void {
+    const tick = (frame.events ?? []).find((event) => event.type === 'city_tick')
+    if (!tick) return
+    const values = tick as Record<string, unknown>
+    const format = (key: string, digits = 0) => {
+      const value = values[key]
+      return typeof value === 'number' ? value.toFixed(digits) : '—'
+    }
+    const happinessRaw = values.happiness
+    const happiness =
+      typeof happinessRaw === 'number' ? `${Math.round(happinessRaw * 100)}%` : '—'
+    const text = this.add.text(
+      this.cameras.main.scrollX + 14 / this.cameras.main.zoom,
+      this.cameras.main.scrollY + 14 / this.cameras.main.zoom,
+      `CITY PULSE  ·  POP ${format('population')}\nBUDGET ${format('budget', 0)}  ·  HAPPY ${happiness}`,
+      {
+        fontFamily: 'monospace',
+        fontSize: '11px',
+        color: '#e8fbff',
+        backgroundColor: '#0b1424dd',
+        padding: { x: 8, y: 6 },
+      },
+    )
+    text.setScale(1 / this.cameras.main.zoom)
+    this.labelLayer.add(text)
   }
 
   private renderIsoFrame(index: number): void {
@@ -697,5 +1174,6 @@ export class TraceRenderer extends Phaser.Scene {
       const { sx, sy } = isoProject(body.x, body.z ?? 0, 0)
       gfx.setPosition(sx, sy)
     }
+    this.renderIsoOverlays(frame)
   }
 }

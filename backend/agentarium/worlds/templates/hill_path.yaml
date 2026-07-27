@@ -10,22 +10,26 @@ description: A winding hill path that creatures must traverse to reach the goal.
 static_bodies:
   - id: hill
     shape: box
+    kind: terrain
     position: [0.5, 1.0]
     size: [8.0, 2.0]
     static: true
     color: "#4d7c0f"
   - id: hill_ramp
     shape: segment
+    kind: ramp
     position: [-4.5, 0.8]
     size: [3.0]
     static: true
+    material: wood
     color: "#4d7c0f"
   # Catch successful crawlers after the finish so a long evaluation does not
   # let them leave the finite floor and turn an earlier success into a fall.
   - id: finish_guard
     shape: box
     kind: wall
-    position: [9.0, 1.0]
-    size: [0.3, 2.0]
+    position: [9.0, 2.5]
+    size: [0.4, 5.0]
     static: true
+    material: metal
     color: "#64748b"

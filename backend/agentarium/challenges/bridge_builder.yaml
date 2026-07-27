@@ -37,6 +37,7 @@ scaffold:
     position: [-12.0, 7.5]
     size: [0.6]
     mass: 2.0
+    material: wood
     color: "#d2691e"
   - id: gap_water
     shape: box
@@ -52,6 +53,7 @@ scaffold:
     position: [-4.4, 1.35]
     size: [0.35, 1.1]
     static: true
+    material: concrete
     color: "#737373"
   - id: right_bridge_anchor
     shape: box
@@ -59,6 +61,7 @@ scaffold:
     position: [2.7, 1.35]
     size: [0.35, 1.1]
     static: true
+    material: concrete
     color: "#737373"
   - id: goal_marker
     shape: box

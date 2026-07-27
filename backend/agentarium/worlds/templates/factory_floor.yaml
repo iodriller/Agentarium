@@ -10,13 +10,17 @@ description: An industrial factory floor with flat working surfaces.
 static_bodies:
   - id: machine_left
     shape: box
+    kind: factory
     position: [-7.0, 1.0]
     size: [3.0, 2.0]
     static: true
+    material: metal
     color: "#57534e"
   - id: machine_right
     shape: box
+    kind: factory
     position: [7.0, 1.0]
     size: [3.0, 2.0]
     static: true
+    material: metal
     color: "#57534e"

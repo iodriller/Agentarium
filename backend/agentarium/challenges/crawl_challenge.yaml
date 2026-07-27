@@ -30,9 +30,11 @@ scaffold:
     color: "#94a3b8"
   - id: torso
     shape: box
+    kind: torso
     position: [-5.0, 1.5]
     size: [1.4, 0.6]
     mass: 1.5
+    material: rubber
     color: "#6d28d9"
   - id: belly_clearance_bar
     shape: box

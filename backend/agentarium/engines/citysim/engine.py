@@ -13,7 +13,13 @@ from __future__ import annotations
 
 from agentarium.core.schemas.design import BodyShape, DesignSpec
 from agentarium.core.schemas.setup import WorldConfig
-from agentarium.core.schemas.trace import EpisodeTrace, Frame, StaticProp
+from agentarium.core.schemas.trace import (
+    EpisodeTrace,
+    Frame,
+    StaticProp,
+    VisualSpec,
+    stable_visual_seed,
+)
 from agentarium.engines.base import EngineAdapter
 from agentarium.engines.citysim import layout
 
@@ -76,9 +82,11 @@ class CityEngine(EngineAdapter):
             engine=self.name,
             camera="iso",
             terrain=getattr(world.terrain, "value", str(world.terrain)),
+            visual_style=getattr(world.visual_style, "value", str(world.visual_style)),
+            visual_seed=world.seed or 0,
             dt=_TICK_SECONDS,
             kill_y=None,
-            world_static=self._build_static(design),
+            world_static=self._build_static(design, world),
             body_meta={},
         )
 
@@ -127,7 +135,7 @@ class CityEngine(EngineAdapter):
         return trace
 
     @staticmethod
-    def _build_static(design: DesignSpec) -> list[StaticProp]:
+    def _build_static(design: DesignSpec, world: WorldConfig) -> list[StaticProp]:
         """Every body becomes a static prop: CityEngine has no rigid-body motion.
 
         Buildings sit at ground level (y=0) and extrude upward by size[1]
@@ -152,6 +160,16 @@ class CityEngine(EngineAdapter):
                     angle=spec.angle,
                     color=spec.color,
                     shape=shape_name,
+                    created_by=spec.created_by,
+                    visual=VisualSpec(
+                        # "metal" is the legacy BodySpec default. City façades
+                        # keep their semantic palette unless the design chose a
+                        # more meaningful material explicitly.
+                        material=None if spec.material == "metal" else spec.material,
+                        seed=stable_visual_seed(world.seed, spec.id),
+                        variant=f"v{stable_visual_seed(world.seed, spec.id) % 4}",
+                        label=spec.kind,
+                    ),
                 )
             )
         return props

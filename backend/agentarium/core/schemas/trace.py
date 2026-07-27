@@ -1,6 +1,33 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+import zlib
+
+from pydantic import BaseModel, Field
+
+
+class VisualSpec(BaseModel):
+    """Cosmetic metadata consumed only by EpisodeTrace renderers.
+
+    Physics and scoring deliberately ignore these fields. Keeping the visual
+    description inside the trace makes replays portable and gives every engine
+    the same deterministic material/variant vocabulary.
+    """
+
+    variant: str | None = None
+    material: str | None = None
+    condition: str = "normal"
+    theme: str | None = None
+    seed: int = 0
+    emission: float = 0.0
+    label: str | None = None
+    animation_state: str | None = None
+
+
+def stable_visual_seed(world_seed: int | None, object_id: str) -> int:
+    """Stable cross-process seed for cosmetic procedural variation."""
+
+    prefix = str(world_seed if world_seed is not None else 0)
+    return zlib.crc32(f"{prefix}:{object_id}".encode()) & 0xFFFFFFFF
 
 
 class StaticProp(BaseModel):
@@ -19,6 +46,8 @@ class StaticProp(BaseModel):
     # where a prop's footprint sits at (position[0], z) and extrudes upward by
     # size[1]; side-view (pymunk2d) traces leave this 0 and it is ignored.
     z: float = 0.0
+    created_by: str | None = None
+    visual: VisualSpec = Field(default_factory=VisualSpec)
 
 
 class BodyMeta(BaseModel):
@@ -33,6 +62,27 @@ class BodyMeta(BaseModel):
     color: str | None = None
     # Semantic label so the renderer draws a recognizable prop (house/tree/…).
     kind: str | None = None
+    created_by: str | None = None
+    visual: VisualSpec = Field(default_factory=VisualSpec)
+
+
+class JointMeta(BaseModel):
+    """Renderer-facing description of a design constraint.
+
+    Dynamic joint positions are reconstructed from frame body transforms and
+    these local anchors. This is intentionally descriptive only; the renderer
+    never reads live Pymunk constraints.
+    """
+
+    id: str
+    body_a: str
+    body_b: str
+    type: str = "pivot"
+    anchor_a: list[float] = Field(default_factory=lambda: [0.0, 0.0])
+    anchor_b: list[float] = Field(default_factory=lambda: [0.0, 0.0])
+    motor_rate: float | None = None
+    motor_max_force: float = 0.0
+    created_by: str | None = None
 
 
 class FrameBody(BaseModel):
@@ -50,12 +100,14 @@ class Frame(BaseModel):
 
 
 class EpisodeTrace(BaseModel):
-    version: int = 2
+    version: int = 3
     run_id: str
     attempt_id: str = "attempt_001"
     engine: str = "pymunk2d"
     camera: str = "side"  # "side" (Pymunk2D, x-right/y-up) | "iso" (citysim, x/z ground plane)
     terrain: str = "grassland"  # drives the renderer's ground/background palette
+    visual_style: str = "realistic"
+    visual_seed: int = 0
     dt: float
     # Below this world-y, a body over a ground gap is considered fallen into the
     # chasm. None means no gap in this world (ground_spans not set).
@@ -63,4 +115,5 @@ class EpisodeTrace(BaseModel):
     world_static: list[StaticProp] = []
     # Per-dynamic-body shape/size/color, keyed by body id (see BodyMeta).
     body_meta: dict[str, BodyMeta] = {}
+    joints: list[JointMeta] = []
     frames: list[Frame] = []
