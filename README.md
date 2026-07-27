@@ -63,14 +63,21 @@ commands.
 
 ## What you get
 
-Two screens, one loop:
+Six connected workspaces:
 
-1. **Simulation Setup** — pick a scenario, world, agents, LLM provider, the tools
-   agents may use, constraints, and outputs. Live validation tells you exactly
-   what's missing before you can launch.
-2. **Simulation Studio** — launch, then watch agents call tools and build in an
-   side-view world, run physics, and replay each scored attempt — with a live
-   tool-call log, design summary, scorecards, and telemetry.
+1. **Simulation Setup** — choose a task, world, agent protocol, models, tools,
+   real resource constraints, and artifact outputs.
+2. **Simulation Studio** — inspect the model turns and tool calls, scrub the
+   construction and physics timelines, replay attempts, and export evidence.
+3. **History** — reopen durable SQLite-backed runs, filter them, and select
+   traces for comparison.
+4. **Experiments** — run paired model × seed × repeat matrices with mean/SD,
+   confidence intervals, and paired win/tie/loss score deltas.
+5. **Compare** — synchronize two to four replays while comparing scores, config,
+   tokens, latency, and native-tool versus prompt-JSON protocol.
+6. **Physical Lab** — run the same typed observation/action boundary against a
+   deterministic mock rover or a configured ROS 2 gateway, with explicit
+   arming, geofences, limits, a watchdog, and a latched emergency stop.
 
 A run is real and visible end to end: **Launch → agent builds via validated tool
 calls → physics runs → the world replays it → scores and telemetry stream live.**
@@ -102,14 +109,50 @@ spread, and nearest-neighbour spacing (livability).
   what the agent built step by step and what happened in simulation.
 - **Explainable scoring.** Named, pluggable reward functions turn trace metrics
   into a scorecard with a summary and a concrete improvement hint.
-- **Multi-agent.** `single`, `competitive`, and `cooperative` modes, with every
-  part attributed to the agent that built it.
+- **Iterative model loop.** Real providers can request a bounded preview,
+  inspect score/state/failures, and revise within an attempt. Native function
+  calls are used when supported, with validated JSON fallback.
+- **Reproducible evaluation.** Provider/model/seed, benchmark fingerprint,
+  protocol, token usage, retry count, request id, latency, prompts, and model
+  results are recorded per turn.
+- **Multi-agent.** `single`, `competitive`, `cooperative`, `relay`, and
+  `sandbox` protocols, with lineage and every part attributed to its author.
 - **LLM providers.** `mock` (offline, deterministic), `localdeploy`, and any
   OpenAI-compatible endpoint. Connection probes are short; generation calls have
   configurable timeouts and retry/backoff, and surface structured errors
   (auth / rate-limit / server / timeout / malformed). Tune via env vars:
   `AGENTARIUM_LLM_TIMEOUT_S` (default 120), `AGENTARIUM_LLM_RETRIES` (default 2),
   `AGENTARIUM_LLM_BACKOFF_S` (default 0.5).
+
+### Headless runs and sweeps
+
+The UI and automation use the same schemas and run pipeline:
+
+```bash
+uv run agentarium run --config path/to/launch.yaml --seed 42
+uv run agentarium sweep --matrix path/to/experiment.yaml
+```
+
+Both commands print machine-readable JSON. Sweep cells remain ordinary durable
+runs, so their replays open in Studio.
+
+### Physical / ROS 2 gateway
+
+Physical Lab always includes an offline mock rover. A real robot-side gateway
+can be registered without adding ROS dependencies to the Agentarium server:
+
+```bash
+AGENTARIUM_ROS2_GATEWAY_URL=http://robot-gateway:8080
+AGENTARIUM_ROS2_GATEWAY_TOKEN=robot-side-secret
+AGENTARIUM_OPERATOR_KEY=human-arming-secret
+uv run agentarium serve
+```
+
+Real-device arming also requires the operator key in the UI. Agentarium only
+sends bounded `drive_to` and `stop` actions; the robot-side gateway must enforce
+its own local watchdog, actuator limits, collision avoidance, and physical
+emergency stop. **Agentarium is not a certified safety controller.** See
+[`docs/EMBODIMENT.md`](docs/EMBODIMENT.md).
 
 ### OpenAI API key
 
@@ -125,6 +168,8 @@ blank, and does not save the real key into `runs/workspace_config.json`.
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full component map,
 data-flow diagram, and invariants — and
+[`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md) for reproducible model evaluation,
+[`docs/EMBODIMENT.md`](docs/EMBODIMENT.md) for the physical boundary, and
 [`docs/examples/`](docs/examples/) for a real generated
 [run report](docs/examples/sample_report.md) and
 [scorecard](docs/examples/sample_scorecard.json).
@@ -158,6 +203,10 @@ Current docs:
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — implemented architecture,
   contracts, tools, scoring, modes, and invariants.
+- [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md) — model matrices, paired seeds,
+  statistics, CLI automation, and artifacts.
+- [`docs/EMBODIMENT.md`](docs/EMBODIMENT.md) — mock/ROS 2 adapters, physical
+  episodes, safety state machine, and gateway contract.
 - [`docs/remaining_gaps.md`](docs/remaining_gaps.md) — current backlog of known
   gaps and deferred work.
 - [`docs/IMPROVEMENTS.md`](docs/IMPROVEMENTS.md) — review notes, shipped

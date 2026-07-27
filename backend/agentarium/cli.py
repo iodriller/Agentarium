@@ -1,4 +1,7 @@
 import argparse
+import asyncio
+import json
+import pathlib
 import socket
 import sys
 import threading
@@ -6,6 +9,7 @@ import time
 import urllib.request
 
 import uvicorn
+import yaml
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -25,7 +29,68 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Open the app in your browser once the server is ready",
     )
+
+    run = sub.add_parser("run", help="Run one LaunchConfig headlessly")
+    run.add_argument("--config", required=True, help="LaunchConfig JSON or YAML path")
+    run.add_argument("--seed", type=int, help="Override world/model sampling seed")
+
+    sweep = sub.add_parser("sweep", help="Run an ExperimentSpec matrix headlessly")
+    sweep.add_argument("--matrix", required=True, help="ExperimentSpec JSON or YAML path")
     return parser
+
+
+def _read_data(path_value: str) -> dict:
+    path = pathlib.Path(path_value)
+    raw = path.read_text(encoding="utf-8")
+    value = json.loads(raw) if path.suffix.lower() == ".json" else yaml.safe_load(raw)
+    if not isinstance(value, dict):
+        raise ValueError(f"{path} must contain one object")
+    return value
+
+
+async def _headless_run(config_path: str, seed: int | None) -> dict:
+    from agentarium.core.schemas.setup import LaunchConfig, LaunchState
+    from agentarium.services.orchestrator import run_manager
+    from agentarium.setup.validators import validate_launch_config
+
+    config = LaunchConfig.model_validate(_read_data(config_path))
+    if seed is not None:
+        config.world.seed = seed
+    validation = await validate_launch_config(config)
+    if validation.state != LaunchState.ready:
+        raise ValueError(
+            f"{validation.state.value}: {', '.join(validation.missing)}"
+        )
+    run_id = await run_manager.create_run(config, provenance={"source": "cli"})
+    finished: dict = {}
+    async for event in run_manager.subscribe(run_id):
+        if event.get("type") == "error":
+            raise RuntimeError(str(event.get("detail") or "run failed"))
+        if event.get("type") == "run_finished":
+            finished = event
+    return {"run_id": run_id, **finished}
+
+
+async def _headless_sweep(matrix_path: str) -> dict:
+    from agentarium.core.schemas.experiment import ExperimentSpec
+    from agentarium.services.experiment_service import experiment_manager
+
+    spec = ExperimentSpec.model_validate(_read_data(matrix_path))
+    created = await experiment_manager.create(spec)
+    finished = await experiment_manager.wait(created.id)
+    if finished is None:
+        raise RuntimeError("experiment disappeared")
+    return {
+        "experiment": finished.model_dump(mode="json"),
+        "aggregates": [
+            item.model_dump(mode="json")
+            for item in (experiment_manager.aggregates(created.id) or [])
+        ],
+        "pairwise": [
+            item.model_dump(mode="json")
+            for item in (experiment_manager.pairwise(created.id) or [])
+        ],
+    }
 
 
 def _port_in_use(host: str, port: int) -> bool:
@@ -83,5 +148,19 @@ def main(argv: list[str] | None = None) -> None:
                 f"http://{shown}:{port}", f"http://127.0.0.1:{port}/api/health"
             )
         uvicorn.run("agentarium.app:app", host=host, port=port, reload=reload)
+    elif args.command == "run":
+        try:
+            result = asyncio.run(_headless_run(args.config, args.seed))
+        except Exception as exc:  # noqa: BLE001 - CLI boundary
+            print(f"Agentarium run failed: {exc}", file=sys.stderr)
+            raise SystemExit(1) from exc
+        print(json.dumps(result, indent=2))
+    elif args.command == "sweep":
+        try:
+            result = asyncio.run(_headless_sweep(args.matrix))
+        except Exception as exc:  # noqa: BLE001 - CLI boundary
+            print(f"Agentarium sweep failed: {exc}", file=sys.stderr)
+            raise SystemExit(1) from exc
+        print(json.dumps(result, indent=2))
     else:
         parser.print_help()

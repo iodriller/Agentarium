@@ -85,6 +85,12 @@ def test_get_snapshots_for_persisted_agent_attempt():
     assert cfg.json()["config"]["scenario"]["preset"] == "tiny_city_preview"
     assert cfg.json()["provenance"]["kind"] == "attempt"
 
+    interactions = client.get(
+        f"/api/runs/{result.trace_run_id}/model-interactions"
+    )
+    assert interactions.status_code == 200
+    assert interactions.json()[0]["result"]["provider"] == "mock"
+
 
 def test_run_attempts_grouped_by_parent():
     config = LaunchConfig(

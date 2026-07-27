@@ -6,6 +6,7 @@ import time
 from pydantic import BaseModel
 
 from agentarium.core.schemas.design import (
+    WORLD_AUTHOR,
     BodyShape,
     BodySpec,
     DesignSpec,
@@ -71,6 +72,53 @@ _BODY_TOOLS = frozenset(
 )
 _JOINT_TOOLS = frozenset({"add_joint"})
 _MOTOR_TOOLS = frozenset({"add_motor"})
+
+
+def material_units(design: DesignSpec) -> float:
+    """Approximate agent-built planar material in stable, human-scale units."""
+    return sum(
+        _body_area(body) * 10.0
+        for body in design.bodies
+        if body.created_by not in (None, WORLD_AUTHOR) and not body.sensor
+    )
+
+
+def _outside_bounds(
+    body: BodySpec,
+    bounds: tuple[float, float, float, float],
+    *,
+    use_z_bounds: bool,
+) -> bool:
+    min_x, max_x, min_secondary, max_secondary = bounds
+    x = body.position[0] if body.position else 0.0
+    secondary = body.z if use_z_bounds else (
+        body.position[1] if len(body.position) > 1 else 0.0
+    )
+    return not (min_x <= x <= max_x and min_secondary <= secondary <= max_secondary)
+
+
+def _strict_spawn_collision(new_body: BodySpec, existing: list[BodySpec]) -> str | None:
+    """Reject unmistakable solid stacking without blocking intentional touching.
+
+    Full collision prediction belongs to the engine. This preflight only catches
+    two non-sensor bodies spawned at the exact same pose, a common model error.
+    """
+    if new_body.sensor:
+        return None
+    for body in existing:
+        # World/scaffold geometry is deliberately built on (roads, bridge
+        # ledges, target bins). This preflight prevents agent-on-agent stacking,
+        # while the physics engine remains authoritative for terrain contact.
+        if body.sensor or body.created_by in (None, WORLD_AUTHOR):
+            continue
+        same_xy = (
+            len(new_body.position) >= 2
+            and len(body.position) >= 2
+            and math.dist(new_body.position[:2], body.position[:2]) <= 1e-6
+        )
+        if same_xy and abs(new_body.z - body.z) <= 1e-6:
+            return f"strict collision safety: body '{new_body.id}' overlaps '{body.id}'"
+    return None
 
 
 def _validate_args(args: dict, schema: dict) -> str | None:
@@ -441,16 +489,19 @@ def apply_tool_call(
     max_parts: int | None = None,
     max_joints: int | None = None,
     max_motors: int | None = None,
+    material_budget: float | None = None,
+    world_bounds: tuple[float, float, float, float] | None = None,
+    use_z_bounds: bool = False,
+    strict_collision: bool = False,
 ) -> ToolCallResult:
     """The single mutation path for agent tool calls.
 
     Validates the call and, when valid and mutating, applies it to ``design``
     in place. Invalid calls are logged ``rejected`` and never touch the design.
 
-    ``max_parts`` / ``max_joints`` / ``max_motors`` enforce the ``LaunchConfig``
-    budgets: a body-, joint-, or motor-adding call that would exceed the limit is
-    rejected before it mutates the design. ``None`` (the default) means
-    unlimited, so existing callers and tests are unaffected.
+    Resource budgets, enforced world bounds, and strict spawn checks are applied
+    to a copy before committing it. ``None`` defaults preserve compatibility for
+    callers that do not supply launch constraints.
     """
     args = args or {}
     before_body_ids = _body_ids(design)
@@ -511,6 +562,36 @@ def apply_tool_call(
     new_body_ids = sorted(_body_ids(working) - before_body_ids)
     new_joint_ids = sorted(_joint_ids(working) - before_joint_ids)
     visual_change = bool(new_body_ids)
+
+    if max_parts is not None and len(working.bodies) > max_parts:
+        return _reject(f"max_parts ({max_parts}) would be exceeded")
+    if max_joints is not None and len(working.joints) > max_joints:
+        return _reject(f"max_joints ({max_joints}) would be exceeded")
+    if max_motors is not None:
+        motor_count = sum(1 for joint in working.joints if joint.motor_rate is not None)
+        if motor_count > max_motors:
+            return _reject(f"max_motors ({max_motors}) would be exceeded")
+    if material_budget is not None and material_units(working) > material_budget:
+        return _reject(f"material_budget ({material_budget:g}) would be exceeded")
+
+    new_bodies = [body for body in working.bodies if body.id in new_body_ids]
+    if world_bounds is not None:
+        outside = next(
+            (
+                body
+                for body in new_bodies
+                if _outside_bounds(body, world_bounds, use_z_bounds=use_z_bounds)
+            ),
+            None,
+        )
+        if outside is not None:
+            return _reject(f"world_bounds enforced: body '{outside.id}' is outside the map")
+    if strict_collision:
+        existing = [body for body in design.bodies if body.id in before_body_ids]
+        for body in new_bodies:
+            collision_error = _strict_spawn_collision(body, existing)
+            if collision_error is not None:
+                return _reject(collision_error)
 
     if mutated:
         design.bodies = working.bodies

@@ -26,7 +26,7 @@ flowchart TD
     subgraph Backend [Backend · FastAPI + Pymunk2D]
         L --> RM[RunManager<br/>background task]
         RM --> RUN[runner: build attempt]
-        RUN -->|provider.complete| P[LLM provider<br/>mock / local / OpenAI-compat]
+        RUN -->|provider.generate + typed tools| P[LLM provider<br/>mock / local / OpenAI-compat]
         P -->|tool_calls JSON| RUN
         RUN -->|apply_tool_call<br/>chokepoint| D[DesignSpec]
         D --> ENG[Pymunk2D engine]
@@ -42,14 +42,14 @@ flowchart TD
 
 | Layer | Path | Responsibility |
 | --- | --- | --- |
-| Schemas | `backend/agentarium/core/schemas` | Pydantic v2 models: `LaunchConfig`, `DesignSpec`, `EpisodeTrace`, `ScoreCard`, tool defs. |
+| Schemas | `backend/agentarium/core/schemas` | Pydantic v2 models for launches, models, experiments, designs, traces, scores, tools, and embodiment. |
 | Tools | `backend/agentarium/tools` | Registry of 24 tools + the single `apply_tool_call` mutation chokepoint. |
 | Engines | `backend/agentarium/engines` | `EngineAdapter` base + Pymunk2D engine producing engine-neutral traces. |
 | Agents | `backend/agentarium/agents` | Providers (mock / localdeploy / OpenAI-compatible / manual), prompts, and the attempt runner. |
-| Services | `backend/agentarium/services` | `RunManager` orchestrator, scoring, presets, run store, exports. |
-| API | `backend/agentarium/api` | Routers: setup, tools, presets, runs, exports, WebSocket. |
+| Services | `backend/agentarium/services` | Run/experiment orchestration, scoring, presets, durable storage, exports, embodiment supervision and episodes. |
+| API | `backend/agentarium/api` | Routers for setup, tools, presets, runs, experiments, embodiments, exports, and WebSocket. |
 | Renderer | `frontend/src/phaser` | Side-view Phaser scene that consumes **only** `EpisodeTrace`. |
-| Screens | `frontend/src/screens` | Setup (config) and Studio (live run + replay). |
+| Screens | `frontend/src/screens` | Setup, Studio, History, Experiments, Compare, and Physical Lab. |
 
 ## Invariants (do not violate)
 
@@ -65,6 +65,24 @@ flowchart TD
    from the engine.
 5. **Multi-agent attribution** is carried end to end: per-call `agent_id`,
    per-part `created_by`, and per-agent events.
+6. **Physical actions cross a separate safety boundary.** Models receive only
+   normalized observations and high-level actions. Arming, control tokens,
+   geofences, action limits, watchdogs, and a latched emergency stop remain
+   outside the model/provider.
+
+## Model interaction protocol
+
+`AgentProvider.generate(ModelRequest)` returns a normalized `ModelResult`.
+OpenAI-compatible providers pass native function definitions and a seed when
+the endpoint supports them, then normalize usage, retries, request id, finish
+reason, latency, and tool calls. Prompt-JSON parsing remains the compatibility
+fallback.
+
+Real providers can perform a bounded observe → revise loop inside an attempt.
+Inspection calls produce score/state/failure output that is included in the next
+model turn. Each `ModelInteraction` is persisted to
+`model_interactions.json`; API, Studio, Compare, run metadata, and experiments
+consume the same record.
 
 ## Tools
 
@@ -129,12 +147,31 @@ Set via `LaunchConfig.agents.mode`. Each tool call carries its author's
 | `single` | ✅ live | One agent iterates over capped attempts. |
 | `competitive` | ✅ live | Each participant runs its own attempts; highest score wins (A = violet, B = sky). |
 | `cooperative` | ✅ live | All participants build **one shared design**, scored once; parts attributed per agent. |
-| `relay`, `sandbox` | 🔜 planned | Hidden in Setup and rejected by validation until they are meaningfully different. |
+| `relay` | ✅ live | Participants alternate through one attempt lineage; the previous scored lesson is forced into the next agent's context. |
+| `sandbox` | ✅ live | Every participant receives one independent trial and no artificial winner is declared. |
+
+## Experiments
+
+`ExperimentManager` expands model × paired seed × repeat matrices into ordinary
+run launches. Local JSON experiment records survive restart, API keys are
+redacted, and every trace remains replayable. Aggregates include descriptive
+statistics and pairwise deltas on matching seed/repeat cells. See
+[`EXPERIMENTS.md`](EXPERIMENTS.md).
+
+## Embodiment
+
+`EmbodimentAdapter` has four operations: reset, observe, execute one typed
+high-level action, and emergency stop. `MockRoverAdapter` is deterministic;
+`ROS2GatewayAdapter` speaks an authenticated HTTP contract to a robot-side ROS 2
+process. `SafetySupervisor` owns the host-side state machine and watchdog.
+Bounded model episodes use the same normalized provider telemetry as simulation
+runs. See [`EMBODIMENT.md`](EMBODIMENT.md).
 
 ## Persistence
 
 Run artifacts are written to `runs/{run_id}/` (`design.yaml`, `trace.json`,
-`toolcalls.jsonl`, `score.json`, `build_snapshots.json`) and kept in bounded in-memory stores
+`toolcalls.jsonl`, `score.json`, `build_snapshots.json`,
+`model_interactions.json`) and kept in bounded in-memory stores
 (`RUNS` / `SCORES` / `DESIGNS`, oldest evicted past a cap; the orchestrator evicts
 oldest *finished* runs).
 
@@ -161,6 +198,8 @@ fast and deterministic.
 ## See also
 
 - [`remaining_gaps.md`](remaining_gaps.md) — current backlog and deferred items.
+- [`EXPERIMENTS.md`](EXPERIMENTS.md) — reproducible model matrices and statistics.
+- [`EMBODIMENT.md`](EMBODIMENT.md) — physical safety and ROS 2 gateway contract.
 - [`IMPROVEMENTS.md`](IMPROVEMENTS.md) — review notes, shipped improvements, and roadmap.
 - [`archive/`](archive/) — historical product plan, build guide, and early gap analysis.
 - [`examples/`](examples/) — a real generated run report + scorecard.

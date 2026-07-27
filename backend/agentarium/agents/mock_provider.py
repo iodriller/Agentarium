@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 from agentarium.agents.base import (
     AgentProvider,
@@ -71,8 +72,8 @@ _CRAWL_TOOL_CALLS = [
             "anchor_a": [-0.5, -0.3], "anchor_b": [-0.5, 0.0],
         },
     },
-    {"tool": "add_motor", "args": {"id": "front_drive", "joint_id": "front_hip", "rate": 1.2, "max_force": 3000.0}},
-    {"tool": "add_motor", "args": {"id": "rear_drive", "joint_id": "rear_hip", "rate": -1.2, "max_force": 3000.0}},
+    {"tool": "add_motor", "args": {"id": "front_drive", "joint_id": "front_hip", "rate": -1.2, "max_force": 200.0}},
+    {"tool": "add_motor", "args": {"id": "rear_drive", "joint_id": "rear_hip", "rate": 1.2, "max_force": 200.0}},
     {"tool": "run_simulation", "args": {}},
 ]
 
@@ -297,6 +298,11 @@ def _calls_for_prompt(system: str, user: str) -> list[dict]:
         return _CRAWL_TOOL_CALLS
     if "bridge" in prompt or "crate" in prompt or "goal platform" in prompt:
         return _BRIDGE_TOOL_CALLS
+    if "shared design" in user.lower():
+        return [
+            _body("crate_1", "box", [2.0, 3.0], "crate", width=1.0, height=1.0),
+            {"tool": "run_simulation", "args": {}},
+        ]
     return _SAMPLE_TOOL_CALLS
 
 
@@ -335,5 +341,24 @@ class MockProvider(AgentProvider):
         # challenge-specific deterministic build so the no-network demo is honest:
         # bridge -> beams, crawl -> legs/joints/motors, sorter -> bins/ramps,
         # city -> semantic city props. Custom prompts fall back to one crate.
-        calls = _calls_for_prompt(system, user)
+        if "embodiment control tools" in system.lower():
+            match = re.search(
+                r"Goal: x=([-+0-9.eE]+), y=([-+0-9.eE]+)",
+                system,
+            )
+            target_x = float(match.group(1)) if match else 0.0
+            target_y = float(match.group(2)) if match else 0.0
+            calls = [
+                {
+                    "tool": "drive_to",
+                    "args": {
+                        "target_x": target_x,
+                        "target_y": target_y,
+                        "max_speed_mps": 0.5,
+                        "duration_s": 5.0,
+                    },
+                }
+            ]
+        else:
+            calls = _calls_for_prompt(system, user)
         return json.dumps({"tool_calls": calls})

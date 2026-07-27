@@ -121,6 +121,7 @@ export interface ConstraintsConfig {
   energy_budget?: number
   max_attempts?: number
   simulation_duration_seconds?: number
+  agent_turns_per_attempt?: number
   material_budget?: number
   collision_safety?: CollisionSafety
   world_bounds?: WorldBounds
@@ -277,6 +278,14 @@ export interface RunSummary {
   artifact_dir?: string | null
   config_available?: boolean
   attempt_count?: number
+  provider?: string | null
+  model?: string | null
+  seed?: number | null
+  input_tokens?: number | null
+  output_tokens?: number | null
+  latency_ms?: number | null
+  protocol?: string | null
+  benchmark_hash?: string | null
 }
 
 export interface RunConfigResponse {
@@ -303,6 +312,112 @@ export interface RunAttemptSummary {
   success?: boolean | null
 }
 
+export type ExperimentStatus = 'queued' | 'running' | 'completed' | 'cancelled' | 'failed'
+export type ExperimentCellStatus = ExperimentStatus
+
+export interface ModelVariant {
+  id: string
+  label: string
+  provider: LLMProvider
+  model: string
+  endpoint_url?: string | null
+  api_key?: string | null
+  temperature?: number
+}
+
+export interface ExperimentSpec {
+  name: string
+  base_config: LaunchConfig
+  models: ModelVariant[]
+  seeds: number[]
+  repeats: number
+}
+
+export interface ExperimentCell {
+  id: string
+  model_variant_id: string
+  model_label: string
+  seed: number
+  repeat_index: number
+  status: ExperimentCellStatus
+  launch_run_id?: string | null
+  trace_run_id?: string | null
+  score?: number | null
+  success?: boolean | null
+  input_tokens: number
+  output_tokens: number
+  latency_ms: number
+  error?: string | null
+}
+
+export interface ExperimentRecord {
+  id: string
+  spec: ExperimentSpec
+  status: ExperimentStatus
+  created_at: number
+  started_at?: number | null
+  finished_at?: number | null
+  cells: ExperimentCell[]
+  error?: string | null
+}
+
+export interface ExperimentAggregate {
+  model_variant_id: string
+  model_label: string
+  n: number
+  successes: number
+  success_rate: number
+  mean_score: number
+  stddev_score: number
+  ci95_low: number
+  ci95_high: number
+  mean_latency_ms: number
+  mean_tokens: number
+}
+
+export interface ExperimentPairwise {
+  model_a_id: string
+  model_a_label: string
+  model_b_id: string
+  model_b_label: string
+  n_pairs: number
+  wins_a: number
+  ties: number
+  wins_b: number
+  mean_score_delta: number
+  ci95_low: number
+  ci95_high: number
+}
+
+export interface TokenUsage {
+  input_tokens: number
+  output_tokens: number
+  reasoning_tokens: number
+  cached_input_tokens: number
+}
+
+export interface ModelResult {
+  provider: string
+  model: string
+  raw_text: string
+  tool_calls: Record<string, unknown>[]
+  native_tool_calls: boolean
+  finish_reason?: string | null
+  request_id?: string | null
+  latency_ms: number
+  retries: number
+  usage: TokenUsage
+}
+
+export interface ModelInteraction {
+  turn_index: number
+  agent_id: string
+  system: string
+  user: string
+  seed?: number | null
+  result: ModelResult
+}
+
 // ─── Score / tool-call (mirrors backend score.py / toolcall.py) ────────────────
 
 export type ToolCallStatus = 'success' | 'repaired' | 'rejected'
@@ -319,6 +434,7 @@ export interface ToolCallRecord {
   visual_change?: boolean
   new_body_ids?: string[]
   new_joint_ids?: string[]
+  output?: Record<string, unknown>
 }
 
 export interface BuildStepRecord {
@@ -500,6 +616,20 @@ export interface ErrorEvent {
   kind?: string
 }
 
+export interface ModelResultEvent {
+  type: 'model_result'
+  attempt_index: number
+  agent_id: string
+  turn_index: number
+  provider: string
+  model: string
+  latency_ms: number
+  retries: number
+  finish_reason?: string | null
+  native_tool_calls: boolean
+  usage: TokenUsage
+}
+
 export type RunEvent =
   | RunStartedEvent
   | AttemptStartedEvent
@@ -509,6 +639,82 @@ export type RunEvent =
   | TraceReadyEvent
   | ScoreEvent
   | AttemptFinishedEvent
+  | ModelResultEvent
   | WinnerEvent
   | RunFinishedEvent
   | ErrorEvent
+
+// ─── Embodiment gateway ─────────────────────────────────────────────────────
+
+export type EnvironmentMode = 'simulation' | 'shadow' | 'hardware_in_the_loop' | 'real'
+export type SafetyState = 'disarmed' | 'armed' | 'emergency_stopped'
+export type EmbodimentActionKind = 'stop' | 'drive_to'
+
+export interface SafetyLimits {
+  min_x: number
+  max_x: number
+  min_y: number
+  max_y: number
+  max_linear_speed_mps: number
+  max_action_duration_s: number
+  heartbeat_timeout_s: number
+}
+
+export interface EmbodimentDevice {
+  id: string
+  label: string
+  adapter: string
+  mode: EnvironmentMode
+  safety_state: SafetyState
+  limits: SafetyLimits
+  connected: boolean
+  last_heartbeat_age_s: number | null
+}
+
+export interface EmbodimentObservation {
+  device_id: string
+  timestamp: number
+  sequence: number
+  pose: { x: number; y: number; heading_rad: number }
+  velocity: { linear_mps: number; angular_rps: number }
+  battery_fraction: number | null
+  sensors: Record<string, unknown>
+  safety_state: SafetyState
+}
+
+export interface EmbodimentAction {
+  kind: EmbodimentActionKind
+  target_x?: number | null
+  target_y?: number | null
+  max_speed_mps?: number
+  duration_s?: number
+}
+
+export interface EmbodimentActionReceipt {
+  action_id: string
+  accepted: boolean
+  reason: string | null
+  observation: EmbodimentObservation | null
+}
+
+export interface EmbodimentEvent {
+  timestamp: number
+  device_id: string
+  event: string
+  detail: Record<string, unknown>
+}
+
+export interface EmbodimentEpisodeResult {
+  id: string
+  device_id: string
+  objective: string
+  provider: string
+  model: string
+  success: boolean
+  score: number
+  final_distance_m: number
+  interactions: ModelInteraction[]
+  actions: EmbodimentActionReceipt[]
+  observations: EmbodimentObservation[]
+  error?: string | null
+}

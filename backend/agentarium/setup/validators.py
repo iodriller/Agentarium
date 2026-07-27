@@ -48,22 +48,11 @@ async def validate_launch_config(config: LaunchConfig) -> ValidationResult:
     if missing:
         return ValidationResult(state=LaunchState.missing_required, missing=missing)
 
-    # --- 2. UNSUPPORTED_MODE ---
-    if config.agents.mode in (CollaborationMode.relay, CollaborationMode.sandbox):
-        return ValidationResult(
-            state=LaunchState.unsupported_mode,
-            missing=[
-                f"Collaboration mode '{config.agents.mode.value}' is planned but not live yet. "
-                "Use single, competitive, or cooperative."
-            ],
-            warnings=warnings,
-        )
-
-    # --- 3. UNSUPPORTED_ENGINE ---
+    # --- 2. UNSUPPORTED_ENGINE ---
     if config.world.engine == PhysicsEngine.pybullet3d:
         return ValidationResult(state=LaunchState.unsupported_engine, missing=missing, warnings=warnings)
 
-    # --- 4. TOOL_CHALLENGE_MISMATCH ---
+    # --- 3. TOOL_CHALLENGE_MISMATCH ---
     if not config.tools.enabled:
         warnings.append("No tools enabled — agent will not be able to build anything.")
 

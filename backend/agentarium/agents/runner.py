@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import pathlib
 import time
@@ -9,7 +10,6 @@ import yaml
 from pydantic import BaseModel, Field
 
 from agentarium.agents import get_provider
-from agentarium.agents.parsing import parse_tool_calls
 from agentarium.agents.prompts import (
     build_cooperative_user_prompt,
     build_system_prompt,
@@ -17,8 +17,17 @@ from agentarium.agents.prompts import (
 )
 from agentarium.core.schemas.challenge import ScenarioPreset
 from agentarium.core.schemas.design import WORLD_AUTHOR, BodySpec, DesignSpec
+from agentarium.core.schemas.model import ModelInteraction, ModelRequest
 from agentarium.core.schemas.score import ScoreCard
-from agentarium.core.schemas.setup import AgentConfig, LaunchConfig, MemoryMode, WorldConfig
+from agentarium.core.schemas.setup import (
+    AgentConfig,
+    CollisionSafety,
+    LaunchConfig,
+    MemoryMode,
+    PhysicsEngine,
+    WorldBounds,
+    WorldConfig,
+)
 from agentarium.core.schemas.toolcall import BuildStepRecord, ToolCallRecord, ToolCallStatus
 from agentarium.engines import get_engine
 from agentarium.services.preset_service import get_scenario_preset, get_world_template
@@ -29,7 +38,7 @@ from agentarium.services.run_service import (
     store_score,
 )
 from agentarium.services.scoring_service import score_attempt
-from agentarium.tools.apply import apply_tool_call
+from agentarium.tools.apply import apply_tool_call, material_units
 from agentarium.tools.registry import get_tool
 
 _RUNS_DIR = pathlib.Path("runs")
@@ -231,6 +240,7 @@ class AttemptResult(BaseModel):
     # compatibility convenience for older tests/callers that only need traces.
     build_steps: list[BuildStepRecord] = Field(default_factory=list)
     snapshots: list[dict] = Field(default_factory=list)
+    model_interactions: list[ModelInteraction] = Field(default_factory=list)
 
 
 def _design_snapshot(design: DesignSpec, world: WorldConfig) -> dict:
@@ -303,6 +313,9 @@ def _persist_attempt_artifacts(
     records: list[ToolCallRecord],
     score: ScoreCard,
     build_steps: list[BuildStepRecord],
+    model_interactions: list[ModelInteraction],
+    config: LaunchConfig,
+    trace_run_id: str | None,
 ) -> None:
     """Persist human-inspectable artifacts for one simulated attempt."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -313,12 +326,251 @@ def _persist_attempt_artifacts(
     with (out_dir / "toolcalls.jsonl").open("w", encoding="utf-8") as fh:
         for record in records:
             fh.write(record.model_dump_json() + "\n")
-    (out_dir / "score.json").write_text(
-        score.model_dump_json(indent=2), encoding="utf-8"
-    )
+    if config.outputs.scorecard_json:
+        (out_dir / "score.json").write_text(
+            score.model_dump_json(indent=2), encoding="utf-8"
+        )
     (out_dir / "build_snapshots.json").write_text(
         json.dumps([s.model_dump(mode="json") for s in build_steps], indent=2),
         encoding="utf-8",
+    )
+    (out_dir / "model_interactions.json").write_text(
+        json.dumps([i.model_dump(mode="json") for i in model_interactions], indent=2),
+        encoding="utf-8",
+    )
+    if trace_run_id is not None:
+        from agentarium.services.export_service import export_report, export_trace
+
+        if config.outputs.replay_json:
+            replay = export_trace(trace_run_id, "json")
+            if replay is not None:
+                (out_dir / "replay.json").write_text(replay, encoding="utf-8")
+        if config.outputs.trace_jsonl:
+            trace_jsonl = export_trace(trace_run_id, "jsonl")
+            if trace_jsonl is not None:
+                (out_dir / "trace.jsonl").write_text(trace_jsonl, encoding="utf-8")
+        if config.outputs.markdown_report:
+            report = export_report(trace_run_id)
+            if report is not None:
+                (out_dir / "report.md").write_text(report, encoding="utf-8")
+
+
+def _provider_tools(enabled_defs: list) -> list[dict]:
+    """Provider-neutral function definitions from the canonical tool registry."""
+    return [
+        {
+            "name": definition.name,
+            "description": definition.description,
+            "parameters": definition.input_schema,
+        }
+        for definition in enabled_defs
+    ]
+
+
+def _benchmark_hash(
+    config: LaunchConfig,
+    preset: ScenarioPreset | None,
+    enabled_defs: list,
+) -> str:
+    """Fingerprint the task/world/tool contract used for a comparable trial."""
+    world_template = get_world_template(config.world.template)
+    payload = {
+        "scenario": config.scenario.model_dump(mode="json"),
+        "preset": preset.model_dump(mode="json") if preset is not None else None,
+        "world": config.world.model_dump(mode="json"),
+        "world_template": (
+            world_template.model_dump(mode="json")
+            if world_template is not None
+            else None
+        ),
+        "tools": _provider_tools(enabled_defs),
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(encoded).hexdigest()[:16]
+
+
+def _world_limits(config: LaunchConfig) -> tuple[float, float, float, float]:
+    size = config.world.map_size
+    width = float(size[0]) if size else 32.0
+    height = float(size[1]) if len(size) > 1 else width
+    half_x = width / 2.0
+    if config.world.engine == PhysicsEngine.citysim:
+        return (-half_x, half_x, -height / 2.0, height / 2.0)
+    # Static floors, bins, and chasm geometry legitimately sit slightly below
+    # y=0; the lower half-map remains bounded without rejecting those designs.
+    return (-half_x, half_x, -height / 2.0, height)
+
+
+def _tool_constraint_kwargs(config: LaunchConfig) -> dict:
+    return {
+        "max_parts": config.constraints.max_parts,
+        "max_joints": config.constraints.max_joints,
+        "max_motors": config.constraints.max_motors,
+        "material_budget": config.constraints.material_budget,
+        "world_bounds": (
+            _world_limits(config)
+            if config.constraints.world_bounds == WorldBounds.enforced
+            else None
+        ),
+        "use_z_bounds": config.world.engine == PhysicsEngine.citysim,
+        "strict_collision": (
+            config.constraints.collision_safety == CollisionSafety.strict
+        ),
+    }
+
+
+def _estimated_motor_energy(design: DesignSpec, duration_s: float) -> float:
+    """Comparable actuator effort estimate, not a hardware power measurement."""
+    return sum(
+        abs(joint.motor_rate or 0.0)
+        * min(abs(joint.motor_max_force), 1000.0)
+        / 200.0
+        * duration_s
+        for joint in design.joints
+        if joint.motor_rate is not None
+    )
+
+
+def _out_of_bounds_count(design: DesignSpec, config: LaunchConfig) -> int:
+    min_x, max_x, min_secondary, max_secondary = _world_limits(config)
+    use_z = config.world.engine == PhysicsEngine.citysim
+    count = 0
+    for body in design.bodies:
+        if body.created_by in (None, WORLD_AUTHOR):
+            continue
+        x = body.position[0] if body.position else 0.0
+        secondary = body.z if use_z else (
+            body.position[1] if len(body.position) > 1 else 0.0
+        )
+        if not (min_x <= x <= max_x and min_secondary <= secondary <= max_secondary):
+            count += 1
+    return count
+
+
+def _apply_score_constraints(
+    score: ScoreCard,
+    design: DesignSpec,
+    config: LaunchConfig,
+    *,
+    duration_s: float,
+) -> ScoreCard:
+    """Attach resource telemetry and apply hard/soft launch constraints."""
+    constrained = score.model_copy(deep=True)
+    used_material = material_units(design)
+    energy = _estimated_motor_energy(design, duration_s)
+    outside = _out_of_bounds_count(design, config)
+    constrained.metrics["material_units"] = used_material
+    constrained.metrics["motor_energy_estimate"] = energy
+    constrained.metrics["out_of_bounds_parts"] = float(outside)
+
+    hard_failures: list[dict] = []
+    if used_material > config.constraints.material_budget:
+        hard_failures.append(
+            {
+                "type": "material_budget_exceeded",
+                "used": round(used_material, 3),
+                "budget": config.constraints.material_budget,
+            }
+        )
+    if energy > config.constraints.energy_budget:
+        hard_failures.append(
+            {
+                "type": "energy_budget_exceeded",
+                "used": round(energy, 3),
+                "budget": config.constraints.energy_budget,
+            }
+        )
+        constrained.score_total *= max(0.0, config.constraints.energy_budget / energy)
+    if outside and config.constraints.world_bounds == WorldBounds.enforced:
+        hard_failures.append(
+            {"type": "world_bounds_exceeded", "parts": outside, "mode": "enforced"}
+        )
+    elif outside and config.constraints.world_bounds == WorldBounds.soft:
+        constrained.failure_events.append(
+            {"type": "world_bounds_soft_penalty", "parts": outside}
+        )
+        constrained.score_total = max(0.0, constrained.score_total - 5.0 * outside)
+
+    if hard_failures:
+        constrained.failure_events.extend(hard_failures)
+        constrained.success = False
+        constrained.summary = (
+            f"{constrained.summary} Constraint failure: "
+            + ", ".join(event["type"] for event in hard_failures)
+        ).strip()
+        constrained.improvement_hint = (
+            "Reduce material or actuator effort and keep every agent-built part "
+            "inside the configured world bounds."
+        )
+    return constrained
+
+
+def _agent_system_prompt(agent: AgentConfig, generated: str) -> str:
+    """Apply the user override or make the configured agent profile effective."""
+    if agent.system_prompt_override and agent.system_prompt_override.strip():
+        return agent.system_prompt_override.strip()
+    return (
+        f"{generated}\n\nAgent profile: role={agent.role.value}; "
+        f"behavior={agent.behavior_mode.value}; "
+        f"mutation_strategy={agent.mutation_strategy.value}. "
+        "Follow this profile while remaining within the tool and safety rules."
+    )
+
+
+_OBSERVATION_TOOLS = frozenset(
+    {
+        "get_state",
+        "run_simulation",
+        "inspect_score",
+        "inspect_failure_events",
+        "compare_attempts",
+    }
+)
+
+
+def _observe_design(design: DesignSpec, config: LaunchConfig) -> dict:
+    """Run a bounded preview and return provider-neutral state + score feedback."""
+    trace = None
+    duration = min(
+        float(config.constraints.simulation_duration_seconds),
+        10.0,
+    )
+    if design.bodies:
+        engine = get_engine(config.world.engine.value)
+        if engine is not None:
+            try:
+                trace = engine.simulate(design, config.world, duration_seconds=duration)
+            except Exception:  # noqa: BLE001 - feedback failure must stay contained
+                trace = None
+    score = _apply_score_constraints(
+        score_attempt(trace, design, config.scenario.reward),
+        design,
+        config,
+        duration_s=duration,
+    )
+    final_bodies: dict[str, dict] = {}
+    if trace is not None and trace.frames:
+        final_bodies = {
+            body_id: body.model_dump(mode="json")
+            for body_id, body in trace.frames[-1].bodies.items()
+        }
+    return {
+        "score": score.model_dump(mode="json"),
+        "state": {
+            "body_count": len(design.bodies),
+            "joint_count": len(design.joints),
+            "final_bodies": final_bodies,
+        },
+    }
+
+
+def _observation_prompt(objective: str, turn_index: int, observation: dict) -> str:
+    compact = json.dumps(observation, separators=(",", ":"), sort_keys=True)
+    return (
+        f"Observation after model turn #{turn_index}: {compact}\n"
+        f"Continue working toward: {objective}. Revise the design using enabled "
+        "tools. You may call run_simulation/inspect_score again. If the design "
+        'is satisfactory, return {"tool_calls": []}.'
     )
 
 
@@ -379,6 +631,7 @@ def _repair_rejected(
     design: DesignSpec,
     enabled_names: list[str],
     records: list[ToolCallRecord],
+    config: LaunchConfig | None = None,
 ) -> ToolCallRecord | None:
     """One conservative repair pass over rejected records (in place).
 
@@ -405,6 +658,7 @@ def _repair_rejected(
             tool=record.tool,
             args=repaired_args,
             enabled_tools=enabled_names,
+            **(_tool_constraint_kwargs(config) if config is not None else {}),
         )
         if result.mutated:
             repairs.append(
@@ -462,6 +716,7 @@ async def run_agent_attempt(
     attempt_index: int = 0,
     previous: AttemptResult | None = None,
     parent_run_id: str | None = None,
+    force_memory: bool = False,
 ) -> AttemptResult:
     """Run one build attempt end-to-end for a SPECIFIC participant.
 
@@ -488,60 +743,109 @@ async def run_agent_attempt(
     _seed_scaffold(design, preset)
 
     world_summary = _world_context(config, preset, design)
-    system_prompt = build_system_prompt(
-        objective,
-        world_summary,
-        enabled_defs,
-        movable_body_required=preset is None or preset.reward not in _STATIC_OK_REWARDS,
+    system_prompt = _agent_system_prompt(
+        agent,
+        build_system_prompt(
+            objective,
+            world_summary,
+            enabled_defs,
+            movable_body_required=preset is None or preset.reward not in _STATIC_OK_REWARDS,
+        ),
     )
     memory = (
         _build_memory(previous)
-        if agent.memory_mode in (MemoryMode.episodic, MemoryMode.best_attempt_summary)
+        if force_memory
+        or agent.memory_mode in (MemoryMode.episodic, MemoryMode.best_attempt_summary)
         else ""
     )
     user_prompt = build_user_prompt(objective, attempt_index, memory)
 
-    raw = await provider.complete(
-        model=agent.model,
-        system=system_prompt,
-        user=user_prompt,
-        endpoint_url=agent.endpoint_url or config.llm_connection.endpoint_url,
-        api_key=agent.api_key or config.llm_connection.api_key,
-        temperature=agent.temperature,
-    )
-
-    tool_calls = parse_tool_calls(raw)
-
     records: list[ToolCallRecord] = []
     build_steps: list[BuildStepRecord] = []
-    for call in tool_calls:
-        tool = call.get("tool", "")
-        args = call.get("args", {}) or {}
-        result = apply_tool_call(
-            design,
-            agent_id=agent.id,
-            tool=tool,
-            args=args,
-            enabled_tools=enabled_names,
-            max_parts=config.constraints.max_parts,
-            max_joints=config.constraints.max_joints,
-            max_motors=config.constraints.max_motors,
-        )
-        records.append(result.record)
-        build_steps.append(
-            _build_step(
-                result.record,
-                _design_snapshot(design, config.world),
-                attempt_index=attempt_index,
-                step_index=len(build_steps),
+    model_interactions: list[ModelInteraction] = []
+    _inject_challenge_goal(config, design)
+
+    # Offline mock demonstrations remain one deterministic response. Real
+    # providers get a bounded observe→revise loop inside each attempt.
+    configured_turns = max(1, min(config.constraints.agent_turns_per_attempt, 8))
+    turn_limit = 1 if agent.provider.value == "mock" else configured_turns
+    turn_user = user_prompt
+    for turn_index in range(turn_limit):
+        model_result = await provider.generate(
+            ModelRequest(
+                provider=agent.provider.value,
+                model=agent.model,
+                system=system_prompt,
+                user=turn_user,
+                endpoint_url=agent.endpoint_url or config.llm_connection.endpoint_url,
+                api_key=agent.api_key or config.llm_connection.api_key,
+                temperature=agent.temperature,
+                seed=config.world.seed,
+                tools=_provider_tools(enabled_defs),
             )
         )
+        model_interactions.append(
+            ModelInteraction(
+                turn_index=turn_index,
+                agent_id=agent.id,
+                system=system_prompt,
+                user=turn_user,
+                seed=config.world.seed,
+                result=model_result,
+            )
+        )
+        if not model_result.tool_calls:
+            break
+
+        observation_records: list[ToolCallRecord] = []
+        for call in model_result.tool_calls:
+            tool = call.get("tool", "")
+            args = call.get("args", {}) or {}
+            result = apply_tool_call(
+                design,
+                agent_id=agent.id,
+                tool=tool,
+                args=args,
+                enabled_tools=enabled_names,
+                **_tool_constraint_kwargs(config),
+            )
+            records.append(result.record)
+            if tool in _OBSERVATION_TOOLS and result.record.status != ToolCallStatus.rejected:
+                observation_records.append(result.record)
+            build_steps.append(
+                _build_step(
+                    result.record,
+                    _design_snapshot(design, config.world),
+                    attempt_index=attempt_index,
+                    step_index=len(build_steps),
+                )
+            )
+
+        # Only begin another model turn when the model explicitly requested an
+        # observation. Mutation-only batches proceed directly to final scoring.
+        if not observation_records:
+            break
+        observation = _observe_design(design, config)
+        for record in observation_records:
+            if record.tool == "get_state":
+                record.output = observation["state"]
+            elif record.tool == "inspect_score":
+                record.output = observation["score"]
+            elif record.tool == "inspect_failure_events":
+                record.output = {
+                    "failure_events": observation["score"]["failure_events"]
+                }
+            else:
+                record.output = observation
+        if turn_index + 1 >= turn_limit:
+            break
+        turn_user = _observation_prompt(objective, turn_index, observation)
 
     # Optional conservative repair pass over rejected calls (e.g. duplicate ids).
     if config.constraints.repair_loop_enabled and any(
         r.status == ToolCallStatus.rejected for r in records
     ):
-        repair_record = _repair_rejected(design, enabled_names, records)
+        repair_record = _repair_rejected(design, enabled_names, records, config)
         if repair_record is not None:
             records.append(repair_record)
             build_steps.append(
@@ -552,8 +856,6 @@ async def run_agent_attempt(
                     step_index=len(build_steps),
                 )
             )
-
-    _inject_challenge_goal(config, design)
 
     # Simulate whenever the design has any body. All-static designs (e.g. a city
     # of fixed structures) still produce a trace + score; only a truly empty
@@ -573,7 +875,14 @@ async def run_agent_attempt(
         )
 
     trace = get_trace(trace_run_id) if trace_run_id is not None else None
-    score = score_attempt(trace, design, config.scenario.reward)
+    score = _apply_score_constraints(
+        score_attempt(trace, design, config.scenario.reward),
+        design,
+        config,
+        duration_s=float(
+            min(config.constraints.simulation_duration_seconds, _MAX_SIM_DURATION_SECONDS)
+        ),
+    )
     if trace_run_id is not None:
         store_score(trace_run_id, score)
         record_run_meta(
@@ -581,13 +890,38 @@ async def run_agent_attempt(
             project_name=display_name,
             challenge=config.scenario.preset,
             mode=config.agents.mode.value,
+            provider=agent.provider.value,
+            model=agent.model,
+            seed=config.world.seed,
+            input_tokens=sum(
+                item.result.usage.input_tokens for item in model_interactions
+            ),
+            output_tokens=sum(
+                item.result.usage.output_tokens for item in model_interactions
+            ),
+            latency_ms=sum(item.result.latency_ms for item in model_interactions),
+            protocol=(
+                "native_tools"
+                if any(item.result.native_tool_calls for item in model_interactions)
+                else "prompt_json"
+            ),
+            benchmark_hash=_benchmark_hash(config, preset, enabled_defs),
         )
         for step in build_steps:
             step.trace_run_id = trace_run_id
 
     # Persist artifacts under runs/{trace_run_id or attempt_id}/.
     out_dir = _RUNS_DIR / (trace_run_id or attempt_id)
-    _persist_attempt_artifacts(out_dir, design, records, score, build_steps)
+    _persist_attempt_artifacts(
+        out_dir,
+        design,
+        records,
+        score,
+        build_steps,
+        model_interactions,
+        config,
+        trace_run_id,
+    )
 
     return AttemptResult(
         attempt_id=attempt_id,
@@ -600,6 +934,7 @@ async def run_agent_attempt(
         diff=_attempt_diff(previous, design, score),
         build_steps=build_steps,
         snapshots=[s.trace for s in build_steps],
+        model_interactions=model_interactions,
     )
 
 
@@ -675,20 +1010,25 @@ async def run_cooperative_attempt(
     _seed_scaffold(design, preset)
 
     world_summary = _world_context(config, preset, design)
-    system_prompt = build_system_prompt(
-        objective,
-        world_summary,
-        enabled_defs,
-        movable_body_required=preset is None or preset.reward not in _STATIC_OK_REWARDS,
-    )
-
     records: list[ToolCallRecord] = []
     build_steps: list[BuildStepRecord] = []
+    model_interactions: list[ModelInteraction] = []
 
     for turn_index, agent in enumerate(participants):
         provider = get_provider(agent.provider.value)
         if provider is None:
             raise ValueError(f"unknown provider: {agent.provider.value}")
+        system_prompt = _agent_system_prompt(
+            agent,
+            build_system_prompt(
+                objective,
+                world_summary,
+                enabled_defs,
+                movable_body_required=(
+                    preset is None or preset.reward not in _STATIC_OK_REWARDS
+                ),
+            ),
+        )
 
         if turn_index == 0:
             user_prompt = build_user_prompt(objective, attempt_index)
@@ -702,19 +1042,34 @@ async def run_cooperative_attempt(
                 existing_body_ids=existing_ids,
             )
 
-        raw = await provider.complete(
-            model=agent.model,
-            system=system_prompt,
-            user=user_prompt,
-            endpoint_url=config.llm_connection.endpoint_url,
-            api_key=config.llm_connection.api_key,
-            temperature=agent.temperature,
+        model_result = await provider.generate(
+            ModelRequest(
+                provider=agent.provider.value,
+                model=agent.model,
+                system=system_prompt,
+                user=user_prompt,
+                endpoint_url=agent.endpoint_url or config.llm_connection.endpoint_url,
+                api_key=agent.api_key or config.llm_connection.api_key,
+                temperature=agent.temperature,
+                seed=config.world.seed,
+                tools=_provider_tools(enabled_defs),
+            )
+        )
+        model_interactions.append(
+            ModelInteraction(
+                turn_index=turn_index,
+                agent_id=agent.id,
+                system=system_prompt,
+                user=user_prompt,
+                seed=config.world.seed,
+                result=model_result,
+            )
         )
 
         # Per-turn map of this agent's original id → namespaced id, so its own
         # references remap while cross-agent references stay intact.
         created: dict[str, str] = {}
-        for call in parse_tool_calls(raw):
+        for call in model_result.tool_calls:
             tool = call.get("tool", "")
             args = _remap_ids(agent.id, tool, call.get("args", {}) or {}, created)
             result = apply_tool_call(
@@ -723,9 +1078,7 @@ async def run_cooperative_attempt(
                 tool=tool,
                 args=args,
                 enabled_tools=enabled_names,
-                max_parts=config.constraints.max_parts,
-                max_joints=config.constraints.max_joints,
-                max_motors=config.constraints.max_motors,
+                **_tool_constraint_kwargs(config),
             )
             records.append(result.record)
             build_steps.append(
@@ -740,7 +1093,7 @@ async def run_cooperative_attempt(
     if config.constraints.repair_loop_enabled and any(
         r.status == ToolCallStatus.rejected for r in records
     ):
-        repair_record = _repair_rejected(design, enabled_names, records)
+        repair_record = _repair_rejected(design, enabled_names, records, config)
         if repair_record is not None:
             records.append(repair_record)
             build_steps.append(
@@ -770,7 +1123,14 @@ async def run_cooperative_attempt(
         )
 
     trace = get_trace(trace_run_id) if trace_run_id is not None else None
-    score = score_attempt(trace, design, config.scenario.reward)
+    score = _apply_score_constraints(
+        score_attempt(trace, design, config.scenario.reward),
+        design,
+        config,
+        duration_s=float(
+            min(config.constraints.simulation_duration_seconds, _MAX_SIM_DURATION_SECONDS)
+        ),
+    )
     if trace_run_id is not None:
         store_score(trace_run_id, score)
         record_run_meta(
@@ -778,12 +1138,37 @@ async def run_cooperative_attempt(
             project_name=display_name,
             challenge=config.scenario.preset,
             mode=config.agents.mode.value,
+            provider=",".join(sorted({a.provider.value for a in participants})),
+            model=",".join(sorted({a.model for a in participants})),
+            seed=config.world.seed,
+            input_tokens=sum(
+                item.result.usage.input_tokens for item in model_interactions
+            ),
+            output_tokens=sum(
+                item.result.usage.output_tokens for item in model_interactions
+            ),
+            latency_ms=sum(item.result.latency_ms for item in model_interactions),
+            protocol=(
+                "native_tools"
+                if any(item.result.native_tool_calls for item in model_interactions)
+                else "prompt_json"
+            ),
+            benchmark_hash=_benchmark_hash(config, preset, enabled_defs),
         )
         for step in build_steps:
             step.trace_run_id = trace_run_id
 
     out_dir = _RUNS_DIR / (trace_run_id or attempt_id)
-    _persist_attempt_artifacts(out_dir, design, records, score, build_steps)
+    _persist_attempt_artifacts(
+        out_dir,
+        design,
+        records,
+        score,
+        build_steps,
+        model_interactions,
+        config,
+        trace_run_id,
+    )
 
     return AttemptResult(
         attempt_id=attempt_id,
@@ -794,4 +1179,5 @@ async def run_cooperative_attempt(
         attempt_index=attempt_index,
         build_steps=build_steps,
         snapshots=[s.trace for s in build_steps],
+        model_interactions=model_interactions,
     )

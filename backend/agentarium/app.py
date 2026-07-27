@@ -7,6 +7,8 @@ from fastapi.staticfiles import StaticFiles
 
 from agentarium import __version__
 from agentarium.api.routes_agents import router as agents_router
+from agentarium.api.routes_embodiments import router as embodiments_router
+from agentarium.api.routes_experiments import router as experiments_router
 from agentarium.api.routes_exports import router as exports_router
 from agentarium.api.routes_presets import router as presets_router
 from agentarium.api.routes_runs import router as runs_router
@@ -22,6 +24,8 @@ app.include_router(presets_router)
 app.include_router(agents_router)
 app.include_router(runs_router)
 app.include_router(exports_router)
+app.include_router(experiments_router)
+app.include_router(embodiments_router)
 app.include_router(ws_router)
 
 app.add_middleware(

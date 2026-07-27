@@ -152,6 +152,9 @@ class ConstraintsConfig(BaseModel):
     energy_budget: int = 1200
     max_attempts: int = 50
     simulation_duration_seconds: int = 180
+    # Model↔environment turns inside one attempt. Mock demos deliberately use
+    # one turn; real providers can observe a simulation and revise.
+    agent_turns_per_attempt: int = 3
     material_budget: int = 2000
     collision_safety: CollisionSafety = CollisionSafety.strict
     world_bounds: WorldBounds = WorldBounds.enforced

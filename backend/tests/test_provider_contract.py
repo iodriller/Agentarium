@@ -13,6 +13,7 @@ import httpx
 import pytest
 
 from agentarium.agents.openai_compatible import LLMError, OpenAICompatibleProvider
+from agentarium.core.schemas.model import ModelRequest
 
 _EP = "http://llm.test/v1"
 
@@ -248,3 +249,74 @@ def test_json_body_sent_to_chat_completions():
     assert seen["url"].endswith("/chat/completions")
     assert seen["body"]["temperature"] == 0.3
     assert seen["body"]["messages"][0]["role"] == "system"
+
+
+def test_generate_uses_native_tools_seed_and_normalizes_telemetry():
+    seen = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(req.content)
+        return httpx.Response(
+            200,
+            headers={"x-request-id": "req-123"},
+            json={
+                "choices": [
+                    {
+                        "finish_reason": "tool_calls",
+                        "message": {
+                            "content": None,
+                            "tool_calls": [
+                                {
+                                    "id": "call-1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "create_body",
+                                        "arguments": '{"id":"b1","shape":"box"}',
+                                    },
+                                }
+                            ],
+                        },
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 21,
+                    "completion_tokens": 7,
+                    "prompt_tokens_details": {"cached_tokens": 4},
+                    "completion_tokens_details": {"reasoning_tokens": 2},
+                },
+            },
+        )
+
+    result = asyncio.run(
+        _provider(handler).generate(
+            ModelRequest(
+                provider="openai_compatible",
+                model="m",
+                system="s",
+                user="u",
+                endpoint_url=_EP,
+                api_key="k",
+                seed=42,
+                tools=[
+                    {
+                        "name": "create_body",
+                        "description": "Create one body",
+                        "parameters": {"type": "object"},
+                    }
+                ],
+            )
+        )
+    )
+
+    assert seen["body"]["seed"] == 42
+    assert seen["body"]["tools"][0]["function"]["name"] == "create_body"
+    assert result.native_tool_calls is True
+    assert result.tool_calls == [
+        {"tool": "create_body", "args": {"id": "b1", "shape": "box"}}
+    ]
+    assert result.request_id == "req-123"
+    assert result.finish_reason == "tool_calls"
+    assert result.usage.input_tokens == 21
+    assert result.usage.output_tokens == 7
+    assert result.usage.cached_input_tokens == 4
+    assert result.usage.reasoning_tokens == 2

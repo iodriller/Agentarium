@@ -49,3 +49,14 @@ def test_port_in_use_detection():
         listener.listen(1)
         bound_port = listener.getsockname()[1]
         assert _port_in_use("127.0.0.1", bound_port) is True
+
+
+def test_headless_run_and_sweep_flags():
+    run = _build_parser().parse_args(["run", "--config", "cfg.yaml", "--seed", "42"])
+    assert run.command == "run"
+    assert run.config == "cfg.yaml"
+    assert run.seed == 42
+
+    sweep = _build_parser().parse_args(["sweep", "--matrix", "matrix.json"])
+    assert sweep.command == "sweep"
+    assert sweep.matrix == "matrix.json"

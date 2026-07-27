@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from agentarium.core.schemas.design import DesignSpec
-from agentarium.tools.apply import apply_tool_call
+from agentarium.tools.apply import apply_tool_call, material_units
 
 _BUILD_TOOLS = ["create_body", "add_ball", "add_joint"]
 
@@ -58,3 +58,50 @@ def test_max_joints_rejects_over_budget():
     assert not result.mutated
     assert "max_joints" in (result.record.error or "")
     assert len(design.joints) == 1
+
+
+def test_material_budget_rejects_before_mutating():
+    design = DesignSpec(name="t")
+    result = apply_tool_call(
+        design,
+        agent_id="a",
+        tool="create_body",
+        args={
+            "id": "large",
+            "shape": "box",
+            "position": [0, 5],
+            "width": 10,
+            "height": 10,
+        },
+        enabled_tools=_BUILD_TOOLS,
+        material_budget=100,
+    )
+    assert not result.mutated
+    assert "material_budget" in (result.record.error or "")
+    assert material_units(design) == 0
+
+
+def test_world_bounds_and_strict_spawn_safety_are_real_constraints():
+    design = DesignSpec(name="t")
+    outside = apply_tool_call(
+        design,
+        agent_id="a",
+        tool="create_body",
+        args={"id": "outside", "shape": "box", "position": [9, 5]},
+        enabled_tools=_BUILD_TOOLS,
+        world_bounds=(-2, 2, 0, 10),
+    )
+    assert not outside.mutated
+    assert "world_bounds" in (outside.record.error or "")
+
+    assert _add_body(design, "first").mutated
+    collision = apply_tool_call(
+        design,
+        agent_id="a",
+        tool="create_body",
+        args={"id": "stacked", "shape": "box", "position": [0, 5]},
+        enabled_tools=_BUILD_TOOLS,
+        strict_collision=True,
+    )
+    assert not collision.mutated
+    assert "strict collision safety" in (collision.record.error or "")
