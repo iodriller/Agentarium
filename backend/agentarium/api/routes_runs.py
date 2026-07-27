@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from agentarium.core.schemas.design import DesignSpec
+from agentarium.core.schemas.model import ModelInteraction
 from agentarium.core.schemas.score import ScoreCard
 from agentarium.core.schemas.setup import LaunchConfig, LaunchState, WorldConfig
 from agentarium.core.schemas.toolcall import BuildStepRecord
@@ -16,6 +17,7 @@ from agentarium.services.run_service import (
     get_build_snapshots,
     get_launch_config,
     get_launch_provenance,
+    get_model_interactions,
     get_score,
     get_trace,
     hardcoded_demo_design,
@@ -40,6 +42,14 @@ class RunSummary(BaseModel):
     artifact_dir: str | None = None
     config_available: bool = False
     attempt_count: int = 1
+    provider: str | None = None
+    model: str | None = None
+    seed: int | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    latency_ms: float | None = None
+    protocol: str | None = None
+    benchmark_hash: str | None = None
 
 
 class CreateRunRequest(BaseModel):
@@ -211,3 +221,11 @@ async def get_run_snapshots(run_id: str) -> list[BuildStepRecord]:
     if snapshots is None:
         raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
     return snapshots
+
+
+@router.get("/{run_id}/model-interactions", response_model=list[ModelInteraction])
+async def get_run_model_interactions(run_id: str) -> list[ModelInteraction]:
+    interactions = get_model_interactions(run_id)
+    if interactions is None:
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    return interactions

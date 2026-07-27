@@ -10,6 +10,7 @@ from agentarium.core.schemas.setup import (
     AgentsConfig,
     LaunchConfig,
     LLMProvider,
+    OutputsConfig,
     ScenarioConfig,
     ToolsConfig,
     WorldConfig,
@@ -250,6 +251,25 @@ def test_attempt_result_carries_per_step_design_snapshots():
     assert path.exists()
 
 
+def test_requested_run_artifacts_are_materialized(monkeypatch, tmp_path):
+    import agentarium.agents.runner as runner_module
+
+    monkeypatch.setattr(runner_module, "_RUNS_DIR", tmp_path)
+    config = _config()
+    config.constraints.simulation_duration_seconds = 1
+    config.outputs = OutputsConfig(
+        replay_json=True,
+        scorecard_json=True,
+        trace_jsonl=True,
+        markdown_report=True,
+    )
+    result = asyncio.run(run_single_attempt(config))
+    assert result.trace_run_id is not None
+    artifact_dir = tmp_path / result.trace_run_id
+    for name in ("replay.json", "score.json", "trace.jsonl", "report.md"):
+        assert (artifact_dir / name).is_file()
+
+
 class _DuplicateProvider(AgentProvider):
     name = "duplicate"
 
@@ -279,6 +299,55 @@ class _DuplicateProvider(AgentProvider):
             '{"tool": "create_body", "args": {"id": "dup", "shape": "box", "position": [2, 3]}}'
             "]}"
         )
+
+
+class _IterativeProvider(_DuplicateProvider):
+    def __init__(self) -> None:
+        self.turns = 0
+        self.users: list[str] = []
+
+    async def complete(
+        self,
+        *,
+        model: str,
+        system: str,
+        user: str,
+        endpoint_url: str | None,
+        api_key: str | None,
+        temperature: float = 0.7,
+    ) -> str:
+        self.users.append(user)
+        self.turns += 1
+        if self.turns == 1:
+            return (
+                '{"tool_calls": ['
+                '{"tool": "create_body", "args": '
+                '{"id": "observed", "shape": "box", "position": [0, 3]}},'
+                '{"tool": "run_simulation", "args": {}}'
+                "]}"
+            )
+        return '{"tool_calls": []}'
+
+
+def test_real_provider_can_observe_and_take_multiple_turns(monkeypatch):
+    import agentarium.agents.runner as runner
+
+    provider = _IterativeProvider()
+    monkeypatch.setattr(runner, "get_provider", lambda _name: provider)
+    config = _config()
+    config.agents.participants[0].provider = LLMProvider.localdeploy
+    config.constraints.agent_turns_per_attempt = 2
+    config.constraints.simulation_duration_seconds = 1
+
+    result = asyncio.run(run_single_attempt(config))
+
+    assert provider.turns == 2
+    assert "Observation after model turn" in provider.users[1]
+    assert len(result.model_interactions) == 2
+    simulation_call = next(r for r in result.tool_calls if r.tool == "run_simulation")
+    assert "score" in simulation_call.output
+    assert "state" in simulation_call.output
+    assert {b.id for b in result.design.bodies} == {"observed"}
 
 
 def test_repair_pass_preserves_rejected_call_and_adds_timeline_step(monkeypatch):

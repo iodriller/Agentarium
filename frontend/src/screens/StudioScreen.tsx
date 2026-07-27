@@ -12,6 +12,7 @@ import { DesignSummaryPanel } from '../components/studio/DesignSummaryPanel'
 import { TelemetryPanel, type AttemptScore } from '../components/studio/TelemetryPanel'
 import { AttemptHistory } from '../components/studio/AttemptHistory'
 import { AttemptDiffPanel } from '../components/studio/AttemptDiffPanel'
+import { ModelInspector } from '../components/studio/ModelInspector'
 import { api, downloadUrl, wsUrl } from '../api/client'
 import { RunRelaunchActions } from '../components/shared/RunRelaunchActions'
 import { useMediaQuery } from '../hooks/useMediaQuery'
@@ -22,6 +23,7 @@ import type {
   CreateRunResponse,
   DesignSummary,
   EpisodeTrace,
+  ModelInteraction,
   RunAttemptSummary,
   RunCaps,
   RunEvent,
@@ -63,6 +65,7 @@ export function StudioScreen() {
   const [caps, setCaps] = useState<RunCaps | null>(null)
   const [latestDiff, setLatestDiff] = useState<AttemptDiff | null>(null)
   const [toolLog, setToolLog] = useState<ToolCallRecord[]>([])
+  const [modelInteractions, setModelInteractions] = useState<ModelInteraction[]>([])
   // The agent whose score/metrics/design last updated — drives the "latest"
   // displays. Falls back to the first agent.
   const [latestAgentId, setLatestAgentId] = useState<string | null>(null)
@@ -154,6 +157,20 @@ export function StudioScreen() {
     }
   }, [])
 
+  const loadModelInteractionsForTrace = useCallback(async (
+    traceRunId: string,
+    isStale: () => boolean = () => false,
+  ) => {
+    try {
+      const interactions = await api.get<ModelInteraction[]>(
+        `/runs/${traceRunId}/model-interactions`,
+      )
+      if (!isStale()) setModelInteractions(interactions)
+    } catch {
+      if (!isStale()) setModelInteractions([])
+    }
+  }, [])
+
   // Load + replay a specific attempt's trace by run id (Attempt History clicks).
   // Picking an attempt is a manual action, so it stops live-follow and reflects
   // the chosen attempt in the score/telemetry panels.
@@ -167,6 +184,7 @@ export function StudioScreen() {
       setStatus('ready')
       setViewMode('physics')
       void loadBuildStepsForTrace(traceRunId)
+      void loadModelInteractionsForTrace(traceRunId)
       // Reflect the picked attempt in the telemetry/score panels.
       const match = Object.entries(traceByAttempt).find(([, v]) => v === traceRunId)
       if (match) {
@@ -197,6 +215,20 @@ export function StudioScreen() {
   // viewport away or un-pause them.
   const followLiveRef = useRef(true)
 
+  const handleTogglePlay = () => {
+    followLiveRef.current = false
+    setPlaying((p) => !p)
+  }
+  const handleStop = () => {
+    followLiveRef.current = false
+    setPlaying(false)
+    setFrameIndex(0)
+  }
+  const handleSeek = (index: number) => {
+    followLiveRef.current = false
+    setFrameIndex(index)
+  }
+
   useEffect(() => {
     if (!runId) return
     let cancelled = false
@@ -211,6 +243,7 @@ export function StudioScreen() {
         setPlaying(true)
         setStatus('ready')
         void loadBuildStepsForTrace(traceRunId, () => cancelled)
+        void loadModelInteractionsForTrace(traceRunId, () => cancelled)
       } catch {
         if (!cancelled) setStatus('error')
       }
@@ -230,6 +263,7 @@ export function StudioScreen() {
         setRunStatus('finished')
         setViewMode('physics')
         void loadBuildStepsForTrace(rid, () => cancelled)
+        void loadModelInteractionsForTrace(rid, () => cancelled)
         let openedScore: ScoreCard | null = null
         try {
           const sc = await api.get<ScoreCard>(`/runs/${rid}/score`)
@@ -472,7 +506,7 @@ export function StudioScreen() {
         /* already closed */
       }
     }
-  }, [runId, loadBuildStepsForTrace])
+  }, [runId, loadBuildStepsForTrace, loadModelInteractionsForTrace])
 
   // ── Dev fallback: no runId → spin up a demo run so the world still moves. ───
   useEffect(() => {
@@ -535,19 +569,6 @@ export function StudioScreen() {
     }
   }, [playing, trace, speed])
 
-  const handleTogglePlay = () => {
-    followLiveRef.current = false
-    setPlaying((p) => !p)
-  }
-  const handleStop = () => {
-    followLiveRef.current = false
-    setPlaying(false)
-    setFrameIndex(0)
-  }
-  const handleSeek = (index: number) => {
-    followLiveRef.current = false
-    setFrameIndex(index)
-  }
   const handleFullscreen = () => {
     const el = viewportRef.current
     if (!el) return
@@ -906,6 +927,7 @@ export function StudioScreen() {
           />
           <AttemptDiffPanel diff={latestDiff} attemptIndex={latestAttemptIndex} />
           <ToolCallLog records={toolLog} onClear={() => setToolLog([])} />
+          <ModelInspector interactions={modelInteractions} />
           <DesignSummaryPanel
             summary={designSummary}
             byAgent={cooperative ? ownershipByAgent : null}

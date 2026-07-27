@@ -46,6 +46,7 @@ const DEFAULT_CONFIG: Partial<LaunchConfig> = {
     energy_budget: 1200,
     max_attempts: 50,
     simulation_duration_seconds: 180,
+    agent_turns_per_attempt: 3,
     material_budget: 2000,
     collision_safety: 'strict',
     world_bounds: 'enforced',

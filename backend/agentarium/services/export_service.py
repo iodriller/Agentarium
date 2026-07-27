@@ -167,5 +167,12 @@ def export_package(run_id: str) -> bytes | None:
         toolcalls_path = run_dir / "toolcalls.jsonl"
         if toolcalls_path.exists():
             zf.write(toolcalls_path, "toolcalls.jsonl")
+        interactions_path = run_dir / "model_interactions.json"
+        if interactions_path.exists():
+            zf.write(interactions_path, "model_interactions.json")
+        for name in ("launch_config.json", "launch_provenance.json"):
+            artifact = run_dir / name
+            if artifact.exists():
+                zf.write(artifact, name)
 
     return package.getvalue()

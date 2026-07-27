@@ -30,13 +30,18 @@ async function get<T>(path: string): Promise<T> {
   return res.json() as Promise<T>
 }
 
-async function post<T>(path: string, body: unknown): Promise<T> {
+async function post<T>(
+  path: string,
+  body: unknown,
+  headers: Record<string, string> = {},
+): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...headers },
     body: JSON.stringify(body),
   })
   if (!res.ok) await _readError(res, path, 'POST')
+  if (res.status === 204) return undefined as T
   return res.json() as Promise<T>
 }
 

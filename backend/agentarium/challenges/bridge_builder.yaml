@@ -44,6 +44,7 @@ scaffold:
     position: [-1.0, 0.12]
     size: [7.0, 0.24]
     static: true
+    sensor: true  # visual hazard only — must not become a hidden floor
     color: "#2563eb"
   - id: left_bridge_anchor
     shape: box

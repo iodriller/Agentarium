@@ -36,6 +36,11 @@ COMPETITIVE_ATTEMPTS_CAP = 4
 # before a single simulation/score, so each attempt is expensive.
 COOPERATIVE_ATTEMPTS_CAP = 4
 
+# Relay alternates participants while passing the previous scored-attempt
+# summary forward. Sandbox gives each participant one independent trial.
+RELAY_ATTEMPTS_CAP = 8
+SANDBOX_PARTICIPANTS_CAP = 8
+
 # Bound how many runs (with their buffered event history) we retain in memory.
 # Only finished runs are evicted, oldest first, so an in-flight run is never
 # dropped. Keeps a long-lived server from growing without limit.
@@ -246,6 +251,10 @@ class RunManager:
         mode_cap = {
             CollaborationMode.competitive: COMPETITIVE_ATTEMPTS_CAP,
             CollaborationMode.cooperative: COOPERATIVE_ATTEMPTS_CAP,
+            CollaborationMode.relay: RELAY_ATTEMPTS_CAP,
+            CollaborationMode.sandbox: min(
+                len(participants), SANDBOX_PARTICIPANTS_CAP
+            ),
         }.get(config.agents.mode, MAX_ATTEMPTS_CAP)
 
         self._emit(
@@ -284,6 +293,10 @@ class RunManager:
             await self._run_competitive(run_id, config, participants)
         elif config.agents.mode == CollaborationMode.cooperative:
             await self._run_cooperative(run_id, config, participants)
+        elif config.agents.mode == CollaborationMode.relay:
+            await self._run_relay(run_id, config, participants)
+        elif config.agents.mode == CollaborationMode.sandbox:
+            await self._run_sandbox(run_id, config, participants)
         else:
             await self._run_single_agent(run_id, config, participants[0])
 
@@ -293,20 +306,23 @@ class RunManager:
         config: LaunchConfig,
         agent: AgentConfig,
         attempts: int,
-    ) -> tuple[int, float, str | None]:
+        *,
+        previous: AttemptResult | None = None,
+        attempt_offset: int = 0,
+        force_memory: bool = False,
+    ) -> tuple[int, float, str | None, AttemptResult | None]:
         """Run ``attempts`` attempts for ``agent``, emitting per-agent events.
 
         Each attempt is given the previous attempt as its parent so the runner
         can record lineage and (with episodic memory) iterate on it.
 
-        Returns ``(best_attempt_index, best_score, best_trace_run_id)``.
+        Returns the best summary plus the last result for relay handoffs.
         """
         best_attempt_index = -1
         best_score = float("-inf")
         best_trace_run_id: str | None = None
-        previous: AttemptResult | None = None
-
-        for attempt_index in range(attempts):
+        for local_index in range(attempts):
+            attempt_index = attempt_offset + local_index
             self._emit(
                 run_id,
                 {
@@ -325,8 +341,28 @@ class RunManager:
                 attempt_index=attempt_index,
                 previous=previous,
                 parent_run_id=run_id,
+                force_memory=force_memory,
             )
             previous = result
+
+            for interaction in result.model_interactions:
+                model_result = interaction.result
+                self._emit(
+                    run_id,
+                    {
+                        "type": "model_result",
+                        "attempt_index": attempt_index,
+                        "agent_id": interaction.agent_id,
+                        "turn_index": interaction.turn_index,
+                        "provider": model_result.provider,
+                        "model": model_result.model,
+                        "latency_ms": model_result.latency_ms,
+                        "retries": model_result.retries,
+                        "finish_reason": model_result.finish_reason,
+                        "native_tool_calls": model_result.native_tool_calls,
+                        "usage": model_result.usage.model_dump(mode="json"),
+                    },
+                )
 
             for step_index, record in enumerate(result.tool_calls):
                 self._emit(
@@ -410,13 +446,13 @@ class RunManager:
                 },
             )
 
-        return best_attempt_index, best_score, best_trace_run_id
+        return best_attempt_index, best_score, best_trace_run_id, previous
 
     async def _run_single_agent(
         self, run_id: str, config: LaunchConfig, agent: AgentConfig
     ) -> None:
         attempts = min(config.constraints.max_attempts, MAX_ATTEMPTS_CAP)
-        best_attempt_index, best_score, best_trace_run_id = (
+        best_attempt_index, best_score, best_trace_run_id, _ = (
             await self._run_agent_attempts(run_id, config, agent, attempts)
         )
         self._emit(
@@ -448,7 +484,7 @@ class RunManager:
         best_trace_by_agent: dict[str, str | None] = {}
 
         for agent in participants:
-            best_index, best_score, best_trace = await self._run_agent_attempts(
+            best_index, best_score, best_trace, _ = await self._run_agent_attempts(
                 run_id, config, agent, attempts
             )
             best_by_agent[agent.id] = (
@@ -520,6 +556,25 @@ class RunManager:
                 attempt_index=attempt_index,
                 parent_run_id=run_id,
             )
+
+            for interaction in result.model_interactions:
+                model_result = interaction.result
+                self._emit(
+                    run_id,
+                    {
+                        "type": "model_result",
+                        "attempt_index": attempt_index,
+                        "agent_id": interaction.agent_id,
+                        "turn_index": interaction.turn_index,
+                        "provider": model_result.provider,
+                        "model": model_result.model,
+                        "latency_ms": model_result.latency_ms,
+                        "retries": model_result.retries,
+                        "finish_reason": model_result.finish_reason,
+                        "native_tool_calls": model_result.native_tool_calls,
+                        "usage": model_result.usage.model_dump(mode="json"),
+                    },
+                )
 
             # Stream each tool call attributed to its own author.
             for step_index, record in enumerate(result.tool_calls):
@@ -608,6 +663,83 @@ class RunManager:
             )
 
         # No winner in cooperative mode — the score is shared.
+        self._emit(
+            run_id,
+            {
+                "type": "run_finished",
+                "best_attempt_index": best_attempt_index,
+                "best_score": best_score if best_score != float("-inf") else 0.0,
+                "best_trace_run_id": best_trace_run_id,
+                "winner_agent_id": None,
+            },
+        )
+
+    async def _run_relay(
+        self,
+        run_id: str,
+        config: LaunchConfig,
+        participants: list[AgentConfig],
+    ) -> None:
+        """Alternate agents and pass scored-attempt memory down one lineage."""
+        attempts = min(config.constraints.max_attempts, RELAY_ATTEMPTS_CAP)
+        previous: AttemptResult | None = None
+        best_attempt_index = -1
+        best_score = float("-inf")
+        best_trace_run_id: str | None = None
+
+        for attempt_index in range(attempts):
+            agent = participants[attempt_index % len(participants)]
+            index, score, trace_id, previous = await self._run_agent_attempts(
+                run_id,
+                config,
+                agent,
+                1,
+                previous=previous,
+                attempt_offset=attempt_index,
+                force_memory=True,
+            )
+            if score > best_score:
+                best_attempt_index = index
+                best_score = score
+                best_trace_run_id = trace_id
+
+        self._emit(
+            run_id,
+            {
+                "type": "run_finished",
+                "best_attempt_index": best_attempt_index,
+                "best_score": best_score if best_score != float("-inf") else 0.0,
+                "best_trace_run_id": best_trace_run_id,
+                "winner_agent_id": None,
+            },
+        )
+
+    async def _run_sandbox(
+        self,
+        run_id: str,
+        config: LaunchConfig,
+        participants: list[AgentConfig],
+    ) -> None:
+        """Give every participant one independent trial without declaring a winner."""
+        best_attempt_index = -1
+        best_score = float("-inf")
+        best_trace_run_id: str | None = None
+
+        for attempt_index, agent in enumerate(
+            participants[:SANDBOX_PARTICIPANTS_CAP]
+        ):
+            index, score, trace_id, _ = await self._run_agent_attempts(
+                run_id,
+                config,
+                agent,
+                1,
+                attempt_offset=attempt_index,
+            )
+            if score > best_score:
+                best_attempt_index = index
+                best_score = score
+                best_trace_run_id = trace_id
+
         self._emit(
             run_id,
             {

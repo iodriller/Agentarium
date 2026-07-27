@@ -6,6 +6,15 @@ import { SetupScreen } from './screens/SetupScreen'
 const StudioScreen = lazy(() =>
   import('./screens/StudioScreen').then((module) => ({ default: module.StudioScreen })),
 )
+const ExperimentsScreen = lazy(() =>
+  import('./screens/ExperimentsScreen').then((module) => ({ default: module.ExperimentsScreen })),
+)
+const CompareScreen = lazy(() =>
+  import('./screens/CompareScreen').then((module) => ({ default: module.CompareScreen })),
+)
+const PhysicalLabScreen = lazy(() =>
+  import('./screens/PhysicalLabScreen').then((module) => ({ default: module.PhysicalLabScreen })),
+)
 
 function RouteLoading() {
   return (
@@ -33,6 +42,9 @@ export default function App() {
           <Route path="/setup" element={<SetupScreen />} />
           <Route path="/studio/:runId" element={<StudioScreen />} />
           <Route path="/history" element={<HistoryScreen />} />
+          <Route path="/experiments" element={<ExperimentsScreen />} />
+          <Route path="/compare" element={<CompareScreen />} />
+          <Route path="/physical" element={<PhysicalLabScreen />} />
           <Route path="*" element={<Navigate to="/setup" replace />} />
         </Routes>
       </Suspense>

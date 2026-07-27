@@ -106,32 +106,6 @@ function Divider() {
   )
 }
 
-function Badge({ text, color }: { text: string; color: string }) {
-  return (
-    <span
-      style={{
-        marginLeft: 6,
-        fontSize: 8,
-        fontWeight: 700,
-        letterSpacing: '0.4px',
-        textTransform: 'uppercase',
-        color,
-        border: `1px solid ${color}`,
-        borderRadius: 4,
-        padding: '0 4px',
-        whiteSpace: 'nowrap',
-        verticalAlign: 'middle',
-      }}
-    >
-      {text}
-    </span>
-  )
-}
-
-function ComingSoonBadge() {
-  return <Badge text="soon" color="var(--warn)" />
-}
-
 function Chip({ children }: { children: React.ReactNode }) {
   return (
     <span
@@ -160,7 +134,6 @@ function SliderRow({
   max,
   step,
   onChange,
-  comingSoon,
 }: {
   label: string
   value: number
@@ -168,7 +141,6 @@ function SliderRow({
   max: number
   step: number
   onChange: (v: number) => void
-  comingSoon?: boolean
 }) {
   return (
     <div
@@ -178,12 +150,10 @@ function SliderRow({
         alignItems: 'center',
         gap: 8,
         marginBottom: 8,
-        opacity: comingSoon ? 0.7 : 1,
       }}
     >
       <span style={{ fontSize: 11, color: 'var(--text-2)' }}>
         {label}
-        {comingSoon && <ComingSoonBadge />}
       </span>
       <input
         type="range"
@@ -215,13 +185,11 @@ function SelectRow<T extends string>({
   value,
   options,
   onChange,
-  comingSoon,
 }: {
   label: string
   value: T
   options: { value: T; label: string }[]
   onChange: (v: T) => void
-  comingSoon?: boolean
 }) {
   return (
     <div
@@ -231,12 +199,10 @@ function SelectRow<T extends string>({
         alignItems: 'center',
         gap: 8,
         marginBottom: 8,
-        opacity: comingSoon ? 0.7 : 1,
       }}
     >
       <span style={{ fontSize: 11, color: 'var(--text-2)' }}>
         {label}
-        {comingSoon && <ComingSoonBadge />}
       </span>
       <select
         value={value}
@@ -422,6 +388,7 @@ const DEFAULT_CONSTRAINTS: Required<ConstraintsConfig> = {
   energy_budget: 1200,
   max_attempts: 50,
   simulation_duration_seconds: 180,
+  agent_turns_per_attempt: 3,
   material_budget: 2000,
   collision_safety: 'strict',
   world_bounds: 'enforced',
@@ -747,7 +714,6 @@ export function ToolsLaunchColumn({
             max={5000}
             step={100}
             onChange={(v) => handleConstraintChange({ energy_budget: v })}
-            comingSoon
           />
           <SliderRow
             label="Max Attempts"
@@ -766,13 +732,20 @@ export function ToolsLaunchColumn({
             onChange={(v) => handleConstraintChange({ simulation_duration_seconds: v })}
           />
           <SliderRow
+            label="Agent Turns / Attempt"
+            value={constraints.agent_turns_per_attempt}
+            min={1}
+            max={8}
+            step={1}
+            onChange={(v) => handleConstraintChange({ agent_turns_per_attempt: v })}
+          />
+          <SliderRow
             label="Material Budget"
             value={constraints.material_budget}
             min={100}
             max={5000}
             step={100}
             onChange={(v) => handleConstraintChange({ material_budget: v })}
-            comingSoon
           />
 
           <SelectRow
@@ -783,7 +756,6 @@ export function ToolsLaunchColumn({
               { value: 'relaxed', label: 'Relaxed' },
             ]}
             onChange={(v) => handleConstraintChange({ collision_safety: v })}
-            comingSoon
           />
           <SelectRow
             label="World Bounds"
@@ -794,7 +766,6 @@ export function ToolsLaunchColumn({
               { value: 'disabled', label: 'Disabled' },
             ]}
             onChange={(v) => handleConstraintChange({ world_bounds: v })}
-            comingSoon
           />
           <ToggleRow
             label="Agent Repair Loop"
@@ -994,8 +965,6 @@ function OutputsGrid({
     { key: 'replay_json', label: 'Replay (JSON)' },
     { key: 'scorecard_json', label: 'Scorecard (JSON)' },
     { key: 'trace_jsonl', label: 'Trace (JSONL)' },
-    { key: 'video_capture', label: 'Video Capture', optional: true },
-    { key: 'screenshot', label: 'Screenshot', optional: true },
     { key: 'markdown_report', label: 'Report (MD)', optional: true },
   ]
 
@@ -1032,6 +1001,9 @@ function OutputsGrid({
           )}
         </label>
       ))}
+      <span style={{ gridColumn: '1 / -1', fontSize: 9, color: 'var(--text-2)' }}>
+        Screenshots and WebM capture are available from Studio after the run.
+      </span>
     </div>
   )
 }

@@ -53,13 +53,15 @@ def test_unsupported_engine() -> None:
     assert body["state"] == "UNSUPPORTED_ENGINE"
 
 
-def test_unsupported_relay_and_sandbox_modes() -> None:
+def test_relay_and_sandbox_modes_are_supported() -> None:
     for mode in ("relay", "sandbox"):
         config = copy.deepcopy(VALID_CONFIG)
         config["agents"]["mode"] = mode
+        config["agents"]["participants"].append(
+            {"id": "a2", "name": "Agent B", "provider": "mock", "model": "mock"}
+        )
         body = _post(config)
-        assert body["state"] == "UNSUPPORTED_MODE"
-        assert mode in body["missing"][0]
+        assert body["state"] == "READY"
 
 
 def test_mock_provider_ready() -> None:

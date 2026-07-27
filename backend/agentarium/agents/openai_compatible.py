@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import pathlib
+import time
 
 import httpx
 from dotenv import load_dotenv
@@ -13,6 +15,7 @@ from agentarium.agents.base import (
     StructuredOutputResult,
 )
 from agentarium.agents.parsing import parse_tool_calls
+from agentarium.core.schemas.model import ModelRequest, ModelResult, TokenUsage
 
 # Connection probes are health checks — keep them short. Generation calls can take
 # much longer and are configurable via env so real/local deployments can tune them.
@@ -271,12 +274,6 @@ class OpenAICompatibleProvider(AgentProvider):
         api_key: str | None,
         temperature: float = 0.7,
     ) -> str:
-        endpoint = self._resolve_endpoint(endpoint_url)
-        if not endpoint:
-            raise LLMError("config", "No endpoint_url provided")
-        api_key = self._resolve_api_key(api_key)
-
-        url = f"{endpoint.rstrip('/')}/chat/completions"
         payload = {
             "model": model,
             "messages": [
@@ -285,6 +282,116 @@ class OpenAICompatibleProvider(AgentProvider):
             ],
             "temperature": temperature,
         }
+        response, _ = await self._request_completion(
+            payload, endpoint_url=endpoint_url, api_key=api_key
+        )
+        return self._extract_content(response)
+
+    async def generate(self, request: ModelRequest) -> ModelResult:
+        """Use native function calling when the endpoint supports it.
+
+        Text-only OpenAI-compatible servers remain supported: when no native
+        calls are returned, the existing tolerant JSON parser reads ``content``.
+        """
+        payload: dict = {
+            "model": request.model,
+            "messages": [
+                {"role": "system", "content": request.system},
+                {"role": "user", "content": request.user},
+            ],
+            "temperature": request.temperature,
+        }
+        if request.seed is not None:
+            payload["seed"] = request.seed
+        if request.tools:
+            payload["tools"] = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool["name"],
+                        "description": tool.get("description", ""),
+                        "parameters": tool.get("parameters", {"type": "object"}),
+                    },
+                }
+                for tool in request.tools
+            ]
+
+        started = time.perf_counter()
+        response, retry_count = await self._request_completion(
+            payload,
+            endpoint_url=request.endpoint_url,
+            api_key=request.api_key,
+        )
+        latency_ms = (time.perf_counter() - started) * 1000.0
+        try:
+            data = response.json()
+            choice = data["choices"][0]
+            message = choice["message"]
+        except Exception as exc:  # noqa: BLE001
+            raise LLMError("malformed", f"Unexpected LLM response shape: {exc}") from exc
+
+        content = str(message.get("content") or "")
+        native_calls: list[dict] = []
+        for item in message.get("tool_calls") or []:
+            if not isinstance(item, dict):
+                continue
+            function = item.get("function")
+            if not isinstance(function, dict) or not function.get("name"):
+                continue
+            raw_args = function.get("arguments", {})
+            try:
+                args = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+            except json.JSONDecodeError:
+                args = {}
+            native_calls.append(
+                {
+                    "tool": str(function["name"]),
+                    "args": args if isinstance(args, dict) else {},
+                }
+            )
+
+        tool_calls = native_calls or parse_tool_calls(content)
+        if not content and not tool_calls:
+            raise LLMError("empty", "LLM returned an empty completion")
+
+        usage_data = data.get("usage") if isinstance(data, dict) else {}
+        usage_data = usage_data if isinstance(usage_data, dict) else {}
+        prompt_details = usage_data.get("prompt_tokens_details")
+        prompt_details = prompt_details if isinstance(prompt_details, dict) else {}
+        completion_details = usage_data.get("completion_tokens_details")
+        completion_details = (
+            completion_details if isinstance(completion_details, dict) else {}
+        )
+        return ModelResult(
+            provider=request.provider,
+            model=request.model,
+            raw_text=content,
+            tool_calls=tool_calls,
+            native_tool_calls=bool(native_calls),
+            finish_reason=choice.get("finish_reason"),
+            request_id=response.headers.get("x-request-id"),
+            latency_ms=latency_ms,
+            retries=retry_count,
+            usage=TokenUsage(
+                input_tokens=int(usage_data.get("prompt_tokens") or 0),
+                output_tokens=int(usage_data.get("completion_tokens") or 0),
+                cached_input_tokens=int(prompt_details.get("cached_tokens") or 0),
+                reasoning_tokens=int(completion_details.get("reasoning_tokens") or 0),
+            ),
+        )
+
+    async def _request_completion(
+        self,
+        payload: dict,
+        *,
+        endpoint_url: str | None,
+        api_key: str | None,
+    ) -> tuple[httpx.Response, int]:
+        endpoint = self._resolve_endpoint(endpoint_url)
+        if not endpoint:
+            raise LLMError("config", "No endpoint_url provided")
+        api_key = self._resolve_api_key(api_key)
+        url = f"{endpoint.rstrip('/')}/chat/completions"
 
         timeout = _gen_timeout()
         retries = _max_retries()
@@ -307,7 +414,7 @@ class OpenAICompatibleProvider(AgentProvider):
                 exc_retryable = True
             else:
                 if response.status_code == 200:
-                    return self._extract_content(response)
+                    return response, attempt
                 kind, retryable = _classify_status(response.status_code)
                 detail = {
                     "auth": "LLM endpoint rejected the API key (HTTP "

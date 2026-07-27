@@ -12,6 +12,7 @@ export function HistoryScreen() {
   const [challenge, setChallenge] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [reachable, setReachable] = useState<boolean | null>(null)
+  const [selectedRuns, setSelectedRuns] = useState<Set<string>>(() => new Set())
 
   useEffect(() => {
     let cancelled = false
@@ -61,9 +62,21 @@ export function HistoryScreen() {
             One row per launch (best attempt shown) — click to replay and browse its attempts.
           </p>
         </div>
-        <button onClick={() => navigate('/setup')} style={primaryBtn()}>
-          + New Run
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            disabled={selectedRuns.size < 2}
+            onClick={() => navigate(`/compare?runs=${[...selectedRuns].join(',')}`)}
+            style={{ ...primaryBtn(), opacity: selectedRuns.size < 2 ? 0.5 : 1 }}
+          >
+            Compare selected ({selectedRuns.size})
+          </button>
+          <button onClick={() => navigate('/experiments')} style={secondaryBtn()}>
+            Experiments
+          </button>
+          <button onClick={() => navigate('/setup')} style={primaryBtn()}>
+            + New Run
+          </button>
+        </div>
       </div>
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
@@ -132,8 +145,11 @@ export function HistoryScreen() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead>
                 <tr style={{ color: 'var(--text-2)', textAlign: 'left' }}>
+                  <Th>Pick</Th>
                   <Th>Challenge</Th>
                   <Th>Mode</Th>
+                  <Th>Model</Th>
+                  <Th>Seed</Th>
                   <Th>Reward</Th>
                   <Th>Best Score</Th>
                   <Th>Attempts</Th>
@@ -149,8 +165,27 @@ export function HistoryScreen() {
                     onClick={() => navigate(`/studio/${r.run_id}`)}
                     style={{ cursor: 'pointer', borderTop: '1px solid var(--border)' }}
                   >
+                    <td style={{ padding: '6px 8px' }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedRuns.has(r.run_id)}
+                        onClick={(event) => event.stopPropagation()}
+                        onChange={(event) => {
+                          const checked = event.target.checked
+                          setSelectedRuns((current) => {
+                            const next = new Set(current)
+                            if (checked) next.add(r.run_id)
+                            else next.delete(r.run_id)
+                            return next
+                          })
+                        }}
+                        aria-label={`Select ${r.run_id} for comparison`}
+                      />
+                    </td>
                     <Td color="var(--text-1)">{r.challenge ?? '—'}</Td>
                     <Td>{r.mode ?? '—'}</Td>
+                    <Td>{r.model ?? '—'}</Td>
+                    <Td>{r.seed ?? '—'}</Td>
                     <Td>{r.reward ?? '—'}</Td>
                     <Td color="var(--accent)">{r.score_total?.toFixed(1) ?? '—'}</Td>
                     <Td>{r.attempt_count ?? 1}</Td>
@@ -204,6 +239,9 @@ function Empty({ text, tone }: { text: string; tone?: string }) {
 }
 function primaryBtn(): React.CSSProperties {
   return { padding: '7px 14px', borderRadius: 6, border: 'none', background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }
+}
+function secondaryBtn(): React.CSSProperties {
+  return { padding: '7px 14px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text-1)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }
 }
 function rowBtn(): React.CSSProperties {
   return { width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', marginBottom: 2, borderRadius: 4, border: '1px solid var(--border)', background: 'var(--surface-1)', fontSize: 12, cursor: 'pointer' }

@@ -20,3 +20,12 @@ static_bodies:
     size: [3.0]
     static: true
     color: "#4d7c0f"
+  # Catch successful crawlers after the finish so a long evaluation does not
+  # let them leave the finite floor and turn an earlier success into a fall.
+  - id: finish_guard
+    shape: box
+    kind: wall
+    position: [9.0, 1.0]
+    size: [0.3, 2.0]
+    static: true
+    color: "#64748b"

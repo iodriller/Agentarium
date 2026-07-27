@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import time
 from abc import ABC, abstractmethod
 
 from pydantic import BaseModel
+
+from agentarium.agents.parsing import parse_tool_calls
+from agentarium.core.schemas.model import ModelRequest, ModelResult
 
 
 class ProviderStatus(BaseModel):
@@ -43,3 +47,27 @@ class AgentProvider(ABC):
     ) -> str:
         """Return the raw text completion. Used later by the build loop."""
         ...
+
+    async def generate(self, request: ModelRequest) -> ModelResult:
+        """Return a normalized model result.
+
+        Providers with native tool calling or token telemetry should override
+        this method. The compatibility implementation keeps custom providers
+        working by wrapping their existing ``complete`` method.
+        """
+        started = time.perf_counter()
+        raw = await self.complete(
+            model=request.model,
+            system=request.system,
+            user=request.user,
+            endpoint_url=request.endpoint_url,
+            api_key=request.api_key,
+            temperature=request.temperature,
+        )
+        return ModelResult(
+            provider=request.provider,
+            model=request.model,
+            raw_text=raw,
+            tool_calls=parse_tool_calls(raw),
+            latency_ms=(time.perf_counter() - started) * 1000.0,
+        )

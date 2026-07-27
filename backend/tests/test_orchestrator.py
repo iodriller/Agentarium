@@ -141,6 +141,47 @@ def test_competitive_two_agents():
     asyncio.run(scenario())
 
 
+def test_relay_alternates_agents_and_preserves_lineage():
+    async def scenario() -> None:
+        manager = RunManager()
+        config = _competitive_config()
+        config.agents.mode = CollaborationMode.relay
+        config.constraints.max_attempts = 3
+        run_id = await _run_to_completion(manager, config)
+        events = manager.get_events(run_id)
+
+        started = [event for event in events if event["type"] == "attempt_started"]
+        assert [event["agent_id"] for event in started] == [
+            "agent_a",
+            "agent_b",
+            "agent_a",
+        ]
+        assert started[0]["parent_attempt_id"] is None
+        assert started[1]["parent_attempt_id"] is not None
+        assert started[2]["parent_attempt_id"] is not None
+        assert not any(event["type"] == "winner" for event in events)
+        assert events[-1]["winner_agent_id"] is None
+
+    asyncio.run(scenario())
+
+
+def test_sandbox_gives_each_agent_one_trial_without_winner():
+    async def scenario() -> None:
+        manager = RunManager()
+        config = _competitive_config()
+        config.agents.mode = CollaborationMode.sandbox
+        config.constraints.max_attempts = 7
+        run_id = await _run_to_completion(manager, config)
+        events = manager.get_events(run_id)
+
+        scores = [event for event in events if event["type"] == "score"]
+        assert [event["agent_id"] for event in scores] == ["agent_a", "agent_b"]
+        assert not any(event["type"] == "winner" for event in events)
+        assert events[-1]["winner_agent_id"] is None
+
+    asyncio.run(scenario())
+
+
 def test_ws_streams_events():
     orchestrator.STREAM_DELAY = 0.0
     client = TestClient(app)

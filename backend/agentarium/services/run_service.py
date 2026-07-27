@@ -14,6 +14,7 @@ from agentarium.core.schemas.design import (
     JointSpec,
     JointType,
 )
+from agentarium.core.schemas.model import ModelInteraction
 from agentarium.core.schemas.score import ScoreCard
 from agentarium.core.schemas.setup import LaunchConfig, WorldConfig
 from agentarium.core.schemas.toolcall import BuildStepRecord
@@ -84,7 +85,15 @@ def _init_db() -> None:
                 artifact_dir TEXT,
                 -- Parent live-launch id shared by every attempt of one launch, so
                 -- run history can collapse a launch's attempts into a single row.
-                parent_run_id TEXT
+                parent_run_id TEXT,
+                provider TEXT,
+                model TEXT,
+                seed INTEGER,
+                input_tokens INTEGER,
+                output_tokens INTEGER,
+                latency_ms REAL,
+                protocol TEXT,
+                benchmark_hash TEXT
             );
             CREATE INDEX IF NOT EXISTS ix_meta_challenge_score
                 ON run_meta (challenge, score_total DESC);
@@ -93,6 +102,19 @@ def _init_db() -> None:
         cols = {row[1] for row in conn.execute("PRAGMA table_info(run_meta)")}
         if "parent_run_id" not in cols:
             conn.execute("ALTER TABLE run_meta ADD COLUMN parent_run_id TEXT")
+        migrations = {
+            "provider": "TEXT",
+            "model": "TEXT",
+            "seed": "INTEGER",
+            "input_tokens": "INTEGER",
+            "output_tokens": "INTEGER",
+            "latency_ms": "REAL",
+            "protocol": "TEXT",
+            "benchmark_hash": "TEXT",
+        }
+        for column, column_type in migrations.items():
+            if column not in cols:
+                conn.execute(f"ALTER TABLE run_meta ADD COLUMN {column} {column_type}")
 
 
 # Only these columns may be written via _db_upsert_meta — guards the f-string
@@ -107,6 +129,14 @@ _META_COLUMNS = frozenset(
         "success",
         "artifact_dir",
         "parent_run_id",
+        "provider",
+        "model",
+        "seed",
+        "input_tokens",
+        "output_tokens",
+        "latency_ms",
+        "protocol",
+        "benchmark_hash",
     }
 )
 
@@ -179,6 +209,12 @@ def record_launch_config(
     both makes Studio and History equally reproducible.
     """
     provenance = provenance or {}
+    # Run artifacts are routinely exported and shared. Credentials are runtime
+    # inputs, never reproducibility metadata, so persist only a redacted copy.
+    persisted_config = config.model_copy(deep=True)
+    persisted_config.llm_connection.api_key = None
+    for participant in persisted_config.agents.participants:
+        participant.api_key = None
     with _db_lock:
         with sqlite3.connect(_DB_PATH) as conn:
             conn.execute(
@@ -186,7 +222,7 @@ def record_launch_config(
                 "(run_id, config_json, provenance_json) VALUES (?, ?, ?)",
                 (
                     run_id,
-                    config.model_dump_json(),
+                    persisted_config.model_dump_json(),
                     json.dumps(provenance, sort_keys=True),
                 ),
             )
@@ -197,7 +233,7 @@ def record_launch_config(
     run_dir = _RUNS_DIR / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "launch_config.json").write_text(
-        config.model_dump_json(indent=2), encoding="utf-8"
+        persisted_config.model_dump_json(indent=2), encoding="utf-8"
     )
     (run_dir / "launch_provenance.json").write_text(
         json.dumps(provenance, indent=2, sort_keys=True), encoding="utf-8"
@@ -476,6 +512,14 @@ def record_run_meta(
     project_name: str | None = None,
     challenge: str | None = None,
     mode: str | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    seed: int | None = None,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+    latency_ms: float | None = None,
+    protocol: str | None = None,
+    benchmark_hash: str | None = None,
 ) -> None:
     """Fill in run-history fields the runner knows (challenge/mode/project)."""
     fields = {
@@ -484,6 +528,14 @@ def record_run_meta(
             ("project_name", project_name),
             ("challenge", challenge),
             ("mode", mode),
+            ("provider", provider),
+            ("model", model),
+            ("seed", seed),
+            ("input_tokens", input_tokens),
+            ("output_tokens", output_tokens),
+            ("latency_ms", latency_ms),
+            ("protocol", protocol),
+            ("benchmark_hash", benchmark_hash),
         )
         if v is not None
     }
@@ -679,5 +731,21 @@ def get_build_snapshots(run_id: str) -> list[BuildStepRecord] | None:
         if not isinstance(raw, list):
             return []
         return [BuildStepRecord.model_validate(item) for item in raw]
+    except Exception:
+        return []
+
+
+def get_model_interactions(run_id: str) -> list[ModelInteraction] | None:
+    """Credential-free prompt/result turns persisted beside an attempt trace."""
+    if get_trace(run_id) is None:
+        return None
+    path = _RUNS_DIR / run_id / "model_interactions.json"
+    if not path.is_file():
+        return []
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, list):
+            return []
+        return [ModelInteraction.model_validate(item) for item in raw]
     except Exception:
         return []

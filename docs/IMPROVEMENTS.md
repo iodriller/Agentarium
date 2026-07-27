@@ -385,3 +385,24 @@ a real correctness bug found along the way and two lock-in guardrails.
 |------|-----|
 | Repair-pass additions now append a synthetic `repair_pass` / "Auto-repair" Build Timeline step when they mutate the design. The original rejected call stays visible. |
 | `overlap_total` only checks horizontal (x-axis) footprint overlap, matching this being a side-view scene — not a true 2D top-down collision check. Sufficient for "buildings stacked on top of each other," not sub-pixel precision. |
+
+## 12. Evaluation and embodiment foundation (2026-07-26)
+
+The repo now has an end-to-end foundation for comparing LLM agents and moving
+the same control discipline into physical test fixtures.
+
+| Area | Shipped |
+| --- | --- |
+| Model runtime | Typed `ModelRequest` / `ModelResult` / `ModelInteraction`, native OpenAI-compatible tools, prompt-JSON fallback, seeds, usage, retries, request id, finish reason, and latency. |
+| Iteration | Real providers can observe bounded simulation score/state/failures and revise for multiple turns inside an attempt. |
+| Experiments | Durable paired model × seed × repeat matrices, aggregate statistics, pairwise score deltas, cancellation, CLI sweep, replay links, and side-by-side Compare. |
+| Transparency | Studio Model Inspector and History metadata for provider/model/seed/tokens/latency/protocol/benchmark hash. |
+| Constraints | Material/bounds/tool budgets are enforced before mutation; strict exact-placement collision safety is live; motor effort is measured and can fail the energy budget; selected output artifacts are generated. |
+| Modes | Relay and sandbox join single/competitive/cooperative with real routing and tests. |
+| Embodiment | Typed adapter contract, deterministic mock rover, env-configured ROS 2 HTTP gateway, explicit arming tokens, operator key for real devices, geofence/speed/duration checks, watchdog, latched E-stop, audit stream, and bounded scored LLM episodes. |
+| Baseline | Fixed Bridge/Crawl deterministic physics regressions, redacted persisted credentials, frontend lint in CI, and React compiler lint failures. |
+
+The honest next steps—reference ROS 2 gateway package, certified deployment
+controls, physical reset fixtures, stronger statistical methods, 3D/digital
+twin support, and worker-process execution—are maintained in
+[`remaining_gaps.md`](remaining_gaps.md).

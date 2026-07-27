@@ -24,6 +24,9 @@ class ToolCallRecord(BaseModel):
     visual_change: bool = False
     new_body_ids: list[str] = Field(default_factory=list)
     new_joint_ids: list[str] = Field(default_factory=list)
+    # Observation returned by inspection/simulation tools. Defaulted for old
+    # JSONL rows and ordinary mutation tools.
+    output: dict = Field(default_factory=dict)
 
 
 class BuildStepRecord(BaseModel):
