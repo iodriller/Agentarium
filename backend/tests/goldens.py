@@ -76,6 +76,8 @@ def _seeded(preset_id: str, world_template_id: str, reward: str) -> tuple[Design
     template = get_world_template(world_template_id)
     world = WorldConfig(
         template=world_template_id,
+        terrain=template.terrain if template else "grassland",
+        engine=template.engine if template else "pymunk2d",
         map_size=template.map_size if template else [32, 32],
     )
     design = DesignSpec(name=f"golden_{preset_id}")
@@ -161,6 +163,43 @@ def tiny_city_golden() -> tuple[DesignSpec, WorldConfig]:
             BodySpec(
                 id=body_id, shape=BodyShape.box, position=position, size=size,
                 static=True, kind=kind, created_by="golden",
+            )
+        )
+    return design, world
+
+
+def city_builder_golden() -> tuple[DesignSpec, WorldConfig]:
+    """A complete CitySim district used as the isometric visual reference."""
+    design, world = _seeded("city_builder", "city_grid", "city_planning")
+    layout = [
+        ("main_road", "road", -1.0, 0.0, 24.0, 0.2, 3.0),
+        ("cross_road", "road", 1.0, 0.0, 3.0, 0.2, 22.0),
+        ("house_west", "house", -7.0, -5.0, 3.2, 3.0, 3.0),
+        ("house_east", "house", -3.0, -5.0, 3.0, 2.7, 2.8),
+        ("apartments", "apartment", 5.0, -5.0, 4.0, 8.0, 3.8),
+        ("tower", "tower", 10.0, -4.5, 3.6, 11.0, 3.6),
+        ("shop", "shop", -7.0, 5.0, 4.0, 3.2, 3.0),
+        ("school", "school", -2.0, 5.0, 5.0, 4.0, 3.8),
+        ("hospital", "hospital", 4.0, 5.0, 4.4, 6.5, 4.0),
+        ("factory", "factory", 10.0, 5.0, 5.2, 4.0, 4.2),
+        ("park", "park", -8.0, 11.0, 6.0, 0.15, 5.0),
+        ("plaza", "plaza", 0.0, 11.0, 5.5, 0.15, 5.0),
+        ("fountain", "fountain", 0.0, 11.0, 2.0, 0.25, 2.0),
+        ("tree_a", "tree", 6.0, 11.0, 1.3, 3.0, 1.3),
+        ("tree_b", "tree", 9.0, 11.0, 1.2, 2.6, 1.2),
+    ]
+    for body_id, kind, x, z, width, height, depth in layout:
+        design.bodies.append(
+            BodySpec(
+                id=body_id,
+                shape=BodyShape.box,
+                position=[x, 0.0],
+                z=z,
+                size=[width, height],
+                depth=depth,
+                static=True,
+                kind=kind,
+                created_by="golden",
             )
         )
     return design, world

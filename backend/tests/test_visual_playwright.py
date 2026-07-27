@@ -19,6 +19,7 @@ from playwright.sync_api import Page, expect, sync_playwright
 
 from tests.goldens import (
     bridge_builder_golden,
+    city_builder_golden,
     crawl_challenge_golden,
     sorter_golden,
     tiny_city_golden,
@@ -31,9 +32,9 @@ pytestmark = pytest.mark.skipif(
 
 PREVIEW_IMAGES = {
     "bridge-builder": "Bridge Builder",
+    "city-builder": "City Builder",
     "crawl-challenge": "Crawl Challenge",
     "sorter": "Sorter",
-    "tiny-city-preview": "Tiny City Preview",
     "custom-scenario": "Custom Scenario",
 }
 
@@ -175,6 +176,47 @@ def test_studio_replay_has_visual_artifact(
     _assert_png(studio_path)
 
 
+def test_visual_catalog_renders_distinct_seeded_themes(
+    page: Page,
+    live_server: str,
+    artifact_dir: pathlib.Path,
+) -> None:
+    page.goto(f"{live_server}/visuals", wait_until="networkidle")
+    expect(page.get_by_text("Renderer visual catalog")).to_be_visible()
+    canvas = page.locator("canvas").first
+    expect(canvas).to_be_visible()
+
+    captures: list[bytes] = []
+    style_select = page.get_by_label("Visual style")
+    for style in ("realistic", "playful", "blueprint", "neon_lab"):
+        style_select.select_option(style)
+        page.wait_for_timeout(200)
+        path = artifact_dir / f"visual-catalog-city-{style}.png"
+        canvas.screenshot(path=str(path))
+        _assert_png(path)
+        captures.append(path.read_bytes())
+
+    # Theme selection must change actual rendered pixels, not only the dropdown.
+    assert len({payload for payload in captures}) == len(captures)
+
+
+def test_physical_workspace_has_instrumented_visual_artifact(
+    page: Page,
+    live_server: str,
+    artifact_dir: pathlib.Path,
+) -> None:
+    page.goto(f"{live_server}/physical", wait_until="networkidle")
+    expect(page.get_by_text("Geofenced workspace")).to_be_visible()
+    workspace = page.get_by_role("img", name="Calibrated workspace", exact=False)
+    expect(workspace).to_be_visible()
+    expect(page.get_by_text("TARGET", exact=True)).to_be_visible()
+    expect(page.get_by_text("BATTERY", exact=True)).to_be_visible()
+
+    path = artifact_dir / "physical-lab-workspace.png"
+    workspace.screenshot(path=str(path))
+    _assert_png(path)
+
+
 # ── Self-eval: golden (known-good) designs, before/after screenshots ───────────
 #
 # These drive a verified solution to a challenge to its final frame and
@@ -184,6 +226,7 @@ def test_studio_replay_has_visual_artifact(
 
 GOLDEN_DESIGNS = {
     "bridge-builder": bridge_builder_golden,
+    "city-builder": city_builder_golden,
     "sorter": sorter_golden,
     "crawl-challenge": crawl_challenge_golden,
     "tiny-city-preview": tiny_city_golden,
@@ -214,14 +257,18 @@ def test_golden_design_before_after_screenshots(
     artifact_dir: pathlib.Path,
 ) -> None:
     design, world = GOLDEN_DESIGNS[challenge_id]()
-    # 60s covers every golden's settle time (crawl's bounding gait needs the
-    # most; bridge/sorter finish well before this and are unaffected).
-    run_id = _create_run(live_server, design, world, duration_seconds=60.0)
+    # Thirty simulated seconds captures the crawler at the finish and gives
+    # bridge/sorter ample settle time. A much longer crawler replay can keep
+    # driving after success because motors intentionally remain active.
+    run_id = _create_run(live_server, design, world, duration_seconds=30.0)
 
     page.goto(f"{live_server}/studio/{run_id}", wait_until="networkidle")
     canvas = page.locator("canvas").first
     expect(canvas).to_be_visible()
     page.wait_for_timeout(500)
+    page.locator("[data-hide-for-capture]").evaluate_all(
+        "(elements) => elements.forEach((element) => element.style.display = 'none')"
+    )
 
     before_path = artifact_dir / f"{challenge_id}-golden-before.png"
     canvas.screenshot(path=str(before_path))

@@ -10,7 +10,9 @@ description: A compact table layout for sorting objects into bins.
 static_bodies:
   - id: table
     shape: box
+    kind: conveyor
     position: [0.0, 0.6]
     size: [12.0, 1.2]
     static: true
+    material: metal
     color: "#78716c"

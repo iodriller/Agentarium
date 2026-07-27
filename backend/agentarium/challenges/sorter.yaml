@@ -21,14 +21,14 @@ recommended_tools:
 scaffold:
   - id: red_target_pad
     shape: box
-    kind: bin
+    kind: target_pad
     position: [-3.0, 0.15]
     size: [2.0, 0.3]
     static: true
     color: "red"
   - id: blue_target_pad
     shape: box
-    kind: bin
+    kind: target_pad
     position: [1.0, 0.15]
     size: [2.0, 0.3]
     static: true

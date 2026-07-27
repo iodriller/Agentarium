@@ -44,11 +44,20 @@ under `docs/archive/`; shipped details are in `IMPROVEMENTS.md`.
 | Low | `AgentConfig.context_window` and per-agent `max_attempts` remain backward-compatible schema fields but do not control runtime. | Remove them in a versioned schema migration or define and enforce unambiguous semantics. |
 | Low | Screenshot/WebM capture remains browser-side; GIF/MP4 is absent. | Optional encoder/transcode worker with explicit resource limits and artifact lifecycle. |
 
+## Visual fidelity
+
+| Priority | Gap | What “done” means |
+| --- | --- | --- |
+| Medium | The polished renderer is still procedural 2.5D rather than a true 3D scene. | Resolve the PyBullet/Three.js product call, then add authored 3D assets, real lights, camera orbit, occlusion, and GPU performance budgets without breaking trace-only replay. |
+| Low | Decorative city traffic/pedestrians are trace-derived ambience, not CitySim actors. | Add explicit actor events and paths when moving people/vehicles become part of simulation or scoring; keep purely decorative ambience honest until then. |
+| Low | Browser visual CI checks deterministic screenshots and distinct themes, not strict cross-platform pixel baselines. | Adopt platform-pinned image baselines only if the maintenance cost is justified; keep structured scene assertions and uploaded artifacts as the default. |
+
 ## Test gaps
 
 - Robot gateway contract tests against a fake ROS 2 hardware component.
 - Watchdog and emergency-stop timing tests across real process/network failure.
 - Property/fuzz tests for provider tool arguments and embodiment actions.
 - Experiment recovery/cancellation tests across server restart.
-- Browser tests for Experiments, Compare, Model Inspector, and Physical Lab.
+- Browser interaction tests for Experiments, Compare, Model Inspector, and Physical Lab
+  controls (the calibrated Physical Lab map and visual catalog now have screenshot coverage).
 - Load tests for long traces and large experiment histories.

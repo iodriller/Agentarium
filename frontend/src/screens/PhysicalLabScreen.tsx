@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { api, ApiError } from '../api/client'
 import type {
   EmbodimentActionReceipt,
@@ -8,6 +8,7 @@ import type {
   EmbodimentObservation,
   LLMProvider,
 } from '../api/types'
+import { PhysicalWorkspaceMap } from '../components/physical/PhysicalWorkspaceMap'
 import { TopBar } from '../components/shared/TopBar'
 
 type ArmResponse = {
@@ -20,6 +21,7 @@ export function PhysicalLabScreen() {
   const [devices, setDevices] = useState<EmbodimentDevice[]>([])
   const [deviceId, setDeviceId] = useState('')
   const [observation, setObservation] = useState<EmbodimentObservation | null>(null)
+  const [poseTrail, setPoseTrail] = useState<EmbodimentObservation[]>([])
   const [events, setEvents] = useState<EmbodimentEvent[]>([])
   const [controlToken, setControlToken] = useState<string | null>(null)
   const [operatorKey, setOperatorKey] = useState('')
@@ -40,6 +42,15 @@ export function PhysicalLabScreen() {
   const device = devices.find((item) => item.id === deviceId) ?? devices[0]
   const armed = device?.safety_state === 'armed' && Boolean(controlToken)
 
+  const acceptObservation = useCallback((next: EmbodimentObservation | null) => {
+    setObservation(next)
+    if (!next) return
+    setPoseTrail((current) => {
+      if (current.at(-1)?.sequence === next.sequence) return current
+      return [...current, next].slice(-80)
+    })
+  }, [])
+
   const refresh = useCallback(async () => {
     const next = await api.get<EmbodimentDevice[]>('/embodiments')
     setDevices(next)
@@ -50,10 +61,10 @@ export function PhysicalLabScreen() {
       api.get<EmbodimentObservation>(`/embodiments/${selected.id}/observation`),
       api.get<EmbodimentEvent[]>(`/embodiments/events?device_id=${selected.id}&limit=30`),
     ])
-    setObservation(nextObservation)
+    acceptObservation(nextObservation)
     setEvents(nextEvents)
     if (selected.safety_state !== 'armed') setControlToken(null)
-  }, [deviceId])
+  }, [acceptObservation, deviceId])
 
   useEffect(() => {
     void api.get<EmbodimentDevice[]>('/embodiments').then((next) => {
@@ -81,16 +92,6 @@ export function PhysicalLabScreen() {
     }, timeoutMs)
     return () => window.clearInterval(id)
   }, [controlToken, device?.limits.heartbeat_timeout_s, deviceId])
-
-  const normalizedPosition = useMemo(() => {
-    if (!device || !observation) return { left: 50, top: 50 }
-    const xRange = Math.max(0.001, device.limits.max_x - device.limits.min_x)
-    const yRange = Math.max(0.001, device.limits.max_y - device.limits.min_y)
-    return {
-      left: ((observation.pose.x - device.limits.min_x) / xRange) * 100,
-      top: 100 - ((observation.pose.y - device.limits.min_y) / yRange) * 100,
-    }
-  }, [device, observation])
 
   function explain(err: unknown): string {
     if (err instanceof ApiError && typeof err.body === 'object' && err.body) {
@@ -136,7 +137,7 @@ export function PhysicalLabScreen() {
         },
         controlHeaders(controlToken),
       )
-      setObservation(receipt.observation)
+      acceptObservation(receipt.observation)
       await refresh()
     } catch (err) {
       setError(explain(err))
@@ -220,6 +221,7 @@ export function PhysicalLabScreen() {
       )
       setMissionResult(result)
       setObservation(result.observations.at(-1) ?? null)
+      setPoseTrail(result.observations.slice(-80))
       await refresh()
     } catch (err) {
       setError(explain(err))
@@ -247,7 +249,11 @@ export function PhysicalLabScreen() {
               <h1 style={title()}>Device & safety interlock</h1>
               <select
                 value={device?.id ?? ''}
-                onChange={(event) => setDeviceId(event.target.value)}
+                onChange={(event) => {
+                  setDeviceId(event.target.value)
+                  setPoseTrail([])
+                  setObservation(null)
+                }}
                 style={input()}
               >
                 {devices.map((item) => (
@@ -313,35 +319,14 @@ export function PhysicalLabScreen() {
 
             <section style={panel()}>
               <h2 style={title()}>Geofenced workspace</h2>
-              <div
-                style={{
-                  position: 'relative',
-                  height: 300,
-                  overflow: 'hidden',
-                  border: '2px solid var(--ok)',
-                  borderRadius: 8,
-                  backgroundImage:
-                    'linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px)',
-                  backgroundSize: '25px 25px',
-                  backgroundColor: 'var(--surface-2)',
-                }}
-              >
-                <div
-                  title="Current rover pose"
-                  style={{
-                    position: 'absolute',
-                    left: `${normalizedPosition.left}%`,
-                    top: `${normalizedPosition.top}%`,
-                    width: 22,
-                    height: 22,
-                    borderRadius: 5,
-                    background: 'var(--accent)',
-                    border: '2px solid white',
-                    transform: `translate(-50%, -50%) rotate(${observation?.pose.heading_rad ?? 0}rad)`,
-                    transition: 'left 180ms linear, top 180ms linear',
-                  }}
+              {device && (
+                <PhysicalWorkspaceMap
+                  device={device}
+                  observation={observation}
+                  trail={poseTrail}
+                  target={{ x: targetX, y: targetY }}
                 />
-              </div>
+              )}
               <p style={muted()}>
                 X {device?.limits.min_x ?? '—'}…{device?.limits.max_x ?? '—'} m · Y{' '}
                 {device?.limits.min_y ?? '—'}…{device?.limits.max_y ?? '—'} m · pose{' '}

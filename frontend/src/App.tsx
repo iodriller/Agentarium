@@ -15,6 +15,9 @@ const CompareScreen = lazy(() =>
 const PhysicalLabScreen = lazy(() =>
   import('./screens/PhysicalLabScreen').then((module) => ({ default: module.PhysicalLabScreen })),
 )
+const VisualCatalogScreen = lazy(() =>
+  import('./screens/VisualCatalogScreen').then((module) => ({ default: module.VisualCatalogScreen })),
+)
 
 function RouteLoading() {
   return (
@@ -45,6 +48,7 @@ export default function App() {
           <Route path="/experiments" element={<ExperimentsScreen />} />
           <Route path="/compare" element={<CompareScreen />} />
           <Route path="/physical" element={<PhysicalLabScreen />} />
+          <Route path="/visuals" element={<VisualCatalogScreen />} />
           <Route path="*" element={<Navigate to="/setup" replace />} />
         </Routes>
       </Suspense>

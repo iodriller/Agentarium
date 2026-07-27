@@ -63,7 +63,7 @@ commands.
 
 ## What you get
 
-Six connected workspaces:
+Seven connected workspaces:
 
 1. **Simulation Setup** — choose a task, world, agent protocol, models, tools,
    real resource constraints, and artifact outputs.
@@ -78,6 +78,10 @@ Six connected workspaces:
 6. **Physical Lab** — run the same typed observation/action boundary against a
    deterministic mock rover or a configured ROS 2 gateway, with explicit
    arming, geofences, limits, a watchdog, and a latched emergency stop.
+7. **Visual Catalog** — review deterministic City/Bridge/Crawl/Sorter reference
+   scenes across diorama, playful, blueprint, and neon themes. Studio replays
+   can switch between a clean Beauty view and joint/velocity/ID-rich
+   Engineering overlays.
 
 A run is real and visible end to end: **Launch → agent builds via validated tool
 calls → physics runs → the world replays it → scores and telemetry stream live.**

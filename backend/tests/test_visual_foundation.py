@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from agentarium.agents.prompts import build_system_prompt
-from agentarium.core.schemas.design import BodyShape, BodySpec, DesignSpec
+from agentarium.core.schemas.design import BodyShape, BodySpec, DesignSpec, JointSpec
 from agentarium.core.schemas.setup import WorldConfig
 from agentarium.engines.pymunk2d.engine import Pymunk2DEngine
 from agentarium.services.orchestrator import _design_summary
@@ -59,6 +59,77 @@ def test_trace_carries_kind_in_body_meta():
     assert wall_prop.kind == "wall"
     # Terrain threaded through (PR #6 field).
     assert trace.terrain == "city"
+
+
+def test_trace_carries_theme_material_seed_and_joint_metadata():
+    design = DesignSpec(
+        name="visual-contract",
+        bodies=[
+            BodySpec(
+                id="torso",
+                shape=BodyShape.box,
+                position=[0.0, 2.0],
+                material="rubber",
+                kind="torso",
+                created_by="agent_a",
+            ),
+            BodySpec(
+                id="leg",
+                shape=BodyShape.segment,
+                position=[0.0, 1.0],
+                material="wood",
+                kind="leg",
+            ),
+        ],
+        joints=[
+            JointSpec(
+                id="hip",
+                body_a="torso",
+                body_b="leg",
+                anchor_a=[0.2, -0.2],
+                anchor_b=[-0.3, 0.0],
+                motor_rate=1.5,
+            )
+        ],
+    )
+    world = WorldConfig(
+        template="flat_arena",
+        visual_style="neon_lab",
+        seed=73,
+    )
+
+    first = Pymunk2DEngine().simulate(design, world, 0.1)
+    second = Pymunk2DEngine().simulate(design, world, 0.1)
+
+    assert first.version == 3
+    assert first.visual_style == "neon_lab"
+    assert first.visual_seed == 73
+    assert first.body_meta["torso"].visual.material == "rubber"
+    assert first.body_meta["torso"].visual.seed == second.body_meta["torso"].visual.seed
+    assert first.body_meta["torso"].created_by == "agent_a"
+    assert first.joints[0].id == "hip"
+    assert first.joints[0].anchor_a == [0.2, -0.2]
+    assert first.joints[0].motor_rate == 1.5
+    initial_types = {event["type"] for event in first.frames[0].events}
+    assert {"body_created", "joint_attached", "motor_activated"} <= initial_types
+
+
+def test_old_trace_payload_gets_backwards_compatible_visual_defaults():
+    from agentarium.core.schemas.trace import EpisodeTrace
+
+    trace = EpisodeTrace.model_validate(
+        {
+            "version": 2,
+            "run_id": "old",
+            "dt": 0.1,
+            "world_static": [],
+            "frames": [],
+        }
+    )
+
+    assert trace.visual_style == "realistic"
+    assert trace.visual_seed == 0
+    assert trace.joints == []
 
 
 def test_old_design_without_kind_defaults_to_none():

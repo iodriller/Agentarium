@@ -83,6 +83,9 @@ export function TopBar({ projectName = 'Agentarium', status = 'connecting' }: To
         <Link to="/physical" style={{ color: 'var(--text-2)', fontSize: 12, textDecoration: 'none' }}>
           Physical Lab
         </Link>
+        <Link to="/visuals" style={{ color: 'var(--text-2)', fontSize: 12, textDecoration: 'none' }}>
+          Visuals
+        </Link>
         <a
           href="https://github.com/iodriller/agentarium#readme"
           target="_blank"

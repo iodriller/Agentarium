@@ -48,8 +48,8 @@ flowchart TD
 | Agents | `backend/agentarium/agents` | Providers (mock / localdeploy / OpenAI-compatible / manual), prompts, and the attempt runner. |
 | Services | `backend/agentarium/services` | Run/experiment orchestration, scoring, presets, durable storage, exports, embodiment supervision and episodes. |
 | API | `backend/agentarium/api` | Routers for setup, tools, presets, runs, experiments, embodiments, exports, and WebSocket. |
-| Renderer | `frontend/src/phaser` | Side-view Phaser scene that consumes **only** `EpisodeTrace`. |
-| Screens | `frontend/src/screens` | Setup, Studio, History, Experiments, Compare, and Physical Lab. |
+| Renderer | `frontend/src/phaser` | Side-view + isometric Phaser visual system that consumes **only** `EpisodeTrace`; deterministic themes, semantic props, joints, effects, beauty/engineering overlays. |
+| Screens | `frontend/src/screens` | Setup, Studio, History, Experiments, Compare, Physical Lab, and the deterministic Visual Catalog. |
 
 ## Invariants (do not violate)
 
@@ -69,6 +69,22 @@ flowchart TD
    normalized observations and high-level actions. Arming, control tokens,
    geofences, action limits, watchdogs, and a latched emergency stop remain
    outside the model/provider.
+
+## Replay and visual contract
+
+`EpisodeTrace` version 3 remains backwards compatible with version-2 replay
+payloads. In addition to body transforms and semantic `kind`, it carries:
+
+- the selected `visual_style` and deterministic `visual_seed`;
+- per-prop/body `VisualSpec` metadata (variant, material, condition, emission,
+  label, and animation state);
+- renderer-facing joint metadata (body ids, local anchors, type, motor rate);
+- frame events for creation, contacts, stress, goal entry, sorting, and falls.
+
+These fields are cosmetic/observational. They never mutate physics and do not
+enter reward calculation. `visualTheme.ts`, `props.ts`, `isoProps.ts`, and
+`visualOverlays.ts` are the shared render layers. `/visuals` supplies seeded
+City/Bridge/Crawl/Sorter reference scenes across every supported style.
 
 ## Model interaction protocol
 
