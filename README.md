@@ -1,6 +1,6 @@
 # Agentarium
 
-[![CI](https://github.com/iodriller/Agentarium/actions/workflows/ci.yml/badge.svg)](https://github.com/iodriller/Agentarium/actions/workflows/ci.yml)
+[![CI](https://github.com/oney-erge/Agentarium/actions/workflows/ci.yml/badge.svg)](https://github.com/oney-erge/Agentarium/actions/workflows/ci.yml)
 
 **A visual AI physics sandbox where LLM agents build objects in simulated
 worlds, run experiments, and improve their designs from replayed results.**

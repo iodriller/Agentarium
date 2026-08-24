@@ -23,7 +23,7 @@ interface AgentLLMColumnProps {
 const LOCALDEPLOY_ENDPOINT = 'http://127.0.0.1:8000/v1'
 const OPENAI_ENDPOINT = 'https://api.openai.com/v1'
 const GENERIC_ENDPOINT = 'http://localhost:1234/v1'
-const LOCALDEPLOY_REPO = 'https://github.com/iodriller/LocalDeploy'
+const LOCALDEPLOY_REPO = 'https://github.com/oney-erge/LocalDeploy'
 
 function endpointForProvider(provider: LLMProvider): string {
   if (provider === 'localdeploy') return LOCALDEPLOY_ENDPOINT
@@ -489,7 +489,7 @@ function AgentCard({
                   rel="noopener noreferrer"
                   style={{ color: 'var(--accent)' }}
                 >
-                  github.com/iodriller/LocalDeploy
+                  github.com/oney-erge/LocalDeploy
                 </a>
                 , then its models appear here automatically. Or switch the
                 provider to OpenAI-Compatible or Mock.

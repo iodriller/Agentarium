@@ -1,6 +1,6 @@
 # Agentarium — Comprehensive Product & Engineering Plan
 
-**Repository:** `iodriller/Agentarium`
+**Repository:** `oney-erge/Agentarium`
 **Status:** Planning / bootstrap
 **Companion docs:** [`AGENTARIUM_PLAN.md`](AGENTARIUM_PLAN.md) (original roadmap) · [`IMPLEMENTATION_STEPS.md`](IMPLEMENTATION_STEPS.md) (step-by-step build guide)
 

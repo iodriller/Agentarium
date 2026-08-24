@@ -1,6 +1,6 @@
 # Agentarium — Comprehensive Implementation Plan
 
-**Repository:** `iodriller/Agentarium`  
+**Repository:** `oney-erge/Agentarium`  
 **Status:** Planning / bootstrap  
 **Working description:** Agentarium is a visual AI physics sandbox where agents build objects in simulated worlds, run experiments, and improve their designs from replayed results.
 
