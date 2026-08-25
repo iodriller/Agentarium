@@ -34,6 +34,11 @@ command does everything and opens the app in your browser.
 ./run.ps1
 ```
 
+You can also double-click `run.bat` on Windows or `run.command` on macOS.
+Every launcher accepts the same actions: `doctor`, `repair`, `docker`, `logs`,
+and `stop`. Docker binds the UI to loopback and persists run data in a named
+volume.
+
 The launcher installs [`uv`](https://docs.astral.sh/uv/) if needed (which
 manages Python for you), installs dependencies, and starts Agentarium at
 **http://localhost:8765**. A prebuilt web UI ships with the repo, so **Node is

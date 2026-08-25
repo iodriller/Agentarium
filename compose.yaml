@@ -1,0 +1,24 @@
+services:
+  agentarium:
+    build: .
+    image: agentarium:local
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${AGENTARIUM_PORT:-8765}:8765"
+    volumes:
+      - agentarium-runs:/app/runs
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      AGENTARIUM_LLM_BASE_URL: ${AGENTARIUM_LLM_BASE_URL:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/api/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+volumes:
+  agentarium-runs:

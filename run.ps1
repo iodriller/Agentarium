@@ -1,61 +1,99 @@
-# Agentarium one-command launcher (Windows PowerShell).
-#
-#   ./run.ps1
-#
-# It installs everything it needs and opens the app in your browser. No manual
-# virtualenv, no "install this then that". You do NOT need Node — a prebuilt web
-# UI ships with the repo.
-#
-# If Windows blocks the script, run it once as:
-#   powershell -ExecutionPolicy Bypass -File .\run.ps1
-
-$ErrorActionPreference = 'Stop'
-Set-Location $PSScriptRoot
-
-Write-Host "> Agentarium launcher"
-
-# 1. Ensure uv is available (it manages Python itself).
-$uvBins = @(
-  "$env:USERPROFILE\.local\bin",
-  "$env:USERPROFILE\.cargo\bin"
+param(
+  [ValidateSet("run", "doctor", "repair", "docker", "stop", "logs")]
+  [string]$Action = "run",
+  [switch]$NoBrowser
 )
-foreach ($uvBin in $uvBins) {
-  if ((Test-Path "$uvBin\uv.exe") -and (($env:Path -split ';') -notcontains $uvBin)) {
-    $env:Path = "$uvBin;$env:Path"
+
+$ErrorActionPreference = "Stop"
+Set-Location $PSScriptRoot
+$UvVersion = "0.12.5"
+$Url = "http://127.0.0.1:8765"
+
+function Invoke-Retry([string]$Label, [scriptblock]$Operation) {
+  for ($attempt = 1; $attempt -le 3; $attempt++) {
+    try { & $Operation; return } catch {
+      if ($attempt -eq 3) { throw "$Label failed after 3 attempts: $($_.Exception.Message)" }
+      Start-Sleep -Seconds ([math]::Pow(2, $attempt - 1))
+    }
   }
 }
 
-if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
-  Write-Host "  - Installing uv (one-time, no admin needed)..."
-  Invoke-RestMethod https://astral.sh/uv/install.ps1 | Invoke-Expression
-  $env:Path = "$env:USERPROFILE\.local\bin;$env:Path"
-}
-
-# Confirm uv is actually callable now; fail with a clear next step otherwise.
-if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
-  Write-Host "  x uv was installed but isn't on your PATH yet."
-  Write-Host "    Open a new PowerShell window and re-run ./run.ps1."
-  exit 1
-}
-
-# 2. Install Python + dependencies.
-Write-Host "  - Installing dependencies..."
-uv sync --all-groups
-
-# 3. Build the web UI only if it is missing AND Node is available (prebuilt
-#    bundle ships in the repo, so most people skip this).
-if (-not (Test-Path backend/agentarium/static/index.html)) {
-  if (Get-Command npm -ErrorAction SilentlyContinue) {
-    Write-Host "  - Building the web UI..."
-    Push-Location frontend; npm install; npm run build; Pop-Location
-  } else {
-    Write-Host "  x No prebuilt UI found and Node/npm isn't installed."
-    Write-Host "    Install Node 20.19+ or 22.12+ from https://nodejs.org and re-run, or restore the"
-    Write-Host "    committed bundle with: git checkout -- backend/agentarium/static"
-    exit 1
+function Resolve-Uv {
+  $command = Get-Command uv -ErrorAction SilentlyContinue
+  $candidates = @($(if ($command) { $command.Source }), "$env:USERPROFILE\.local\bin\uv.exe", "$env:USERPROFILE\.cargo\bin\uv.exe")
+  foreach ($candidate in $candidates) {
+    if ($candidate -and (Test-Path -LiteralPath $candidate)) { return $candidate }
   }
+  return $null
 }
 
-# 4. Launch (browser opens automatically once the server is up).
-Write-Host "  - Starting Agentarium -> http://localhost:8765"
-uv run agentarium serve --no-reload --open
+function Install-Uv {
+  $installer = Join-Path $env:TEMP "agentarium-uv-$UvVersion.ps1"
+  try {
+    Invoke-Retry "uv download" {
+      Invoke-WebRequest -UseBasicParsing -Uri "https://astral.sh/uv/$UvVersion/install.ps1" -OutFile $installer
+    }
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer
+  } finally {
+    Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue
+  }
+  $uv = Resolve-Uv
+  if (-not $uv) { throw "uv installed but could not be located. Open a new terminal and run this file again." }
+  return $uv
+}
+
+function Wait-Ready([string]$HealthUrl) {
+  for ($i = 0; $i -lt 60; $i++) {
+    try {
+      Invoke-RestMethod -Uri $HealthUrl -TimeoutSec 2 | Out-Null
+      return $true
+    } catch { Start-Sleep -Milliseconds 500 }
+  }
+  return $false
+}
+
+if ($Action -in @("docker", "stop", "logs")) {
+  $docker = Get-Command docker -ErrorAction SilentlyContinue
+  $engineRunning = $false
+  if ($docker) { docker info *> $null; $engineRunning = ($LASTEXITCODE -eq 0) }
+  if ($Action -eq "stop" -and -not $engineRunning) { Write-Host "The native server runs in the foreground. Press Ctrl+C in its terminal to stop it."; exit 0 }
+  if ($Action -eq "logs" -and -not $engineRunning) { Write-Host "The native server writes logs to its foreground terminal."; exit 0 }
+  if (-not $docker) { throw "Docker is not installed. Install Docker Desktop, then rerun with '$Action'." }
+  if (-not $engineRunning) { throw "Docker is installed but its engine is not running." }
+  if ($Action -eq "stop") { docker compose down; exit $LASTEXITCODE }
+  if ($Action -eq "logs") { docker compose logs --follow; exit $LASTEXITCODE }
+  docker compose up --detach --build
+  if ($LASTEXITCODE -ne 0) { throw "Docker Compose failed to start Agentarium." }
+  if (-not (Wait-Ready "$Url/api/health")) { docker compose logs; throw "Agentarium did not become healthy at $Url." }
+  Write-Host "Agentarium is ready at $Url" -ForegroundColor Green
+  if (-not $NoBrowser) { Start-Process $Url }
+  exit 0
+}
+
+$uv = Resolve-Uv
+if ($Action -eq "doctor") {
+  if (-not $uv) { throw "uv is missing. Run .\run.ps1 once to install the managed runtime." }
+  & $uv run --frozen --no-sync agentarium --help *> $null
+  if ($LASTEXITCODE -ne 0) { throw "The managed Agentarium environment is missing or stale. Run .\run.ps1 repair." }
+  if (-not (Test-Path -LiteralPath "backend\agentarium\static\index.html")) { throw "The prebuilt web UI is missing." }
+  Write-Host "Agentarium native environment is ready." -ForegroundColor Green
+  exit 0
+}
+
+if (-not $uv) { $uv = Install-Uv }
+Write-Host "==> Synchronizing the locked runtime" -ForegroundColor Cyan
+$syncArgs = @("sync", "--frozen", "--no-dev")
+if ($Action -eq "repair") { $syncArgs += "--reinstall" }
+Invoke-Retry "dependency synchronization" { & $uv @syncArgs; if ($LASTEXITCODE -ne 0) { throw "uv sync exited with $LASTEXITCODE" } }
+
+if (-not (Test-Path -LiteralPath "backend\agentarium\static\index.html")) {
+  if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { throw "The prebuilt UI is missing and Node/npm is unavailable. Restore the release payload or install Node 20+." }
+  Push-Location frontend
+  try { npm ci; npm run build } finally { Pop-Location }
+}
+
+$serveArgs = @("run", "--frozen", "--no-sync", "agentarium", "serve", "--no-reload")
+if (-not $NoBrowser) { $serveArgs += "--open" }
+Write-Host "==> Starting Agentarium at $Url" -ForegroundColor Cyan
+& $uv @serveArgs
+exit $LASTEXITCODE
