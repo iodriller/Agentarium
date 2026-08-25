@@ -1,54 +1,102 @@
 #!/usr/bin/env bash
-#
-# Agentarium one-command launcher (macOS / Linux).
-#
-#   ./run.sh
-#
-# It installs everything it needs and opens the app in your browser. No manual
-# virtualenv, no "install this then that". You do NOT need Node — a prebuilt web
-# UI ships with the repo.
-#
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "${BASH_SOURCE[0]}")"
 
-echo "▶ Agentarium launcher"
+action="run"
+no_browser=0
+for arg in "$@"; do
+  case "$arg" in
+    run|doctor|repair|docker|stop|logs) action="$arg" ;;
+    --no-browser) no_browser=1 ;;
+    *) echo "unknown option: $arg" >&2; exit 2 ;;
+  esac
+done
 
-# 1. Ensure uv is available. uv manages Python itself, so this is the only
-#    prerequisite — and we install it for you if it's missing.
-if ! command -v uv >/dev/null 2>&1; then
-  echo "  • Installing uv (one-time, no admin needed)…"
-  curl -LsSf https://astral.sh/uv/install.sh | sh
-  # Make uv visible on PATH for the rest of this script.
-  export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
-fi
+uv_version="0.12.5"
+url="http://127.0.0.1:8765"
 
-# Confirm uv is actually callable now (the installer may land it somewhere not
-# yet on PATH for this shell). Fail with a clear next step rather than a cryptic
-# "uv: command not found" on the next line.
-if ! command -v uv >/dev/null 2>&1; then
-  echo "  ✗ uv was installed but isn't on your PATH yet."
-  echo "    Open a new terminal and re-run ./run.sh (or add ~/.local/bin to PATH)."
-  exit 1
-fi
+retry() {
+  local label=$1; shift
+  local attempt
+  for attempt in 1 2 3; do
+    "$@" && return 0
+    [ "$attempt" -eq 3 ] && { echo "$label failed after 3 attempts" >&2; return 1; }
+    sleep $((1 << (attempt - 1)))
+  done
+}
 
-# 2. Install Python + dependencies into a managed environment.
-echo "  • Installing dependencies…"
-uv sync --all-groups
+find_uv() {
+  command -v uv 2>/dev/null || {
+    [ -x "$HOME/.local/bin/uv" ] && printf '%s\n' "$HOME/.local/bin/uv" && return 0
+    [ -x "$HOME/.cargo/bin/uv" ] && printf '%s\n' "$HOME/.cargo/bin/uv" && return 0
+    return 1
+  }
+}
 
-# 3. Build the web UI only if it is missing AND Node is available. A prebuilt
-#    bundle ships in the repo, so most people skip this entirely.
-if [ ! -f backend/agentarium/static/index.html ]; then
-  if command -v npm >/dev/null 2>&1; then
-    echo "  • Building the web UI…"
-    (cd frontend && npm install && npm run build)
+install_uv() {
+  local installer
+  installer="$(mktemp)"
+  if command -v curl >/dev/null 2>&1; then
+    retry "uv download" curl -fsSL "https://astral.sh/uv/${uv_version}/install.sh" -o "$installer"
+  elif command -v wget >/dev/null 2>&1; then
+    retry "uv download" wget -qO "$installer" "https://astral.sh/uv/${uv_version}/install.sh"
   else
-    echo "  ✗ No prebuilt UI found and Node/npm isn't installed."
-    echo "    Install Node 20.19+ or 22.12+ from https://nodejs.org and re-run, or restore the"
-    echo "    committed bundle with: git checkout -- backend/agentarium/static"
-    exit 1
+    echo "curl or wget is required to bootstrap uv" >&2; rm -f "$installer"; return 1
   fi
+  sh "$installer"
+  rm -f "$installer"
+  find_uv
+}
+
+wait_ready() {
+  local health=$1
+  for _ in $(seq 1 60); do
+    if command -v curl >/dev/null 2>&1 && curl -fsS --max-time 2 "$health" >/dev/null 2>&1; then return 0; fi
+    if command -v wget >/dev/null 2>&1 && wget -q --timeout=2 -O /dev/null "$health" >/dev/null 2>&1; then return 0; fi
+    sleep 0.5
+  done
+  return 1
+}
+
+open_url() {
+  [ "$no_browser" -eq 1 ] && return 0
+  command -v open >/dev/null 2>&1 && { open "$1" >/dev/null 2>&1 || true; return; }
+  command -v xdg-open >/dev/null 2>&1 && { xdg-open "$1" >/dev/null 2>&1 || true; return; }
+  command -v gio >/dev/null 2>&1 && gio open "$1" >/dev/null 2>&1 || true
+}
+
+case "$action" in
+  docker|stop|logs)
+    command -v docker >/dev/null 2>&1 || { echo "Docker is not installed." >&2; exit 1; }
+    docker info >/dev/null 2>&1 || { echo "Docker is installed but its engine is not running." >&2; exit 1; }
+    [ "$action" = stop ] && exec docker compose down
+    [ "$action" = logs ] && exec docker compose logs --follow
+    docker compose up --detach --build
+    wait_ready "$url/api/health" || { docker compose logs; echo "Agentarium did not become healthy." >&2; exit 1; }
+    echo "Agentarium is ready at $url"
+    open_url "$url"
+    exit 0 ;;
+esac
+
+uv="$(find_uv || true)"
+if [ "$action" = doctor ]; then
+  [ -n "$uv" ] || { echo "uv is missing. Run ./run.sh once." >&2; exit 1; }
+  "$uv" run --frozen --no-sync agentarium --help >/dev/null
+  [ -f backend/agentarium/static/index.html ] || { echo "The prebuilt UI is missing." >&2; exit 1; }
+  echo "Agentarium native environment is ready."
+  exit 0
+fi
+[ -n "$uv" ] || uv="$(install_uv)"
+
+sync_args=(sync --frozen --no-dev)
+[ "$action" = repair ] && sync_args+=(--reinstall)
+retry "dependency synchronization" "$uv" "${sync_args[@]}"
+
+if [ ! -f backend/agentarium/static/index.html ]; then
+  command -v npm >/dev/null 2>&1 || { echo "The prebuilt UI is missing and Node/npm is unavailable." >&2; exit 1; }
+  (cd frontend && npm ci && npm run build)
 fi
 
-# 4. Launch. The browser opens automatically once the server is up.
-echo "  • Starting Agentarium → http://localhost:8765"
-exec uv run agentarium serve --no-reload --open
+serve_args=(run --frozen --no-sync agentarium serve --no-reload)
+[ "$no_browser" -eq 0 ] && serve_args+=(--open)
+exec "$uv" "${serve_args[@]}"
