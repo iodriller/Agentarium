@@ -22,19 +22,27 @@ Setup → tools → design → simulation → replay → score → next attempt
 You don't need to install Python, set up a virtualenv, or install Node. One
 command does everything and opens the app in your browser.
 
-**macOS / Linux**
+**Windows**
+
+```powershell
+.\run.bat
+```
+
+Use `.\run.ps1` when you want to stay in PowerShell.
+
+**macOS**
+
+```bash
+./run.command
+```
+
+**Linux**
 
 ```bash
 ./run.sh
 ```
 
-**Windows (PowerShell)**
-
-```powershell
-./run.ps1
-```
-
-You can also double-click `run.bat` on Windows or `run.command` on macOS.
+You can double-click `run.bat` on Windows or `run.command` on macOS.
 Every launcher accepts the same actions: `doctor`, `repair`, `docker`, `logs`,
 and `stop`. Docker binds the UI to loopback and persists run data in a named
 volume.
