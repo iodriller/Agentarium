@@ -47,6 +47,10 @@ Every launcher accepts the same actions: `doctor`, `repair`, `docker`, `logs`,
 and `stop`. Docker binds the UI to loopback and persists run data in a named
 volume.
 
+Setup checks disk space, serializes concurrent installs, and retries temporary
+network failures up to three times. If it cannot finish, see
+`.setup/install.log` for the persistent failure record.
+
 The launcher installs [`uv`](https://docs.astral.sh/uv/) if needed (which
 manages Python for you), installs dependencies, and starts Agentarium at
 **http://localhost:8765**. A prebuilt web UI ships with the repo, so **Node is

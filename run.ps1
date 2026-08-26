@@ -6,17 +6,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
+. .\scripts\install-utils.ps1
+Initialize-Install -RepositoryRoot $PSScriptRoot -ProductName "Agentarium"
+trap { Write-InstallFailure $_; Exit-InstallLock; exit 1 }
 $UvVersion = "0.12.5"
 $Url = "http://127.0.0.1:8765"
-
-function Invoke-Retry([string]$Label, [scriptblock]$Operation) {
-  for ($attempt = 1; $attempt -le 3; $attempt++) {
-    try { & $Operation; return } catch {
-      if ($attempt -eq 3) { throw "$Label failed after 3 attempts: $($_.Exception.Message)" }
-      Start-Sleep -Seconds ([math]::Pow(2, $attempt - 1))
-    }
-  }
-}
 
 function Resolve-Uv {
   $command = Get-Command uv -ErrorAction SilentlyContinue
@@ -30,9 +24,7 @@ function Resolve-Uv {
 function Install-Uv {
   $installer = Join-Path $env:TEMP "agentarium-uv-$UvVersion.ps1"
   try {
-    Invoke-Retry "uv download" {
-      Invoke-WebRequest -UseBasicParsing -Uri "https://astral.sh/uv/$UvVersion/install.ps1" -OutFile $installer
-    }
+    Save-InstallDownload -Url "https://astral.sh/uv/$UvVersion/install.ps1" -Destination $installer -Label "uv download"
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer
   } finally {
     Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue
@@ -62,9 +54,12 @@ if ($Action -in @("docker", "stop", "logs")) {
   if (-not $engineRunning) { throw "Docker is installed but its engine is not running." }
   if ($Action -eq "stop") { docker compose down; exit $LASTEXITCODE }
   if ($Action -eq "logs") { docker compose logs --follow; exit $LASTEXITCODE }
+  Enter-InstallLock
+  Assert-InstallFreeSpace -Path $PSScriptRoot -RequiredGB 2
   docker compose up --detach --build
   if ($LASTEXITCODE -ne 0) { throw "Docker Compose failed to start Agentarium." }
   if (-not (Wait-Ready "$Url/api/health")) { docker compose logs; throw "Agentarium did not become healthy at $Url." }
+  Complete-Install
   Write-Host "Agentarium is ready at $Url" -ForegroundColor Green
   if (-not $NoBrowser) { Start-Process $Url }
   exit 0
@@ -80,18 +75,33 @@ if ($Action -eq "doctor") {
   exit 0
 }
 
+Enter-InstallLock
+Assert-InstallFreeSpace -Path $PSScriptRoot -RequiredGB 2
 if (-not $uv) { $uv = Install-Uv }
 Write-Host "==> Synchronizing the locked runtime" -ForegroundColor Cyan
 $syncArgs = @("sync", "--frozen", "--no-dev")
 if ($Action -eq "repair") { $syncArgs += "--reinstall" }
-Invoke-Retry "dependency synchronization" { & $uv @syncArgs; if ($LASTEXITCODE -ne 0) { throw "uv sync exited with $LASTEXITCODE" } }
+Invoke-InstallRetry "dependency synchronization" {
+  $output = & $uv @syncArgs 2>&1
+  if ($LASTEXITCODE -ne 0) { throw "uv sync failed: $($output -join [Environment]::NewLine)" }
+  $output | Write-Host
+}
 
 if (-not (Test-Path -LiteralPath "backend\agentarium\static\index.html")) {
   if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { throw "The prebuilt UI is missing and Node/npm is unavailable. Restore the release payload or install Node 20+." }
   Push-Location frontend
-  try { npm ci; npm run build } finally { Pop-Location }
+  try {
+    Invoke-InstallRetry "frontend dependency installation" {
+      $output = & npm ci 2>&1
+      if ($LASTEXITCODE -ne 0) { throw "npm ci failed: $($output -join [Environment]::NewLine)" }
+      $output | Write-Host
+    }
+    npm run build
+    if ($LASTEXITCODE -ne 0) { throw "Frontend build failed." }
+  } finally { Pop-Location }
 }
 
+Complete-Install
 $serveArgs = @("run", "--frozen", "--no-sync", "agentarium", "serve", "--no-reload")
 if (-not $NoBrowser) { $serveArgs += "--open" }
 Write-Host "==> Starting Agentarium at $Url" -ForegroundColor Cyan

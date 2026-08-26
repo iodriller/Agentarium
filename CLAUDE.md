@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+@AGENTS.md
+
 Guidance for Claude (and subagents) working in the Agentarium repository. Read this at
 the start of every session and follow it.
 

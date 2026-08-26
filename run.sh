@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
+source ./scripts/install-utils.sh
+install_init "$PWD" "Agentarium"
+install_enable_traps
 
 action="run"
 no_browser=0
@@ -15,16 +18,6 @@ done
 uv_version="0.12.5"
 url="http://127.0.0.1:8765"
 
-retry() {
-  local label=$1; shift
-  local attempt
-  for attempt in 1 2 3; do
-    "$@" && return 0
-    [ "$attempt" -eq 3 ] && { echo "$label failed after 3 attempts" >&2; return 1; }
-    sleep $((1 << (attempt - 1)))
-  done
-}
-
 find_uv() {
   command -v uv 2>/dev/null || {
     [ -x "$HOME/.local/bin/uv" ] && printf '%s\n' "$HOME/.local/bin/uv" && return 0
@@ -36,13 +29,7 @@ find_uv() {
 install_uv() {
   local installer
   installer="$(mktemp)"
-  if command -v curl >/dev/null 2>&1; then
-    retry "uv download" curl -fsSL "https://astral.sh/uv/${uv_version}/install.sh" -o "$installer"
-  elif command -v wget >/dev/null 2>&1; then
-    retry "uv download" wget -qO "$installer" "https://astral.sh/uv/${uv_version}/install.sh"
-  else
-    echo "curl or wget is required to bootstrap uv" >&2; rm -f "$installer"; return 1
-  fi
+  install_download "https://astral.sh/uv/${uv_version}/install.sh" "$installer" "uv download"
   sh "$installer"
   rm -f "$installer"
   find_uv
@@ -76,8 +63,11 @@ case "$action" in
     fi
     [ "$action" = stop ] && exec docker compose down
     [ "$action" = logs ] && exec docker compose logs --follow
+    install_lock
+    install_require_space "$PWD" 2
     docker compose up --detach --build
     wait_ready "$url/api/health" || { docker compose logs; echo "Agentarium did not become healthy." >&2; exit 1; }
+    install_complete
     echo "Agentarium is ready at $url"
     open_url "$url"
     exit 0 ;;
@@ -91,17 +81,20 @@ if [ "$action" = doctor ]; then
   echo "Agentarium native environment is ready."
   exit 0
 fi
+install_lock
+install_require_space "$PWD" 2
 [ -n "$uv" ] || uv="$(install_uv)"
 
 sync_args=(sync --frozen --no-dev)
 [ "$action" = repair ] && sync_args+=(--reinstall)
-retry "dependency synchronization" "$uv" "${sync_args[@]}"
+install_retry "dependency synchronization" "$uv" "${sync_args[@]}"
 
 if [ ! -f backend/agentarium/static/index.html ]; then
   command -v npm >/dev/null 2>&1 || { echo "The prebuilt UI is missing and Node/npm is unavailable." >&2; exit 1; }
-  (cd frontend && npm ci && npm run build)
+  (cd frontend && install_retry "frontend dependency installation" npm ci && npm run build)
 fi
 
+install_complete
 serve_args=(run --frozen --no-sync agentarium serve --no-reload)
 [ "$no_browser" -eq 0 ] && serve_args+=(--open)
 exec "$uv" "${serve_args[@]}"
