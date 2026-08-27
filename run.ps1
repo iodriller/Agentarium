@@ -43,6 +43,9 @@ function Wait-Ready([string]$HealthUrl) {
   }
   return $false
 }
+function Test-Ready([string]$HealthUrl) {
+  try { Invoke-RestMethod -Uri $HealthUrl -TimeoutSec 2 | Out-Null; return $true } catch { return $false }
+}
 
 if ($Action -in @("docker", "stop", "logs")) {
   $docker = Get-Command docker -ErrorAction SilentlyContinue
@@ -102,6 +105,11 @@ if (-not (Test-Path -LiteralPath "backend\agentarium\static\index.html")) {
 }
 
 Complete-Install
+if (Test-Ready "$Url/api/health") {
+  Write-Host "Agentarium is already running at $Url" -ForegroundColor Green
+  if (-not $NoBrowser) { Start-Process $Url }
+  exit 0
+}
 $serveArgs = @("run", "--frozen", "--no-sync", "agentarium", "serve", "--no-reload")
 if (-not $NoBrowser) { $serveArgs += "--open" }
 Write-Host "==> Starting Agentarium at $Url" -ForegroundColor Cyan
